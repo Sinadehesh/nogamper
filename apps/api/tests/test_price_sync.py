@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
-from conftest import mock_http_client
+from conftest import mock_http_client, slowed
 from fixtures import gamma_events as fx
 
 from backend import db
@@ -217,7 +217,7 @@ async def test_only_one_replica_syncs_a_tick(resources):
     markets = await seed_markets(resources, count=2)
     handler = clob_serving({m["yes_token_id"]: "0.5" for m in markets})
 
-    async with mock_http_client(handler) as client:
+    async with mock_http_client(slowed(handler)) as client:
         reports = await asyncio.gather(
             sync.run_price_sync(client, resources),
             sync.run_price_sync(client, resources),

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
-from conftest import mock_http_client
+from conftest import mock_http_client, slowed
 from fixtures import gamma_events as fx
 
 from backend import db
@@ -239,19 +239,10 @@ async def test_a_malformed_feed_does_not_wipe_the_market_list(resources):
 async def test_only_one_replica_runs_a_tick(resources):
     """The lease is what makes lifespan-attached workers safe at N replicas.
 
-    Gamma is made to answer slowly, because the property is about replicas
-    that *overlap*. A pass is quick enough now that three started together
-    can otherwise run one after another — each finding the lease free — and
-    that is correct behaviour which only looks like a failure of this test.
+    Gamma is made to answer slowly so that the three runs overlap; see
+    `slowed` for why that has to be arranged rather than assumed.
     """
-
-    serve = gamma_serving([fx.event()])
-
-    async def slow_gamma(request: httpx.Request) -> httpx.Response:
-        await asyncio.sleep(0.2)
-        return serve(request)
-
-    async with mock_http_client(slow_gamma) as client:
+    async with mock_http_client(slowed(gamma_serving([fx.event()]))) as client:
         reports = await asyncio.gather(
             discovery.run_discovery(client, resources),
             discovery.run_discovery(client, resources),

@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from conftest import authorise, balance_of, mock_http_client, user_id_for
+from conftest import authorise, balance_of, mock_http_client, slowed, user_id_for
 from fixtures import gamma_events as fx
 
 from backend import db
@@ -328,7 +328,7 @@ async def test_concurrent_runs_settle_once(app_client):
     await expire(markets)
 
     handler = gamma_resolver({"50000": "YES", "50001": "YES"})
-    async with mock_http_client(handler) as client:
+    async with mock_http_client(slowed(handler)) as client:
         reports = await asyncio.gather(
             resolution.run_resolution(client, get_settings()),
             resolution.run_resolution(client, get_settings()),

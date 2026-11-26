@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -196,6 +198,28 @@ def mock_http_client(handler) -> AsyncClient:
     from httpx import MockTransport
 
     return AsyncClient(transport=MockTransport(handler), base_url="http://mock")
+
+
+OVERLAP_SECONDS = 0.2
+
+
+def slowed(handler, seconds: float = OVERLAP_SECONDS):
+    """`handler`, answering late.
+
+    For the tests that assert only one replica runs a job. That property is
+    about runs that *overlap*, and a mocked upstream answers so quickly that
+    runs started together can finish one after another, each finding the
+    lease free. That is correct behaviour, and it fails those tests at random
+    — more often the faster the machine. A slow upstream holds the first run
+    open long enough for the others to be turned away by the lease itself.
+    """
+
+    async def late(request):
+        await asyncio.sleep(seconds)
+        answer = handler(request)
+        return await answer if inspect.isawaitable(answer) else answer
+
+    return late
 
 
 async def authorise(client: AsyncClient, player: int = 5000) -> dict[str, str]:

@@ -10,7 +10,14 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
-from conftest import authorise, balance_of, email_for, mock_http_client, user_id_for
+from conftest import (
+    OVERLAP_SECONDS,
+    authorise,
+    balance_of,
+    email_for,
+    mock_http_client,
+    user_id_for,
+)
 
 from backend import db
 from backend.config import Settings, get_settings
@@ -452,8 +459,19 @@ async def test_the_rollup_job_reports_what_it_did(resources):
     assert report.leaderboard["entries"] == 1
 
 
-async def test_only_one_replica_runs_the_rollup(resources):
+async def test_only_one_replica_runs_the_rollup(resources, monkeypatch):
+    """The lease turns the other two away — provided they arrive while the
+    first is still working, which a roll-up of one slip is too quick to
+    guarantee. It is held open here for the reason `slowed` gives for the
+    workers that talk to an upstream; this one has no upstream to slow."""
     await settled_slip(7303, staked=500_000, returned=900_000, won=True)
+    roll_up = economy.roll_up_leaderboard
+
+    async def unhurried(*args, **kwargs):
+        await asyncio.sleep(OVERLAP_SECONDS)
+        return await roll_up(*args, **kwargs)
+
+    monkeypatch.setattr(economy, "roll_up_leaderboard", unhurried)
 
     reports = await asyncio.gather(
         economy_jobs.run_leaderboard_rollup(resources),
