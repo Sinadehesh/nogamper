@@ -620,6 +620,33 @@ export const mission = {
     "someone opens the help page and makes the call.",
   ],
 
+  // The story behind the name, shown only while the site carries that name:
+  // under any other, the section would be explaining a word that is not there.
+  nameApplies: APP_NAME === "Middlemost",
+  nameTitle: `Why it is called ${APP_NAME}`,
+  name: [
+    "In 1907 the journal Nature printed a short report on a competition at a livestock " +
+    "show in Plymouth. For sixpence, visitors could guess what a fat ox would weigh once it " +
+    "had been slaughtered and dressed, and the closest guesses won prizes. 787 people took " +
+    "part. Their guesses ranged widely. The one in the middle, with as many guesses above " +
+    "it as below, was 1,207 pounds. The ox weighed 1,198.",
+    "The report called that guess “the middlemost estimate”. It is the oldest demonstration " +
+    "of something that still surprises people: ask enough of them an honest question, take " +
+    "the middle of their answers, and you will usually be closer than almost any one of " +
+    "them. Later studies found that it does not take money to work — only people who are " +
+    "trying to be right. That is the idea this site is built on.",
+  ],
+  nameSources: [
+    {
+      label: "“Vox Populi”, Nature, 7 March 1907",
+      href: "https://doi.org/10.1038/075450a0",
+    },
+    {
+      label: "Servan-Schreiber and others, “Prediction markets: does money matter?” (2004)",
+      href: "https://doi.org/10.1080/1019678042000245254",
+    },
+  ] satisfies Source[],
+
   paidTitle: "How it is paid for",
   paid: (rules: Rules, donations: boolean) => [
     "Not by advertising, and not by the gambling industry: no sponsorship, no affiliate " +

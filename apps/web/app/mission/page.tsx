@@ -168,6 +168,32 @@ export default async function MissionPage() {
               ))}
             </ul>
 
+            {mission.nameApplies ? (
+              <>
+                <h2 id="name" className="mt-12 text-2xl font-bold tracking-tight">
+                  {mission.nameTitle}
+                </h2>
+                <div className="prose-block mt-4 text-muted">
+                  {mission.name.map((paragraph) => (
+                    <p key={paragraph.slice(0, 24)}>{paragraph}</p>
+                  ))}
+                </div>
+                <ul className="mt-3 space-y-1 text-sm">
+                  {mission.nameSources.map((source) => (
+                    <li key={source.href}>
+                      <a
+                        href={source.href}
+                        rel="noopener noreferrer"
+                        className="text-accent underline underline-offset-2"
+                      >
+                        {source.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
             <h2 id="paid" className="mt-12 text-2xl font-bold tracking-tight">
               {mission.paidTitle}
             </h2>

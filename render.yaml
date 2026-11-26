@@ -1,213 +1,169 @@
-# Render Blueprint — the API and its worker, in one file.
+# Render Blueprint — everything the API needs, in one file.
 #
-# What this file creates: two services built from one image, differing in one
-# variable. What it does NOT create:
+# What this creates, wired together:
 #
-#   * Postgres and Redis. They are external (Neon / Supabase / Upstash) and
-#     their URLs arrive as secrets. See the DATABASE_URL note below before
-#     pasting a connection string — the wrong one is the single most expensive
-#     mistake available in this deployment.
-#   * The website. apps/web is a Next.js app deployed separately (Vercel, root
-#     directory apps/web). It is the only thing that calls this API; a browser
-#     never does.
+#   * `middlemost-api`    the API. It also runs the scheduled jobs: finding
+#                         questions, syncing prices, settling forecasts and
+#                         rolling up the leaderboard.
+#   * `middlemost-db`     a Postgres database.
+#   * `middlemost-cache`  a Key Value (Redis-compatible) cache, used for rate
+#                         limits and for the price cache.
+#
+# Nothing has to be pasted in. Render fills in the database and cache
+# addresses, and generates the two secrets.
+#
+# What this does NOT create: the website. apps/web is a Next.js app deployed
+# separately (Vercel, root directory apps/web). It is the only thing that
+# calls this API; a browser never does.
 #
 # ---------------------------------------------------------------------------
 # FIRST DEPLOY
 # ---------------------------------------------------------------------------
-#   1. Create an empty database and cache; have their URLs to hand.
-#   2. Render → New → Blueprint → point at this repo.
-#   3. Fill in every `sync: false` value when Render prompts. It asks once, at
-#      creation, and never overwrites them on a later sync — which is what
-#      makes declaring them on both services safe rather than a drift risk.
-#   4. Deploy apps/web with two variables:
-#        API_BASE_URL      this API's public URL
-#        INTERNAL_API_KEY  the value Render generated in the `shared` group
-#      Until the site has that key, sign-up, sign-in and guest play answer 404.
-#   5. Create your own account on the site, copy its player code from the
-#      Account tab, and put it in ADMIN_PLAYER_CODES on both services.
+#   1. Render → New → Blueprint → this repository → Apply. Render shows what
+#      it will create, and what it costs, before anything is created.
+#   2. When `middlemost-api` is live, give the website two values
+#      (Vercel → project → Settings → Environment Variables):
+#        API_BASE_URL      the service's https address, shown at the top of
+#                          its page on Render
+#        INTERNAL_API_KEY  the value Render generated — on the service's
+#                          Environment tab
+#      then redeploy the site. Until the site has both, every door into the
+#      game says "not open yet".
+#   3. Create your own account on the site, copy its player code from the
+#      Account tab, and add ADMIN_PLAYER_CODES=<that code> to the service's
+#      Environment tab. That is what opens /admin, and only to you.
 #
 # Migrations apply themselves: preDeployCommand runs scripts/migrate.py before
-# traffic moves to each release. The exception is a database migrated by hand
-# before this runner existed — see the note on the API service.
+# traffic moves to each release.
+#
+# ---------------------------------------------------------------------------
+# ONE PROCESS, TO START WITH
+# ---------------------------------------------------------------------------
+# The API and the scheduled jobs run in the same process (WORKERS_ENABLED is
+# "true" on the one service). That is the cheapest arrangement that is still
+# correct, and it is plenty for a new site.
+#
+# To grow: set WORKERS_ENABLED to "false" here and raise numInstances, then
+# add a second service of `type: worker` with the same image, the same
+# environment and WORKERS_ENABLED "true". Every job takes a lease in the
+# database before it runs, so more than one copy is safe; the split only
+# keeps a slow job from sharing a process with visitors.
+#
+# The database is Render's own, on the private network, rather than a free
+# serverless one elsewhere. The jobs touch the database every minute, so it
+# never goes idle — and a free plan that is metered by hours awake runs out
+# part-way through the month.
 
 previews:
   generation: "off"
 
-# ---------------------------------------------------------------------------
-# Shared configuration
-#
-# A Blueprint-defined envVarGroup may carry only `value` and `generateValue`.
-# `sync: false`, `fromDatabase`, `fromService` and `fromGroup` are all invalid
-# inside one, and are *ignored* rather than rejected — which is the dangerous
-# shape: the Blueprint applies, both services boot with no secrets, and both
-# crash-loop in require_secrets() with nothing pointing at the cause.
-#
-# So the group holds exactly what it can hold honestly, and the prompted
-# secrets are declared on each service below.
-# ---------------------------------------------------------------------------
-envVarGroups:
-  - name: shared
-    envVars:
-      # Hides /docs and /openapi.json, and makes require_secrets() enforce the
-      # secret-length minimums at boot rather than at first request.
-      - key: ENVIRONMENT
-        value: production
-
-      # Worker run reports are logged at INFO. WARNING hides them, and then
-      # nobody notices price sync has been failing for a day.
-      - key: LOG_LEVEL
-        value: INFO
-
-      # ⚠ This is per *container*, not per service, and the ceiling that
-      #   matters is the provider's total.
-      #
-      #   Peak is not (2 API + 1 worker) * DB_POOL_MAX. A rolling deploy runs
-      #   the old API containers alongside the new ones, so both hold a full
-      #   pool at once, and preDeployCommand's migrate.py takes one more:
-      #
-      #       (2 new API + 2 old API + 1 worker) * DB_POOL_MAX + 1
-      #
-      #   At 10 that peaks near 51. Supabase's free session pooler allows 15
-      #   in total and answers the 16th with
-      #   "(EMAXCONNSESSION) max clients reached in session mode" — which
-      #   crash-loops every container, because the pool is built in the
-      #   lifespan before the app will serve anything.
-      #
-      #   At 2 the peak is 11, which leaves room for a psql session while a
-      #   deploy is going out. Raise it only alongside the provider's cap.
-      - key: DB_POOL_MAX
-        value: "2"
-
-      # Opened eagerly by every container at startup, so this is the floor of
-      # the arithmetic above. One is enough: asyncpg grows the pool on demand.
-      - key: DB_POOL_MIN
-        value: "1"
-
-      # The two secrets that belong here, because generateValue *is* valid in
-      # a group. Render generates a base64 256-bit value once and keeps it
-      # across syncs — 44 characters, over the 32 require_secrets() demands.
-      # Declaring them per-service instead would generate a *different* value
-      # for each, and the API and the worker would disagree.
-
-      # Signs session tokens. Rotating it signs everybody out.
-      - key: JWT_SECRET
-        generateValue: true
-
-      # Shared with the website, which sends it on every call. It is what
-      # lets the API accept a sign-up from the site and from nowhere else,
-      # and believe the visitor address the site forwards for rate limiting.
-      # Copy the generated value into the web project as INTERNAL_API_KEY.
-      - key: INTERNAL_API_KEY
-        generateValue: true
-
-# ---------------------------------------------------------------------------
-# The prompted values, declared identically on both services
-#
-# Duplicated on purpose. Render prompts for a `sync: false` variable once, at
-# creation, and ignores it on every later sync, so the two copies cannot drift
-# from this file — only from each other, and only if someone changes one and
-# forgets the other. That is the cost; the alternative (a group defined here)
-# silently drops them.
-#
-# All of them go on both services rather than splitting by who reads them.
-# require_secrets() runs in *both* lifespans, so a worker missing a value the
-# API has crash-loops exactly like the API would. Keeping the two lists
-# identical is what stops "the API came up but the worker did not" from ever
-# being a configuration puzzle.
-# ---------------------------------------------------------------------------
+databases:
+  - name: middlemost-db
+    databaseName: middlemost
+    region: frankfurt
+    # The smallest plan that does not expire. The free plan is deleted after
+    # thirty days, which is not a property a ledger should have.
+    plan: basic-256mb
+    # Reachable from the private network only.
+    ipAllowList: []
 
 services:
-  # -------------------------------------------------------------------------
-  # API — public address, replicated, runs no scheduled jobs
-  # -------------------------------------------------------------------------
+  - type: keyvalue
+    name: middlemost-cache
+    region: frankfurt
+    plan: free
+    # Reachable from the private network only.
+    ipAllowList: []
+    # Nothing kept here is the only copy of anything: rate-limit counters
+    # expire and prices are re-read from Postgres. So when it is full, the
+    # oldest entries may go.
+    maxmemoryPolicy: allkeys-lru
+
   - type: web
-    name: api
+    name: middlemost-api
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    # Pick the region closest to the audience, and put Postgres and Redis in
-    # the same one; a cross-region hop is paid on every single request.
     region: frankfurt
-    # A plan that stays awake. One that spins down when idle still works, but
-    # the first visitor after a quiet spell waits out a cold start, on a page
-    # whose job is to show a live price.
+    # Not `free`: a free web service sleeps when idle, which would stop the
+    # scheduled jobs, and it cannot run a preDeployCommand, which is how the
+    # migrations are applied.
     plan: starter
-    numInstances: 2
-    # Web services only — see the worker, which cannot have one.
+    numInstances: 1
     healthCheckPath: /health/ready
     autoDeployTrigger: commit
-
-    # Monorepo: a commit that only touches apps/web should not rebuild or
-    # redeploy the backend.
     buildFilter:
       paths:
         - apps/api/**
         - scripts/**
-        # A commit that only adds a migration must still trigger a deploy —
-        # otherwise preDeployCommand never runs and the schema never moves.
         - db/migrations/**
         - Dockerfile
         - render.yaml
-
-    # Runs after the image is built and before traffic moves to the release, so
-    # a failed migration aborts the deploy instead of serving against a
-    # half-migrated schema. scripts/migrate.py records each file in
-    # schema_migrations inside the same transaction that applies it, so this is
-    # a no-op on every deploy that adds no migrations.
-    #
-    # Only on this service. The worker deploys from the same image, and two
-    # runners racing is a problem the script guards against with an advisory
-    # lock rather than one worth creating.
-    #
-    # First deploy against a database migrated by hand beforehand: run
-    # `python scripts/migrate.py --baseline` once, or the runner will refuse
-    # rather than re-apply 0001 over an existing schema.
     preDeployCommand: python scripts/migrate.py
-
     envVars:
-      - fromGroup: shared
-      # The only value that differs between the two services.
-      - key: WORKERS_ENABLED
-        value: "false"
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
 
-      # ---- prompted once at creation, never re-synced ----
-      # ⚠ Direct / session-mode connection string ONLY.
-      #   Supabase: port 5432, NOT 6543.  Neon: the plain host, NOT -pooler.
-      #   Append ?sslmode=require.
-      #   Under transaction pooling two things break silently:
-      #   pg_try_advisory_lock is session-scoped, so the migration runner's
-      #   single-flight guard stops working; and asyncpg's prepared statements
-      #   are rejected, because db.py does not set statement_cache_size=0.
+      # Signs session tokens. Rotating it signs everybody out.
+      - key: JWT_SECRET
+        generateValue: true
+      # Shared with the website, which must be given the same value. Only a
+      # request carrying it may open a session or say which visitor it is
+      # acting for; the API refuses to start in production without it.
+      - key: INTERNAL_API_KEY
+        generateValue: true
+
       - key: DATABASE_URL
-        sync: false
-      # rediss:// — Upstash rejects plaintext.
+        fromDatabase:
+          name: middlemost-db
+          property: connectionString
       - key: REDIS_URL
-        sync: false
-      # Who may open /admin: player codes, comma-separated — the six-character
-      # handle on the Account tab, e.g. K7M2QX. Not an email address: nothing
-      # here sends mail, so an address proves nothing about who owns it.
-      #
-      # Leave it blank on the first deploy; your account does not exist yet.
-      # Blank is safe: an empty allowlist denies everybody, including you. It
-      # is never a way to open the pages up.
-      - key: ADMIN_PLAYER_CODES
-        sync: false
-      # The site's public origin, e.g. https://example.com. A browser never
-      # calls this API — the site's own server does — so this only has to not
-      # be the development default. Never "*": startup refuses it.
+        fromService:
+          type: keyvalue
+          name: middlemost-cache
+          property: connectionString
+
+      # One container holds one pool, shared by visitors and by the jobs.
+      # A rolling deploy briefly runs two containers, and the migration
+      # takes a connection of its own: 2 * 8 + 1, well inside the plan.
+      - key: DB_POOL_MIN
+        value: "1"
+      - key: DB_POOL_MAX
+        value: "8"
+
+      # This process serves visitors and runs the scheduled jobs.
+      - key: WORKERS_ENABLED
+        value: "true"
+      # Fetch questions as soon as it starts, rather than at the next tick,
+      # so a new deployment is not an empty page for its first hour.
+      - key: RUN_DISCOVERY_ON_STARTUP
+        value: "true"
+
+      # The website's address. CORS_ORIGINS only has to not be the development
+      # default — no browser calls this API, the site's own server does — and
+      # must never be "*": startup refuses it. SITE_URL is where Stripe sends
+      # people back after a checkout, if the shop is ever opened.
       - key: CORS_ORIGINS
-        sync: false
-      # The day boundary for the daily top-up, daily limits and leaderboard
-      # seasons. An IANA zone name, e.g. Europe/London; blank means UTC. A
-      # name the machine does not know stops the service at startup and says
-      # so, rather than failing at the first request that needs a date.
-      - key: ECONOMY_TIMEZONE
-        sync: false
-      # ----- The shop: closed unless you open it ------------------------------
+        value: https://middlemost.sinadehesh.com
+      - key: SITE_URL
+        value: https://middlemost.sinadehesh.com
+
+      # ----- Set by hand, later, on the Environment tab ----------------------
+      #
+      # ADMIN_PLAYER_CODES   your own six-character player code, once your
+      #                      account exists. Empty means /admin answers 404 to
+      #                      everybody, which is the right state until then.
+      #
+      # ECONOMY_TIMEZONE     the day boundary for the daily top-up, daily
+      #                      limits and leaderboard seasons, as an IANA zone
+      #                      name (Europe/London). Unset means UTC.
+      #
+      # ----- The shop: closed unless you open it -----------------------------
       # Not declared here, so that creating this Blueprint never asks for a
       # payment key and never opens a shop by accident. With none set, nothing
-      # is for sale and the site says so. To open it, add these three to THIS
-      # service by hand (Environment tab), and nowhere else:
+      # is for sale and the site says so. To open it, add these two:
       #
       #   STRIPE_SECRET_KEY      a live key: sk_live_… or a restricted rk_live_…
       #                          with write access to Checkout Sessions only
@@ -216,93 +172,7 @@ services:
       #                          sending checkout.session.completed,
       #                          checkout.session.expired, charge.refunded and
       #                          charge.dispute.created
-      #   SITE_URL               the website's https address
       #
       # The service refuses to start with a key and no webhook secret, because
       # that would take money and never credit it. Prices, pack sizes and the
       # monthly cap have defaults; see apps/api/.env.example to change them.
-
-  # -------------------------------------------------------------------------
-  # Worker — background, exactly one instance, owns every scheduled job:
-  # market discovery, price sync, resolution and the leaderboard roll-up.
-  #
-  # `worker` rather than `pserv`. An earlier version of this file used a
-  # private service on the grounds that it could be health-checked at
-  # /health/ready — that was wrong: healthCheckPath is a web-service field, and
-  # a private service gets no health check either. With that gone, `pserv` was
-  # only buying an internal URL nothing calls, so a background worker is the
-  # honest description: a process that runs and serves nothing.
-  #
-  # It still runs uvicorn, because the scheduler rides the FastAPI lifespan and
-  # so starts after the database pool and stops before it. Render gives a
-  # worker no PORT, and the Dockerfile's ${PORT:-8000} covers that.
-  # -------------------------------------------------------------------------
-  - type: worker
-    name: worker
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    region: frankfurt
-    plan: starter
-    # ⚠ Exactly one. Never add `scaling:` here.
-    #   The job lease makes extra replicas *safe*, not free: each one still
-    #   wakes, connects and contends for the lease on every tick, and the
-    #   losers burn a round trip to do nothing. The lease stays because it is
-    #   what makes a rolling deploy safe, when old and new containers overlap
-    #   for a few seconds.
-    numInstances: 1
-    autoDeployTrigger: commit
-
-    buildFilter:
-      paths:
-        - apps/api/**
-        - scripts/**
-        # A commit that only adds a migration must still trigger a deploy —
-        # otherwise preDeployCommand never runs and the schema never moves.
-        - db/migrations/**
-        - Dockerfile
-        - render.yaml
-
-    envVars:
-      - fromGroup: shared
-      - key: WORKERS_ENABLED
-        value: "true"
-      # A fresh container pulls a market list immediately instead of waiting
-      # out the first hourly tick. Ignored when workers are off, which is why
-      # it does not appear on the API service.
-      - key: RUN_DISCOVERY_ON_STARTUP
-        value: "true"
-
-      # ---- prompted once at creation, never re-synced ----
-      # ⚠ Direct / session-mode connection string ONLY.
-      #   Supabase: port 5432, NOT 6543.  Neon: the plain host, NOT -pooler.
-      #   Append ?sslmode=require.
-      #   Under transaction pooling two things break silently:
-      #   pg_try_advisory_lock is session-scoped, so the migration runner's
-      #   single-flight guard stops working; and asyncpg's prepared statements
-      #   are rejected, because db.py does not set statement_cache_size=0.
-      - key: DATABASE_URL
-        sync: false
-      # rediss:// — Upstash rejects plaintext.
-      - key: REDIS_URL
-        sync: false
-      # Who may open /admin: player codes, comma-separated — the six-character
-      # handle on the Account tab, e.g. K7M2QX. Not an email address: nothing
-      # here sends mail, so an address proves nothing about who owns it.
-      #
-      # Leave it blank on the first deploy; your account does not exist yet.
-      # Blank is safe: an empty allowlist denies everybody, including you. It
-      # is never a way to open the pages up.
-      - key: ADMIN_PLAYER_CODES
-        sync: false
-      # The site's public origin, e.g. https://example.com. A browser never
-      # calls this API — the site's own server does — so this only has to not
-      # be the development default. Never "*": startup refuses it.
-      - key: CORS_ORIGINS
-        sync: false
-      # The day boundary for the daily top-up, daily limits and leaderboard
-      # seasons. An IANA zone name, e.g. Europe/London; blank means UTC. A
-      # name the machine does not know stops the service at startup and says
-      # so, rather than failing at the first request that needs a date.
-      - key: ECONOMY_TIMEZONE
-        sync: false
