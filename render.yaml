@@ -1,15 +1,15 @@
-# Render Blueprint — the whole backend, in one file.
+# Render Blueprint — the API and its worker, in one file.
 #
-# Why Render and not railway.json: Railway's committed config describes a
-# single service. This stack's defining property is two services built from
-# one image, differing in one variable and sharing a dozen others — and
-# keeping those dozen in sync is exactly the thing that drifts when it lives
-# in two dashboard forms.
+# What this file creates: two services built from one image, differing in one
+# variable. What it does NOT create:
 #
-# What this file does NOT create: Postgres and Redis. They are external
-# (Neon / Supabase / Upstash) and their URLs arrive as secrets. See the
-# DATABASE_URL note below before pasting a connection string — the wrong one
-# is the single most expensive mistake available in this deployment.
+#   * Postgres and Redis. They are external (Neon / Supabase / Upstash) and
+#     their URLs arrive as secrets. See the DATABASE_URL note below before
+#     pasting a connection string — the wrong one is the single most expensive
+#     mistake available in this deployment.
+#   * The website. apps/web is a Next.js app deployed separately (Vercel, root
+#     directory apps/web). It is the only thing that calls this API; a browser
+#     never does.
 #
 # ---------------------------------------------------------------------------
 # FIRST DEPLOY
@@ -19,7 +19,12 @@
 #   3. Fill in every `sync: false` value when Render prompts. It asks once, at
 #      creation, and never overwrites them on a later sync — which is what
 #      makes declaring them on both services safe rather than a drift risk.
-#   4. Run scripts/set_webhook.py once the API has a public URL.
+#   4. Deploy apps/web with two variables:
+#        API_BASE_URL      this API's public URL
+#        INTERNAL_API_KEY  the value Render generated in the `shared` group
+#      Until the site has that key, sign-up, sign-in and guest play answer 404.
+#   5. Create your own account on the site, copy its player code from the
+#      Account tab, and put it in ADMIN_PLAYER_CODES on both services.
 #
 # Migrations apply themselves: preDeployCommand runs scripts/migrate.py before
 # traffic moves to each release. The exception is a database migrated by hand
@@ -29,7 +34,7 @@ previews:
   generation: "off"
 
 # ---------------------------------------------------------------------------
-# Shared configuration — non-secret values only
+# Shared configuration
 #
 # A Blueprint-defined envVarGroup may carry only `value` and `generateValue`.
 # `sync: false`, `fromDatabase`, `fromService` and `fromGroup` are all invalid
@@ -37,8 +42,8 @@ previews:
 # shape: the Blueprint applies, both services boot with no secrets, and both
 # crash-loop in require_secrets() with nothing pointing at the cause.
 #
-# So the group holds exactly what it can hold honestly, and the secrets are
-# declared on each service below.
+# So the group holds exactly what it can hold honestly, and the prompted
+# secrets are declared on each service below.
 # ---------------------------------------------------------------------------
 envVarGroups:
   - name: shared
@@ -52,7 +57,6 @@ envVarGroups:
       # nobody notices price sync has been failing for a day.
       - key: LOG_LEVEL
         value: INFO
-
 
       # ⚠ This is per *container*, not per service, and the ceiling that
       #   matters is the provider's total.
@@ -79,39 +83,42 @@ envVarGroups:
       - key: DB_POOL_MIN
         value: "1"
 
-      # The one secret that belongs here, because generateValue *is* valid in a
-      # group. Render generates a base64 256-bit value once and keeps it across
-      # syncs — 44 characters, over the 32 require_secrets() demands. Declaring
-      # it per-service instead would generate a *different* value for each,
-      # and mean typing a 32-character secret twice to avoid that.
-      #
-      # Only JWT_SECRET. TELEGRAM_WEBHOOK_SECRET cannot use generateValue:
-      # base64 contains `+` and `/`, and Telegram's secret_token accepts only
-      # A-Z a-z 0-9 _ - — setWebhook would reject it.
+      # The two secrets that belong here, because generateValue *is* valid in
+      # a group. Render generates a base64 256-bit value once and keeps it
+      # across syncs — 44 characters, over the 32 require_secrets() demands.
+      # Declaring them per-service instead would generate a *different* value
+      # for each, and the API and the worker would disagree.
+
+      # Signs session tokens. Rotating it signs everybody out.
       - key: JWT_SECRET
         generateValue: true
 
+      # Shared with the website, which sends it on every call. It is what
+      # lets the API accept a sign-up from the site and from nowhere else,
+      # and believe the visitor address the site forwards for rate limiting.
+      # Copy the generated value into the web project as INTERNAL_API_KEY.
+      - key: INTERNAL_API_KEY
+        generateValue: true
+
 # ---------------------------------------------------------------------------
-# The secrets, declared identically on both services
+# The prompted values, declared identically on both services
 #
 # Duplicated on purpose. Render prompts for a `sync: false` variable once, at
 # creation, and ignores it on every later sync, so the two copies cannot drift
-# from this file — only from each other, and only if someone rotates one and
+# from this file — only from each other, and only if someone changes one and
 # forgets the other. That is the cost; the alternative (a group defined here)
-# silently drops them, and a group created in the dashboard makes the first
-# sync fail until someone has made it by hand.
+# silently drops them.
 #
-# All seven go on both services rather than splitting by who reads them.
-# require_secrets() runs in *both* lifespans and demands TELEGRAM_BOT_TOKEN,
-# JWT_SECRET, and in production a >=16-character TELEGRAM_WEBHOOK_SECRET — so a
-# worker missing any of those crash-loops exactly like the API would. Keeping
-# the two lists identical is what stops "the API came up but the worker did
-# not" from ever being a configuration puzzle.
+# All of them go on both services rather than splitting by who reads them.
+# require_secrets() runs in *both* lifespans, so a worker missing a value the
+# API has crash-loops exactly like the API would. Keeping the two lists
+# identical is what stops "the API came up but the worker did not" from ever
+# being a configuration puzzle.
 # ---------------------------------------------------------------------------
 
 services:
   # -------------------------------------------------------------------------
-  # API — public, replicated, runs no scheduled jobs
+  # API — public address, replicated, runs no scheduled jobs
   # -------------------------------------------------------------------------
   - type: web
     name: api
@@ -119,14 +126,11 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     # Pick the region closest to the audience, and put Postgres and Redis in
-    # the same one; a cross-region hop is paid on every single request. This
-    # value is a deployment choice — the region a service runs in is visible
-    # to anyone who reads a response header, so choose it deliberately.
+    # the same one; a cross-region hop is paid on every single request.
     region: frankfurt
-    # ⚠ Not `free`. Free web services spin down when idle, and Telegram gives
-    #   10 seconds to answer a pre_checkout_query — a cold start will not make
-    #   it, and the player watches the purchase fail. This is the one place
-    #   where the cheap plan costs real money.
+    # A plan that stays awake. One that spins down when idle still works, but
+    # the first visitor after a quiet spell waits out a cold start, on a page
+    # whose job is to show a live price.
     plan: starter
     numInstances: 2
     # Web services only — see the worker, which cannot have one.
@@ -166,78 +170,43 @@ services:
       - key: WORKERS_ENABLED
         value: "false"
 
-      # ---- secrets: prompted once at creation, never re-synced ----
+      # ---- prompted once at creation, never re-synced ----
       # ⚠ Direct / session-mode connection string ONLY.
       #   Supabase: port 5432, NOT 6543.  Neon: the plain host, NOT -pooler.
       #   Append ?sslmode=require.
       #   Under transaction pooling two things break silently:
-      #   pg_try_advisory_lock is session-scoped, so the worker's single-flight
-      #   guard stops working; and asyncpg's prepared statements are rejected,
-      #   because db.py does not set statement_cache_size=0.
+      #   pg_try_advisory_lock is session-scoped, so the migration runner's
+      #   single-flight guard stops working; and asyncpg's prepared statements
+      #   are rejected, because db.py does not set statement_cache_size=0.
       - key: DATABASE_URL
         sync: false
       # rediss:// — Upstash rejects plaintext.
       - key: REDIS_URL
         sync: false
-      # The root of all authentication here: the initData HMAC is derived from
-      # it, and the sweeper calls getStarTransactions with it. Rotating it also
-      # means re-running scripts/set_webhook.py — the token is in the Bot API URL.
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      # Must equal the secret_token passed to setWebhook. >=16 chars, and only
-      # A-Z a-z 0-9 _ - :
-      #   python -c "import secrets; print(secrets.token_urlsafe(32))"
-      - key: TELEGRAM_WEBHOOK_SECRET
-        sync: false
-      # Your own Telegram user id, so /v1/admin/* answers you and 404s everyone
-      # else. Comma-separated for more than one. Find it by messaging
-      # @userinfobot.
+      # Who may open /admin: player codes, comma-separated — the six-character
+      # handle on the Account tab, e.g. K7M2QX. Not an email address: nothing
+      # here sends mail, so an address proves nothing about who owns it.
       #
-      # Leaving it unset is safe: an empty allowlist denies everybody, including
-      # you. It is never a way to open the endpoint up.
-      - key: ADMIN_TELEGRAM_IDS
+      # Leave it blank on the first deploy; your account does not exist yet.
+      # Blank is safe: an empty allowlist denies everybody, including you. It
+      # is never a way to open the pages up.
+      - key: ADMIN_PLAYER_CODES
         sync: false
-      # Fewest legs a slip may carry. 1 allows singles. 3 makes the app
-      # parlay-only and nearly triples the house edge, because the vig
-      # compounds per leg — 1 - (1 - vig)^n. Three still settles about one
-      # slip in eight as a win, which keeps real winners in the activity
-      # feed; five would be a game nobody ever wins. See config.py.
-      - key: MIN_LEGS
-        sync: false
-      # The most the house will ever be DOWN on one market, in minor units.
-      # 20000000 = 200,000 toman ~ one US dollar at TIER_1 pricing. This is what
-      # lets somebody bet on a market nobody else has touched, which with no
-      # users is every market. Checked NET of money staked against the side,
-      # so a balanced book barely consumes it. Worst case for the whole book
-      # is this times the number of open markets — raise it deliberately.
-      - key: HOUSE_SEED_MINOR
-        sync: false
-      # The Vercel domain, comma-separated. Only the API serves browsers, but
-      # it is listed on both so the two blocks stay identical and diffable.
+      # The site's public origin, e.g. https://example.com. A browser never
+      # calls this API — the site's own server does — so this only has to not
+      # be the development default. Never "*": startup refuses it.
       - key: CORS_ORIGINS
         sync: false
-      # ⚠ LAUNCH BLOCKER. The code default is "null", which passes market text
-      #   through untranslated — right for development, wrong for a Farsi
-      #   audience. Set "openai" or "libretranslate" BEFORE the first discovery
-      #   run, or you will be re-translating rows already stored.
-      - key: TRANSLATION_PROVIDER
-        sync: false
-      # Only needed for a self-hosted endpoint. "openai" falls back to
-      # https://api.openai.com/v1 when this is blank, which is why leaving it
-      # unset used to build the schemeless URL "/chat/completions" and take
-      # the whole discovery run down with a ValueError.
-      - key: TRANSLATION_API_URL
-        sync: false
-      - key: TRANSLATION_API_KEY
-        sync: false
-      # The day boundary for drips, decay and leaderboard seasons. Prompted
-      # for rather than committed: which market this serves is the operator's
-      # business, not something this repository should state.
+      # The day boundary for the daily top-up, daily limits and leaderboard
+      # seasons. An IANA zone name, e.g. Europe/London; blank means UTC. A
+      # name the machine does not know stops the service at startup and says
+      # so, rather than failing at the first request that needs a date.
       - key: ECONOMY_TIMEZONE
         sync: false
 
   # -------------------------------------------------------------------------
-  # Worker — background, exactly one instance, owns all six scheduled jobs
+  # Worker — background, exactly one instance, owns every scheduled job:
+  # market discovery, price sync, resolution and the leaderboard roll-up.
   #
   # `worker` rather than `pserv`. An earlier version of this file used a
   # private service on the grounds that it could be health-checked at
@@ -258,11 +227,11 @@ services:
     region: frankfurt
     plan: starter
     # ⚠ Exactly one. Never add `scaling:` here.
-    #   single_flight() makes extra replicas *safe*, not free: each one still
-    #   wakes, connects and contends for the advisory lock every 60 seconds,
-    #   and the losers burn a round trip to do nothing. The lock stays because
-    #   it is what makes a rolling deploy safe, when old and new containers
-    #   overlap for a few seconds.
+    #   The job lease makes extra replicas *safe*, not free: each one still
+    #   wakes, connects and contends for the lease on every tick, and the
+    #   losers burn a round trip to do nothing. The lease stays because it is
+    #   what makes a rolling deploy safe, when old and new containers overlap
+    #   for a few seconds.
     numInstances: 1
     autoDeployTrigger: commit
 
@@ -286,72 +255,36 @@ services:
       - key: RUN_DISCOVERY_ON_STARTUP
         value: "true"
 
-      # ---- secrets: prompted once at creation, never re-synced ----
+      # ---- prompted once at creation, never re-synced ----
       # ⚠ Direct / session-mode connection string ONLY.
       #   Supabase: port 5432, NOT 6543.  Neon: the plain host, NOT -pooler.
       #   Append ?sslmode=require.
       #   Under transaction pooling two things break silently:
-      #   pg_try_advisory_lock is session-scoped, so the worker's single-flight
-      #   guard stops working; and asyncpg's prepared statements are rejected,
-      #   because db.py does not set statement_cache_size=0.
+      #   pg_try_advisory_lock is session-scoped, so the migration runner's
+      #   single-flight guard stops working; and asyncpg's prepared statements
+      #   are rejected, because db.py does not set statement_cache_size=0.
       - key: DATABASE_URL
         sync: false
       # rediss:// — Upstash rejects plaintext.
       - key: REDIS_URL
         sync: false
-      # The root of all authentication here: the initData HMAC is derived from
-      # it, and the sweeper calls getStarTransactions with it. Rotating it also
-      # means re-running scripts/set_webhook.py — the token is in the Bot API URL.
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      # Must equal the secret_token passed to setWebhook. >=16 chars, and only
-      # A-Z a-z 0-9 _ - :
-      #   python -c "import secrets; print(secrets.token_urlsafe(32))"
-      - key: TELEGRAM_WEBHOOK_SECRET
-        sync: false
-      # Your own Telegram user id, so /v1/admin/* answers you and 404s everyone
-      # else. Comma-separated for more than one. Find it by messaging
-      # @userinfobot.
+      # Who may open /admin: player codes, comma-separated — the six-character
+      # handle on the Account tab, e.g. K7M2QX. Not an email address: nothing
+      # here sends mail, so an address proves nothing about who owns it.
       #
-      # Leaving it unset is safe: an empty allowlist denies everybody, including
-      # you. It is never a way to open the endpoint up.
-      - key: ADMIN_TELEGRAM_IDS
+      # Leave it blank on the first deploy; your account does not exist yet.
+      # Blank is safe: an empty allowlist denies everybody, including you. It
+      # is never a way to open the pages up.
+      - key: ADMIN_PLAYER_CODES
         sync: false
-      # Fewest legs a slip may carry. 1 allows singles. 3 makes the app
-      # parlay-only and nearly triples the house edge, because the vig
-      # compounds per leg — 1 - (1 - vig)^n. Three still settles about one
-      # slip in eight as a win, which keeps real winners in the activity
-      # feed; five would be a game nobody ever wins. See config.py.
-      - key: MIN_LEGS
-        sync: false
-      # The most the house will ever be DOWN on one market, in minor units.
-      # 20000000 = 200,000 toman ~ one US dollar at TIER_1 pricing. This is what
-      # lets somebody bet on a market nobody else has touched, which with no
-      # users is every market. Checked NET of money staked against the side,
-      # so a balanced book barely consumes it. Worst case for the whole book
-      # is this times the number of open markets — raise it deliberately.
-      - key: HOUSE_SEED_MINOR
-        sync: false
-      # The Vercel domain, comma-separated. Only the API serves browsers, but
-      # it is listed on both so the two blocks stay identical and diffable.
+      # The site's public origin, e.g. https://example.com. A browser never
+      # calls this API — the site's own server does — so this only has to not
+      # be the development default. Never "*": startup refuses it.
       - key: CORS_ORIGINS
         sync: false
-      # ⚠ LAUNCH BLOCKER. The code default is "null", which passes market text
-      #   through untranslated — right for development, wrong for a Farsi
-      #   audience. Set "openai" or "libretranslate" BEFORE the first discovery
-      #   run, or you will be re-translating rows already stored.
-      - key: TRANSLATION_PROVIDER
-        sync: false
-      # Only needed for a self-hosted endpoint. "openai" falls back to
-      # https://api.openai.com/v1 when this is blank, which is why leaving it
-      # unset used to build the schemeless URL "/chat/completions" and take
-      # the whole discovery run down with a ValueError.
-      - key: TRANSLATION_API_URL
-        sync: false
-      - key: TRANSLATION_API_KEY
-        sync: false
-      # The day boundary for drips, decay and leaderboard seasons. Prompted
-      # for rather than committed: which market this serves is the operator's
-      # business, not something this repository should state.
+      # The day boundary for the daily top-up, daily limits and leaderboard
+      # seasons. An IANA zone name, e.g. Europe/London; blank means UTC. A
+      # name the machine does not know stops the service at startup and says
+      # so, rather than failing at the first request that needs a date.
       - key: ECONOMY_TIMEZONE
         sync: false

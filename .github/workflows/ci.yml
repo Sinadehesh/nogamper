@@ -93,11 +93,6 @@ jobs:
           enable-cache: true
           cache-dependency-glob: apps/api/pyproject.toml
 
-      - name: Install psql client
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y postgresql-client
-
       - name: Install dependencies
         working-directory: apps/api
         run: |
@@ -107,7 +102,20 @@ jobs:
 
       # The test suite expects the schema to exist; conftest truncates between
       # tests but never creates tables.
+      #
+      # Applied with scripts/migrate.py — the runner a deploy uses — rather
+      # than with psql, so the thing that touches production's schema is
+      # exercised on every push. The schema job above covers the other path:
+      # every file replayed by psql alone.
       - name: Apply migrations
+        run: make migrate
+        env:
+          DB_URL: postgresql://postgres:postgres@localhost:5432/appdb_test
+
+      # A second pass must find nothing to do. A runner that re-applies, or
+      # one that trips over its own bookkeeping, fails here instead of on the
+      # deploy after next.
+      - name: Check the migration runner is idempotent
         run: make migrate
         env:
           DB_URL: postgresql://postgres:postgres@localhost:5432/appdb_test
@@ -129,10 +137,10 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/appdb_test
           TEST_REDIS_URL: redis://localhost:6379/15
-          # TELEGRAM_BOT_TOKEN, JWT_SECRET and TELEGRAM_WEBHOOK_SECRET used to
-          # be pinned here. They cannot be: conftest signs initData with its own
-          # token, so a different one here is not a stricter config, it is a
-          # broken signature. That is precisely how it failed on the first run.
+          # Nothing else is set here on purpose. conftest pins every setting
+          # the suite depends on — the signing secret, the password-hash cost,
+          # the rate limits — and a second copy in this file would be a second
+          # place for them to be wrong.
 
   web:
     name: Web build
@@ -154,18 +162,26 @@ jobs:
         working-directory: apps/web
         run: npx tsc --noEmit
 
-      # `next build` fetches Vazirmatn from Google Fonts at build time, so this
-      # step needs network. A failure here is usually that, not the code.
+      # No web font is fetched and no API is called at build time, so this
+      # needs no network beyond npm and no environment variables.
       - name: Build
         working-directory: apps/web
         run: npm run build
 
-      - name: Fail if any English UI string crept back in
+      # Every word a visitor reads lives in lib/copy.ts or lib/content.ts.
+      # That is what makes the wording reviewable in one place — which matters
+      # more than usual here, because what this site says about odds, limits
+      # and getting help is the product. A sentence typed straight into a
+      # component is a sentence nobody reviews.
+      - name: Fail if UI text is hard-coded in a component
         working-directory: apps/web
         run: |
-          if grep -rnE '>[A-Z][a-z]{3,}[^<{}]*<' components app --include='*.tsx' \
-             | grep -v 'lib/i18n'; then
-            echo "::error::Untranslated UI text found — add it to lib/i18n.ts"
+          if grep -rnE '>[A-Z][a-z]{3,}[^<{}]*<' components app --include='*.tsx'; then
+            echo "::error::Hard-coded UI text found — move it to lib/copy.ts or lib/content.ts"
             exit 1
           fi
-          echo "No untranslated JSX text nodes."
+          if grep -rnE '(aria-label|placeholder|title|alt)="[A-Za-z]' components app --include='*.tsx'; then
+            echo "::error::Hard-coded label found — move it to lib/copy.ts"
+            exit 1
+          fi
+          echo "No hard-coded UI text."

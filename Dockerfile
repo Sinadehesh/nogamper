@@ -28,7 +28,7 @@ WORKDIR /src
 
 # Dependencies first, against a stub package. This layer is keyed on
 # pyproject.toml alone, so editing application code — which is most commits —
-# reuses the cached install instead of re-resolving nine packages.
+# reuses the cached install instead of re-resolving every dependency.
 COPY apps/api/pyproject.toml ./pyproject.toml
 RUN mkdir -p backend \
  && touch backend/__init__.py \

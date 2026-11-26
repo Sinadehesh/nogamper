@@ -1,19 +1,27 @@
-# Local Postgres for development. The schema is applied from db/migrations on
-# first boot; delete the volume to start over.
+# Local Postgres and Redis for development.
+#
+# The database starts empty on purpose. `make migrate` applies the schema with
+# the same runner a deploy uses, so the schema you develop against is recorded
+# in schema_migrations the way production's is. Mounting db/migrations into
+# Postgres's first-boot directory would create the tables too, but would
+# record nothing, and the runner refuses to touch a schema it has no history
+# for.
+#
+# `make db-up` also creates appdb_test, which the API test suite uses.
+# To start over: docker compose down -v
 services:
   db:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mf
+      POSTGRES_DB: appdb
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d mf"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d appdb"]
       interval: 5s
       timeout: 3s
       retries: 10
