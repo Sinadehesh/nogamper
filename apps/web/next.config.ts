@@ -11,6 +11,7 @@ const config: NextConfig = {
   // reader's article, the listing when it refreshes — read them on the
   // server, which only has the files it was told it needs.
   outputFileTracingIncludes: {
+    "/": ["./content/articles/*.md"],
     "/articles": ["./content/articles/*.md"],
     "/articles/[slug]": ["./content/articles/*.md"],
     "/articles/[slug]/opengraph-image": ["./content/articles/*.md"],

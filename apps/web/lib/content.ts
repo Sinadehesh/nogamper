@@ -173,6 +173,17 @@ export const landing = {
   whyHelpPrompt: "If gambling is already costing you more than you want it to,",
   whyHelpLink: "there is real, free help here.",
   whyMissionLink: "Read the mission",
+
+  readTitle: "Worth reading first",
+  readIntro:
+    "Plain answers to the questions people actually ask, each with its sources listed.",
+  // One from each group, in the order somebody new would want them.
+  readSlugs: [
+    "what-is-a-prediction-market",
+    "why-parlays-are-a-bad-bet",
+    "how-to-stop-gambling",
+  ],
+  readAll: "All the guides",
 };
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import { t } from "@/lib/copy";
 import { percent } from "@/lib/format";
 import { bookmakerTake } from "@/lib/odds";
 import { organizationLd, pageMetadata, websiteLd } from "@/lib/seo";
+import { getEditorial } from "@/lib/server/editorial";
 import { getRules } from "@/lib/server/rules";
 
 const PICK_COUNTS = [1, 2, 3, 4, 5];
@@ -23,6 +24,8 @@ export default async function LandingPage() {
   const rules = await getRules();
   const margin = Number(rules?.reference_margin ?? "0.05");
   const marginLabel = percent(margin);
+  // A guide that has been renamed or removed simply drops out of the list.
+  const reading = landing.readSlugs.flatMap((slug) => getEditorial(slug) ?? []);
 
   return (
     <>
@@ -140,7 +143,37 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section className="container-page py-12">
+        {reading.length > 0 ? (
+          <section className="container-page py-12" aria-labelledby="reading">
+            <h2 id="reading" className="text-2xl font-bold tracking-tight">
+              {landing.readTitle}
+            </h2>
+            <p className="mt-2 max-w-2xl text-muted">{landing.readIntro}</p>
+            <ul className="mt-6 grid gap-4 md:grid-cols-3">
+              {reading.map((guide) => (
+                <li key={guide.slug} className="card p-5">
+                  <h3 className="font-bold">
+                    <Link href={`/articles/${guide.slug}`} className="hover:text-accent">
+                      {guide.title}
+                    </Link>
+                  </h3>
+                  <p className="mt-2 text-sm text-muted">{guide.description}</p>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-5">
+              <Link
+                href="/articles"
+                className="font-semibold text-accent underline underline-offset-2"
+              >
+                {landing.readAll}
+              </Link>
+            </p>
+          </section>
+        ) : null}
+
+        <section className="border-t border-line bg-surface">
+          <div className="container-page py-12">
           <h2 className="text-2xl font-bold tracking-tight">{landing.whyTitle}</h2>
           <div className="prose-block mt-4 max-w-2xl text-muted">
             {landing.why.map((paragraph) => (
@@ -158,6 +191,7 @@ export default async function LandingPage() {
               {landing.whyHelpLink}
             </Link>
           </p>
+          </div>
         </section>
       </main>
 
