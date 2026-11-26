@@ -17,13 +17,42 @@
 # calls this API; a browser never does.
 #
 # ---------------------------------------------------------------------------
+# THIS STARTS ON RENDER'S FREE PLANS. READ THIS PART.
+# ---------------------------------------------------------------------------
+# All three pieces are on free plans, so creating this costs nothing. Free is
+# a way to see it running, not a way to run it. Two things come with it:
+#
+#   THE SERVER SLEEPS. After fifteen minutes with no visitor, Render stops a
+#   free server, and starts it again for the next one, which takes about a
+#   minute. Until it is up the site's game answers "not answering right now";
+#   the pages people read (the mission, the guides) are served by the website
+#   and are not affected. Nothing is lost while it sleeps: when it wakes it
+#   brings prices, settlements and the standings up to date before anything
+#   else (CATCH_UP_ON_STARTUP).
+#
+#   THE DATABASE IS DELETED. Render switches a free database off thirty days
+#   after it is created, and deletes it, with every account in it, fourteen
+#   days after that, unless it has been moved to a paid plan by then. Render
+#   emails first. Changing the plan keeps the data.
+#
+# TO STOP EITHER, change the plan lines below and push:
+#
+#   database  `plan: free` -> `plan: 0.1c-256mb`, and uncomment the two
+#             storage lines under it.                 $6 a month + $1.50 storage
+#   server    `plan: free` -> `plan: 0.5c-512mb`, and delete the two
+#             "sized for the free server" variables.              $7 a month
+#
+# (Render's prices in November 2026. The cache can stay free.)
+#
+# Render allows one free database and one free Key Value per workspace. If
+# yours already has either, creating this is refused; the plan lines above
+# are the fix for that as well.
+#
+# ---------------------------------------------------------------------------
 # FIRST DEPLOY
 # ---------------------------------------------------------------------------
 #   1. Render → New → Blueprint → this repository → Apply. Render shows what
-#      it will create, and what it costs, before anything is created. At
-#      Render's prices in November 2026 that is about $14.50 a month: $7 for
-#      the API, $6 for the database, $1.50 for its 5 GB of storage, and
-#      nothing for the cache.
+#      it will create, and what it costs, before anything is created.
 #   2. When `middlemost-api` is live, give the website two values
 #      (Vercel → project → Settings → Environment Variables):
 #        API_BASE_URL      the service's https address, shown at the top of
@@ -36,8 +65,9 @@
 #      Account tab, and add ADMIN_PLAYER_CODES=<that code> to the service's
 #      Environment tab. That is what opens /admin, and only to you.
 #
-# Migrations apply themselves: preDeployCommand runs scripts/migrate.py before
-# traffic moves to each release.
+# Migrations apply themselves: the container runs scripts/migrate.py before it
+# starts the server (scripts/start.sh). There is no separate pre-deploy step
+# because a free server cannot have one.
 #
 # ---------------------------------------------------------------------------
 # ONE PROCESS, TO START WITH
@@ -46,16 +76,15 @@
 # "true" on the one service). That is the cheapest arrangement that is still
 # correct, and it is plenty for a new site.
 #
-# To grow: set WORKERS_ENABLED to "false" here and raise numInstances, then
-# add a second service of `type: worker` with the same image, the same
-# environment and WORKERS_ENABLED "true". Every job takes a lease in the
-# database before it runs, so more than one copy is safe; the split only
-# keeps a slow job from sharing a process with visitors.
+# To grow, on paid plans: set WORKERS_ENABLED to "false" here and raise
+# numInstances, then add a second service of `type: worker` with the same
+# image, the same environment and WORKERS_ENABLED "true". Every job takes a
+# lease in the database before it runs, so more than one copy is safe; the
+# split only keeps a slow job from sharing a process with visitors.
 #
 # The database is Render's own, on the private network, rather than a free
-# serverless one elsewhere. The jobs touch the database every minute, so it
-# never goes idle — and a free plan that is metered by hours awake runs out
-# part-way through the month.
+# serverless one elsewhere. Render may suspend a free server that sends a lot
+# of traffic to outside services, and names an outside database as an example.
 
 previews:
   generation: "off"
@@ -64,18 +93,17 @@ databases:
   - name: middlemost-db
     databaseName: middlemost
     region: frankfurt
-    # The smallest plan that does not expire. A free database stops working
-    # thirty days after it is created, which is not a property a ledger
-    # should have.
-    plan: 0.1c-256mb
-    # Storage is billed by the gigabyte, and a disk can be made larger but
-    # never smaller, so this starts small rather than at Render's default of
-    # 15. The price history the sync job keeps is what grows: by a rough
-    # estimate, a few gigabytes a year. A full disk suspends the database, so
-    # Render is allowed to add space before that happens: at 90% full it
-    # grows the disk by half, rounded up to the next 5 GB.
-    diskSizeGB: 5
-    storageAutoscalingEnabled: true
+    # Free: 1 GB, no backups, and gone after thirty days. See the top of this
+    # file before the thirty days are up.
+    plan: free
+    # For the paid plan. Storage is billed by the gigabyte, and a disk can be
+    # made larger but never smaller, so this starts small rather than at
+    # Render's default of 15. The price history the sync job keeps is what
+    # grows: by a rough estimate, a few gigabytes a year. A full disk suspends
+    # the database, so Render is allowed to add space before that happens: at
+    # 90% full it grows the disk by half, rounded up to the next 5 GB.
+    # diskSizeGB: 5
+    # storageAutoscalingEnabled: true
     # Reachable from the private network only.
     ipAllowList: []
 
@@ -83,9 +111,7 @@ services:
   - type: keyvalue
     name: middlemost-cache
     region: frankfurt
-    # Free is enough to start: 25 MB, kept in memory only. Render allows one
-    # free Key Value per workspace — if yours already has one, this Blueprint
-    # is refused, and the fix is `plan: 256mb` on the next line.
+    # 25 MB, kept in memory only, which is all this needs.
     plan: free
     # Reachable from the private network only.
     ipAllowList: []
@@ -100,10 +126,9 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     region: frankfurt
-    # The smallest paid plan (half a CPU, 512 MB). Not `free`: a free web
-    # service sleeps when idle, which would stop the scheduled jobs, and it
-    # cannot run a preDeployCommand, which is how the migrations are applied.
-    plan: 0.5c-512mb
+    # Free: a tenth of a CPU and 512 MB, asleep when nobody is visiting. See
+    # the top of this file.
+    plan: free
     numInstances: 1
     healthCheckPath: /health/ready
     autoDeployTrigger: commit
@@ -114,7 +139,6 @@ services:
         - db/migrations/**
         - Dockerfile
         - render.yaml
-    preDeployCommand: python scripts/migrate.py
     envVars:
       - key: ENVIRONMENT
         value: production
@@ -141,8 +165,8 @@ services:
           property: connectionString
 
       # One container holds one pool, shared by visitors and by the jobs.
-      # A rolling deploy briefly runs two containers, and the migration
-      # takes a connection of its own: 2 * 8 + 1, well inside the plan.
+      # A deploy briefly runs two containers, and the migration takes a
+      # connection of its own: 2 * 8 + 1, well inside any plan.
       - key: DB_POOL_MIN
         value: "1"
       - key: DB_POOL_MAX
@@ -155,6 +179,17 @@ services:
       # so a new deployment is not an empty page for its first hour.
       - key: RUN_DISCOVERY_ON_STARTUP
         value: "true"
+
+      # ----- Sized for the free server ---------------------------------------
+      # A tenth of a CPU has to refresh every open question's price once a
+      # minute and still answer visitors, so the free server keeps the 150
+      # most-traded questions and reads only the top of the list to find
+      # them. Delete both lines on a paid plan: the defaults are 400 questions
+      # and 20 pages, measured to fit in half a CPU and 512 MB.
+      - key: PRICE_SYNC_MAX_MARKETS
+        value: "150"
+      - key: DISCOVERY_MAX_PAGES
+        value: "5"
 
       # The website's address. CORS_ORIGINS only has to not be the development
       # default — no browser calls this API, the site's own server does — and
@@ -191,3 +226,5 @@ services:
       # The service refuses to start with a key and no webhook secret, because
       # that would take money and never credit it. Prices, pack sizes and the
       # monthly cap have defaults; see apps/api/.env.example to change them.
+      # Do not open it on the free server: a payment that arrives while it is
+      # asleep waits for it to wake, and a shop should not keep a buyer waiting.

@@ -190,6 +190,15 @@ itself keeps replicas from doing the same work twice, every run records how it
 went, and the diagnostics endpoint says whether the database, the worker, the
 source or the cache is at fault.
 
+**It fits a small server, and survives being switched off.** Discovery reads
+Polymarket's feed a page at a time and keeps only its own compact records, so a
+pass that used to hold over half a gigabyte peaks under 300 MB. A process that
+has not been running — a host that puts an idle server to sleep, a restart —
+syncs prices, settles and recounts the standings as it starts, in that order,
+and a leaderboard season is counted once more before it is closed, so nothing
+depends on the server having been awake when the hour turned. Both were measured
+in the real container limited to a tenth of a CPU and 512 MB.
+
 **Migrations are checksummed.** [`scripts/migrate.py`](scripts/migrate.py)
 applies each file once, in a transaction with its own bookkeeping, and refuses
 to run if an applied file has been edited since. Every table has row security
@@ -286,10 +295,20 @@ CI runs all of it on every push ([`ci.yml`](.github/workflows/ci.yml)).
 
 [`render.yaml`](render.yaml) is a Blueprint that creates the API, a Postgres
 database and a cache, wired together, with nothing to paste in; the file's own
-comments walk through a first deploy. To start with, the API and the scheduled
-jobs run in one process. The same image can be run twice, as an API and a
-separate worker, when there is traffic to justify it — every job takes a lease,
-so that is safe. The site is a Next.js app deployed from `apps/web`.
+comments walk through a first deploy. The container applies any pending
+migrations before it starts the server ([`scripts/start.sh`](scripts/start.sh)),
+so there is no separate migration step to forget.
+
+It starts on Render's free plans, which cost nothing and are a way to see it
+running rather than a way to run it: a free server sleeps after fifteen minutes
+without a visitor and takes about a minute to wake, and a free database is
+deleted about six weeks after it is created unless it has been moved to a paid
+plan. The top of the file says which two lines change that, and what it costs.
+
+To start with, the API and the scheduled jobs run in one process. The same
+image can be run twice, as an API and a separate worker, when there is traffic
+to justify it — every job takes a lease, so that is safe. The site is a Next.js
+app deployed from `apps/web`.
 
 | Where | Variable | Value |
 | --- | --- | --- |
