@@ -5,15 +5,14 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse
 
 from .engine.quoting import QuoteError
-from .repositories.auth import AccountSuspended
+from .repositories.auth import AccountError, AccountSuspended
 from .repositories.messages import MessageError
 from .repositories.players import PlayerAdminError
 from .repositories.predictions import PlacementError
-from .security.telegram import InitDataError
+from .repositories.safer_play import SaferPlayError
+from .security.ratelimit import RateLimited
 from .security.tokens import TokenError
 from .services.economy import EconomyError
-from .services.payment_service import PaymentError
-from .services.rewards import RewardError
 
 
 def install_error_handlers(app) -> None:
@@ -32,10 +31,6 @@ def install_error_handlers(app) -> None:
             )
         return await http_exception_handler(request, exc)
 
-    @app.exception_handler(InitDataError)
-    async def _init_data(_: Request, exc: InitDataError) -> JSONResponse:
-        return JSONResponse(status_code=401, content={"code": exc.code, "detail": exc.detail})
-
     @app.exception_handler(TokenError)
     async def _token(_: Request, exc: TokenError) -> JSONResponse:
         return JSONResponse(
@@ -44,13 +39,36 @@ def install_error_handlers(app) -> None:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    @app.exception_handler(RateLimited)
+    async def _rate_limited(_: Request, exc: RateLimited) -> JSONResponse:
+        """429 with the wait, in both the header and the body.
+
+        The header is the standard place and the one a generic client reads;
+        the body repeats it because the web tier forwards bodies and not
+        headers, and the form needs the number to say something more useful
+        than "try again later".
+        """
+        return JSONResponse(
+            status_code=429,
+            content={
+                "code": "rate_limited",
+                "detail": "Too many attempts. Wait a little and try again.",
+                "retry_after": exc.retry_after,
+            },
+            headers={"Retry-After": str(exc.retry_after)},
+        )
+
+    @app.exception_handler(AccountError)
+    async def _account(_: Request, exc: AccountError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status, content={"code": exc.code, "detail": exc.detail}
+        )
+
     @app.exception_handler(QuoteError)
     async def _quote(_: Request, exc: QuoteError) -> JSONResponse:
         body = {"code": exc.code, "detail": exc.detail}
         if exc.market_id:
             body["market_id"] = exc.market_id
-        if exc.required_legs is not None:
-            body["required_legs"] = exc.required_legs
         return JSONResponse(status_code=409 if exc.code == "odds_moved" else 400, content=body)
 
     _PLACEMENT_STATUS = {
@@ -58,9 +76,7 @@ def install_error_handlers(app) -> None:
         "idempotency_key_reused": 409,
         "account_restricted": 403,
         "daily_limit_reached": 403,
-        "market_at_capacity": 409,
-        "boost_exhausted": 409,
-        "boost_limit_reached": 409,
+        "on_break": 403,
     }
 
     @app.exception_handler(PlacementError)
@@ -68,7 +84,16 @@ def install_error_handlers(app) -> None:
         body = {"code": exc.code, "detail": exc.detail}
         if exc.market_id:
             body["market_id"] = exc.market_id
+        if exc.until is not None:
+            body["until"] = exc.until.isoformat()
         return JSONResponse(status_code=_PLACEMENT_STATUS.get(exc.code, 400), content=body)
+
+    @app.exception_handler(SaferPlayError)
+    async def _safer_play(_: Request, exc: SaferPlayError) -> JSONResponse:
+        body = {"code": exc.code, "detail": exc.detail}
+        if exc.until is not None:
+            body["until"] = exc.until.isoformat()
+        return JSONResponse(status_code=exc.status, content=body)
 
     @app.exception_handler(PlayerAdminError)
     async def _player_admin(_: Request, exc: PlayerAdminError) -> JSONResponse:
@@ -82,20 +107,8 @@ def install_error_handlers(app) -> None:
             status_code=exc.status, content={"code": exc.code, "detail": exc.detail}
         )
 
-    @app.exception_handler(PaymentError)
-    async def _payment(_: Request, exc: PaymentError) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.status, content={"code": exc.code, "detail": exc.detail}
-        )
-
     @app.exception_handler(EconomyError)
     async def _economy(_: Request, exc: EconomyError) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.status, content={"code": exc.code, "detail": exc.detail}
-        )
-
-    @app.exception_handler(RewardError)
-    async def _reward(_: Request, exc: RewardError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status, content={"code": exc.code, "detail": exc.detail}
         )

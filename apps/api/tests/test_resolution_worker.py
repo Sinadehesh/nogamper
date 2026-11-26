@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from conftest import authorise, mock_http_client
+from conftest import authorise, balance_of, mock_http_client, user_id_for
 from fixtures import gamma_events as fx
 
 from backend import db
@@ -88,7 +88,7 @@ def gamma_resolver(outcomes: dict[str, str], *, fail: set[str] | None = None):
     return handler
 
 
-async def place(app_client, auth, markets, *, stake=10000, insurance=False, sides=None):
+async def place(app_client, auth, markets, *, stake=10000, sides=None):
     sides = sides or ["YES"] * len(markets)
     response = await app_client.post(
         "/v1/predictions",
@@ -97,7 +97,6 @@ async def place(app_client, auth, markets, *, stake=10000, insurance=False, side
                 {"market_id": str(m["id"]), "side": s} for m, s in zip(markets, sides, strict=True)
             ],
             "stake": stake,
-            "insurance": insurance,
         },
         headers={**auth, "Idempotency-Key": str(uuid.uuid4())},
     )
@@ -109,13 +108,6 @@ async def slip_row(slip_id: str) -> dict:
     async with db.acquire() as conn:
         return dict(
             await conn.fetchrow("SELECT * FROM predictions WHERE id = $1", uuid.UUID(slip_id))
-        )
-
-
-async def balance(telegram_id: int = 5000) -> int:
-    async with db.acquire() as conn:
-        return await conn.fetchval(
-            "SELECT coin_balance FROM users WHERE telegram_id = $1", telegram_id
         )
 
 
@@ -142,7 +134,7 @@ async def test_a_winning_parlay_is_graded_and_paid(app_client):
     settled = await slip_row(slip["id"])
     assert settled["status"] == "WON"
     assert settled["settled_payout"] == quoted
-    assert await balance() == 100_000 - 20_000 + quoted
+    assert await balance_of() == 100_000 - 20_000 + quoted
     assert await drift() == 0
 
 
@@ -158,7 +150,7 @@ async def test_a_losing_leg_loses_the_slip(app_client):
     settled = await slip_row(slip["id"])
     assert settled["status"] == "LOST"
     assert settled["settled_payout"] == 0
-    assert await balance() == 90_000
+    assert await balance_of() == 90_000
 
 
 async def test_a_voided_market_collapses_its_leg_rather_than_killing_the_slip(app_client):
@@ -182,12 +174,12 @@ async def test_a_voided_market_collapses_its_leg_rather_than_killing_the_slip(ap
     assert sorted(leg["status"] for leg in legs) == ["VOID", "WON"]
     won = next(leg for leg in legs if leg["status"] == "WON")
 
-    bonus = get_settings().parlay_bonus(2)
-    assert bonus > 1
-    assert settled["settled_payout"] == round(10000 * won["locked_odds"] * Decimal(str(bonus)))
+    # The voided pick settles at 1.0: the slip pays as though it had only
+    # ever carried the pick that stood.
+    assert settled["settled_payout"] == round(10000 * won["locked_odds"])
 
 
-async def test_the_farsi_settlement_note_is_written(app_client):
+async def test_the_settlement_note_is_written_in_english(app_client):
     markets = await seed_markets(2)
     auth = await authorise(app_client)
     slip = await place(app_client, auth, markets)
@@ -197,15 +189,42 @@ async def test_the_farsi_settlement_note_is_written(app_client):
         await resolution.run_resolution(client, get_settings())
 
     note = (await slip_row(slip["id"]))["settlement_note"]
-    assert note and "انتخاب" in note and "ضریب" in note
+    assert note is not None
+    assert note.startswith("1 pick(s) voided; odds recomputed to ")
+    assert note.isascii()
 
 
-async def test_insurance_pays_on_a_covered_near_miss(app_client):
+async def insure(slip_id: str, *, premium: int) -> None:
+    """Turn a placed slip into one carrying cover, as it could before the site
+    went free-to-play. Nothing can create such a slip any more; the ones that
+    already exist still have to settle on the terms their owners were shown."""
+    async with db.transaction() as conn:
+        await conn.execute(
+            """
+            UPDATE predictions
+               SET has_insurance = TRUE, insurance_premium = $2, insurance_rate = 0.25,
+                   insurance_min_legs = 4, insurance_max_failed = 1
+             WHERE id = $1
+            """,
+            uuid.UUID(slip_id),
+            premium,
+        )
+        await conn.execute(
+            "INSERT INTO ledger_entries (user_id, entry_type, amount, ref_type, ref_id,"
+            "                            idempotency_key)"
+            " VALUES ($1, 'INSURANCE_PREMIUM_DEBIT', $2, 'PREDICTION', $3, $4)",
+            await user_id_for(),
+            -premium,
+            uuid.UUID(slip_id),
+            f"premium:{slip_id}",
+        )
+
+
+async def test_a_slip_insured_before_the_change_still_settles_on_its_own_terms(app_client):
     markets = await seed_markets(4)
     auth = await authorise(app_client)
-    slip = await place(app_client, auth, markets, stake=10000, insurance=True)
-    premium = slip["insurance_premium"]["minor"]
-    assert premium > 0
+    slip = await place(app_client, auth, markets, stake=10000)
+    await insure(slip["id"], premium=2500)
 
     await expire(markets)
     outcomes = {"50000": "YES", "50001": "YES", "50002": "YES", "50003": "NO"}
@@ -215,8 +234,26 @@ async def test_insurance_pays_on_a_covered_near_miss(app_client):
     settled = await slip_row(slip["id"])
     assert settled["status"] == "INSURED"
     assert settled["settled_payout"] == 10000
-    assert await balance() == 100_000 - 10_000 - premium + 10_000
+    assert await balance_of() == 100_000 - 10_000 - 2500 + 10_000
     assert await drift() == 0
+
+
+async def test_a_near_miss_on_an_ordinary_slip_is_simply_a_loss(app_client):
+    """No slip placed through the website carries cover, so three out of four
+    pays nothing — and nothing here suggests it nearly did."""
+    markets = await seed_markets(4)
+    auth = await authorise(app_client)
+    slip = await place(app_client, auth, markets, stake=10000)
+
+    await expire(markets)
+    outcomes = {"50000": "YES", "50001": "YES", "50002": "YES", "50003": "NO"}
+    async with mock_http_client(gamma_resolver(outcomes)) as client:
+        await resolution.run_resolution(client, get_settings())
+
+    settled = await slip_row(slip["id"])
+    assert settled["status"] == "LOST"
+    assert settled["settled_payout"] == 0
+    assert await balance_of() == 90_000
 
 
 async def test_a_slip_waits_for_its_last_leg(app_client):
@@ -232,7 +269,7 @@ async def test_a_slip_waits_for_its_last_leg(app_client):
     assert report.slips_still_open == 1
     assert report.slips_settled == 0
     assert (await slip_row(slip["id"]))["status"] == "PENDING"
-    assert await balance() == 90_000
+    assert await balance_of() == 90_000
 
     await expire(markets)
     async with mock_http_client(gamma_resolver({"50000": "YES", "50001": "YES"})) as client:
@@ -268,11 +305,11 @@ async def test_running_twice_pays_once(app_client):
     handler = gamma_resolver({"50000": "YES", "50001": "YES"})
     async with mock_http_client(handler) as client:
         await resolution.run_resolution(client, get_settings())
-        after_first = await balance()
+        after_first = await balance_of()
         second = await resolution.run_resolution(client, get_settings())
 
     assert second.markets_resolved == 0
-    assert await balance() == after_first
+    assert await balance_of() == after_first
 
     async with db.acquire() as conn:
         payouts = await conn.fetchval(
@@ -338,7 +375,7 @@ async def test_a_total_gamma_outage_changes_nothing(app_client):
     assert report.markets_resolved == 0
     assert report.fetch_failures == 2
     assert (await slip_row(slip["id"]))["status"] == "PENDING"
-    assert await balance() == 90_000
+    assert await balance_of() == 90_000
     assert await drift() == 0
 
 
@@ -366,7 +403,7 @@ async def test_a_slip_graded_but_never_paid_is_swept_up(app_client):
     assert report.markets_checked == 0
     assert report.slips_settled == 1
     assert (await slip_row(slip["id"]))["status"] == "WON"
-    assert await balance() == 100_000 - 20_000 + quoted
+    assert await balance_of() == 100_000 - 20_000 + quoted
 
 
 async def test_an_empty_run_is_quiet(app_client):
@@ -465,11 +502,12 @@ async def test_a_single_settles_on_the_side_it_backed(app_client, side):
     assert await drift() == 0
 
 
-async def test_a_void_across_every_leg_returns_stake_and_premium(app_client):
+async def test_a_void_across_every_leg_returns_the_stake(app_client):
     markets = await seed_markets(4)
     auth = await authorise(app_client)
-    slip = await place(app_client, auth, markets, stake=10000, insurance=True)
+    slip = await place(app_client, auth, markets, stake=10000)
     total_cost = slip["total_cost"]["minor"]
+    assert total_cost == 10000
     await expire(markets)
 
     outcomes = dict.fromkeys(["50000", "50001", "50002", "50003"], "VOID")
@@ -479,6 +517,6 @@ async def test_a_void_across_every_leg_returns_stake_and_premium(app_client):
     settled = await slip_row(slip["id"])
     assert settled["status"] == "VOID"
     assert settled["settled_payout"] == total_cost
-    assert await balance() == 100_000
+    assert await balance_of() == 100_000
     assert await drift() == 0
     assert Decimal(str(settled["combined_odds"])) > 1

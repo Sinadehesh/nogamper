@@ -1,30 +1,27 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
 import os
-import time
 from collections.abc import AsyncIterator
 from pathlib import Path
-from urllib.parse import urlencode
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from backend.config import Settings
 
-TEST_BOT_TOKEN = "123456:TEST-BOT-TOKEN-do-not-use-in-production"
 TEST_JWT_SECRET = "test-jwt-secret-at-least-32-characters-long"
-TEST_WEBHOOK_SECRET = "test-webhook-secret-32-chars-long-x"
+TEST_PASSWORD = "correct horse battery staple"
 
-TEST_ADMIN_TELEGRAM_ID = 909090
+TEST_ADMIN_PLAYER = 909090
+TEST_ADMIN_CODE = "ADMN22"
+"""A fixed code, because player codes are random and the allowlist is read
+from the environment before any account exists. `make_admin` gives an account
+this code; six characters from the schema's own alphabet, so it also passes
+the validator that discards anything that could not be one."""
 
-os.environ["TELEGRAM_BOT_TOKEN"] = TEST_BOT_TOKEN
 os.environ["JWT_SECRET"] = TEST_JWT_SECRET
-os.environ["TELEGRAM_WEBHOOK_SECRET"] = TEST_WEBHOOK_SECRET
-os.environ["ADMIN_TELEGRAM_IDS"] = str(TEST_ADMIN_TELEGRAM_ID)
+os.environ["ADMIN_PLAYER_CODES"] = TEST_ADMIN_CODE
+os.environ["INTERNAL_API_KEY"] = ""
 
 os.environ.setdefault(
     "DATABASE_URL",
@@ -38,47 +35,35 @@ for _name, _value in {
     "MIN_STAKE_MINOR": "1000",
     "MAX_STAKE_MINOR": "5000000",
     "PAYOUT_CAP_MINOR": "500000000",
-    "HOUSE_SEED_MINOR": "500000",
-    "MAX_MARKET_LIABILITY_MINOR": "2000000000",
-    "DAILY_DRIP_MINOR": "25000",
-    "STREAK_BONUS_STEP_MINOR": "5000",
-    "STREAK_BONUS_MAX_MINOR": "50000",
-    "DECAY_FLOOR_MINOR": "50000",
-    "BOOST_MAX_TOTAL_STAKE_MINOR": "1000000",
-    "BOOST_MAX_STAKE_PER_USER_MINOR": "100000",
+    "MAX_COMBINED_ODDS": "1000",
+    "DAILY_TOPUP_MINOR": "25000",
     "LEADERBOARD_MIN_VOLUME_MINOR": "100000",
     "LEADERBOARD_FULL_CREDIT_VOLUME_MINOR": "2000000",
-    "MIN_LEGS": "1",
-    "VIG_RATE": "0.05",
-    "PARLAY_BONUS_BY_LEGS": "1.0,1.03,1.06,1.10,1.15",
+    # The ingestion tests exercise the priority-category mechanism, which is
+    # off by default. They run it against the configuration it was built for:
+    # one small regional tag that would otherwise lose every volume ranking.
+    "DISCOVERY_CATEGORIES": "Iran,Macro,Crypto",
+    "DISCOVERY_PRIORITY_CATEGORY": "Iran",
+    "DISCOVERY_PRIORITY_TAG_SLUGS": "iran",
+    # The cheapest Argon2 the library allows. These tests register hundreds of
+    # accounts; what is under test is that a password is hashed and verified,
+    # not how long that takes.
+    "PASSWORD_HASH_TIME_COST": "1",
+    "PASSWORD_HASH_MEMORY_KIB": "64",
+    "PASSWORD_HASH_PARALLELISM": "1",
+    # Wide open by default so an ordinary test never trips a throttle by
+    # creating a dozen players. The throttle has tests of its own, which
+    # narrow these on the live Settings object.
+    "SIGNUP_IP_RATE_MAX": "100000",
+    "AUTH_IP_RATE_MAX": "100000",
+    "LOGIN_RATE_MAX": "100000",
 }.items():
     os.environ.setdefault(_name, _value)
 
 
-def sign_init_data(fields: dict[str, str], token: str = TEST_BOT_TOKEN) -> str:
-    """Build a correctly signed initData string, exactly as Telegram would."""
-    check_string = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
-    secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
-    digest = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
-    return urlencode({**fields, "hash": digest})
-
-
-def make_init_data(
-    telegram_id: int = 4242,
-    *,
-    first_name: str = "Ada",
-    auth_date: int | None = None,
-    token: str = TEST_BOT_TOKEN,
-    **extra: str,
-) -> str:
-    user = {"id": telegram_id, "first_name": first_name, "username": f"user{telegram_id}"}
-    fields = {
-        "user": json.dumps(user, separators=(",", ":")),
-        "auth_date": str(auth_date if auth_date is not None else int(time.time())),
-        "query_id": f"AAH{telegram_id}",
-        **extra,
-    }
-    return sign_init_data(fields, token)
+def email_for(player: int) -> str:
+    """A deterministic address for a numbered test player."""
+    return f"player{player}@example.test"
 
 
 @pytest_asyncio.fixture
@@ -213,15 +198,49 @@ def mock_http_client(handler) -> AsyncClient:
     return AsyncClient(transport=MockTransport(handler), base_url="http://mock")
 
 
-async def authorise(client: AsyncClient, telegram_id: int = 5000) -> dict[str, str]:
-    """Create a player and return an Authorization header for them."""
+async def authorise(client: AsyncClient, player: int = 5000) -> dict[str, str]:
+    """Create a registered player — or sign back in as one — and return an
+    Authorization header for them.
+
+    Players are numbered rather than named so a test can ask for "another
+    one" without inventing an address, and look the same one up again later
+    through `email_for`.
+    """
+    credentials = {"email": email_for(player), "password": TEST_PASSWORD}
     response = await client.post(
-        "/v1/auth/session", json={"initData": make_init_data(telegram_id=telegram_id)}
+        "/v1/auth/register", json={**credentials, "display_name": f"Player {player}"}
     )
+    if response.status_code == 409:
+        response = await client.post("/v1/auth/login", json=credentials)
     response.raise_for_status()
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-@pytest.fixture
-def bot_token() -> str:
-    return TEST_BOT_TOKEN
+async def make_admin(client: AsyncClient, player: int = TEST_ADMIN_PLAYER) -> dict[str, str]:
+    """A signed-in player whose code is on the admin allowlist."""
+    from backend import db
+
+    headers = await authorise(client, player)
+    async with db.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET player_code = $2 WHERE email = $1",
+            email_for(player),
+            TEST_ADMIN_CODE,
+        )
+    return headers
+
+
+async def user_id_for(player: int = 5000):
+    from backend import db
+
+    async with db.acquire() as conn:
+        return await conn.fetchval("SELECT id FROM users WHERE email = $1", email_for(player))
+
+
+async def balance_of(player: int = 5000) -> int:
+    from backend import db
+
+    async with db.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT coin_balance FROM users WHERE email = $1", email_for(player)
+        )

@@ -57,7 +57,7 @@ async def test_lists_active_markets_soonest_first(app_client):
     first = body["markets"][0]
     assert first["event"]["title"]
     assert first["category"] in {"Macro", "Crypto"}
-    assert first["boosts"] == []
+    assert "boosts" not in first, "there are no promotional prices to list"
 
 
 async def test_price_is_served_from_redis_when_present(app_client):
@@ -174,46 +174,73 @@ async def test_locked_and_resolved_markets_are_not_listed(app_client):
     assert [m["id"] for m in body["markets"]] == [str(markets[2]["id"])]
 
 
-async def test_active_boosts_are_nested_on_their_market(app_client):
+async def test_a_boost_left_in_the_table_changes_nothing(app_client):
+    """Boost rows from before the site went free-to-play may still exist.
+    Nothing reads them: the feed does not list them and a quote ignores them."""
     markets = await seed(1)
     auth = await authorise(app_client)
+    await price_cache.write_many(
+        [(markets[0]["id"], Decimal("0.50"), "CLOB_MIDPOINT", datetime.now(UTC))],
+        ttl_seconds=300,
+    )
 
     async with db.transaction() as conn:
         await conn.execute(
             """
             INSERT INTO odds_boosts (market_id, side, boost_multiplier, ends_at,
                                      max_total_stake, max_stake_per_user)
-            VALUES ($1, 'YES', 1.400, NOW() + INTERVAL '2 hours', 1000000, 50000),
-                   ($1, 'NO',  1.250, NOW() + INTERVAL '2 hours', 1000000, 50000)
+            VALUES ($1, 'YES', 1.400, NOW() + INTERVAL '2 hours', 1000000, 50000)
             """,
             markets[0]["id"],
         )
 
-    boosts = (await app_client.get("/v1/markets", headers=auth)).json()["markets"][0]["boosts"]
+    listed = (await app_client.get("/v1/markets", headers=auth)).json()["markets"][0]
+    assert "boosts" not in listed
 
-    assert [b["side"] for b in boosts] == ["YES", "NO"]
-    assert boosts[0]["multiplier"] == "1.400"
-    assert boosts[0]["remaining_stake"] == {"minor": 1000000, "display": "10,000"}
+    quote = (
+        await app_client.post(
+            "/v1/predictions/quote",
+            json={"legs": [{"market_id": str(markets[0]["id"]), "side": "YES"}], "stake": 10000},
+            headers=auth,
+        )
+    ).json()
+    assert quote["combined_odds"] == "2.000000"
 
 
-async def test_exhausted_and_expired_boosts_are_not_offered(app_client):
+async def test_the_feed_carries_the_rules_a_slip_must_satisfy(app_client):
+    """So the page can say "this one is all but settled" before a round trip.
+    Advisory only: the server re-checks every one at quote and placement."""
+    await seed(1)
+    auth = await authorise(app_client)
+    settings = get_settings()
+
+    body = (await app_client.get("/v1/markets", headers=auth)).json()
+
+    assert body["max_legs"] == settings.max_legs
+    assert body["min_prob"] == "0.01"
+    assert body["max_prob"] == "0.99"
+    assert body["max_combined_odds"] == "1000.0"
+    assert body["min_stake"]["minor"] == settings.min_stake_minor
+    assert body["max_stake"]["minor"] == settings.max_stake_minor
+    assert body["payout_cap"]["minor"] == settings.payout_cap_minor
+    for gone in ("vig_rate", "min_legs", "parlay_bonus_by_legs", "example_stake", "referral_bonus"):
+        assert gone not in body
+
+
+async def test_market_text_is_served_in_english_whatever_the_row_holds(app_client):
+    """`question` and `title` may still hold a translation from when the feed
+    was localised. The source columns are what the API reads."""
     markets = await seed(1)
     auth = await authorise(app_client)
+    async with db.acquire() as conn:
+        await conn.execute("UPDATE markets SET question = 'ein übersetzter Text'")
+        await conn.execute("UPDATE market_events SET title = 'ein übersetzter Titel'")
 
-    async with db.transaction() as conn:
-        await conn.execute(
-            """
-            INSERT INTO odds_boosts (market_id, side, boost_multiplier, starts_at, ends_at,
-                                     max_total_stake, consumed_stake, max_stake_per_user)
-            VALUES ($1, 'YES', 1.4, NOW() - INTERVAL '3 hours', NOW() - INTERVAL '1 hour',
-                    1000000, 0, 50000),
-                   ($1, 'NO', 1.3, NOW(), NOW() + INTERVAL '2 hours',
-                    1000000, 1000000, 50000)
-            """,
-            markets[0]["id"],
-        )
+    listed = (await app_client.get("/v1/markets", headers=auth)).json()["markets"][0]
 
-    assert (await app_client.get("/v1/markets", headers=auth)).json()["markets"][0]["boosts"] == []
+    assert listed["question"] == markets[0]["question_source"]
+    assert listed["question"].isascii()
+    assert listed["event"]["title"].isascii()
 
 
 async def test_probabilities_are_strings_not_json_numbers(app_client):

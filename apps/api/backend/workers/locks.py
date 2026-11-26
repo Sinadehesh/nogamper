@@ -56,9 +56,9 @@ RUNAWAY_AFTER_SECONDS = 1200.0
 Kept looser than DISCOVERY_DEADLINE_SECONDS on purpose. Discovery abandons
 itself at its own deadline, so a pass that reaches this one is a job with no
 deadline of its own or a deadline that did not fire — either way something the
-operator has to look at. Raised alongside that deadline when translation moved
-the honest length of a pass from seconds into minutes; leaving it at 300 would
-have logged "this job is not finishing" over every healthy run and taught the
+operator has to look at. It was raised alongside that deadline when a slow
+step moved the honest length of a pass from seconds into minutes; at 300 it
+logged "this job is not finishing" over every healthy run and taught the
 operator to scroll past it.
 
 diagnostics.RUNAWAY_SECONDS reports the same threshold and must match.

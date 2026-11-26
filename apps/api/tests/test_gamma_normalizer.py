@@ -277,20 +277,44 @@ def test_naive_timestamps_are_treated_as_utc(settings, stats):
     assert normalized.end_date.tzinfo is not None
 
 
-def test_politics_is_excluded_by_default(settings, stats):
-    """General politics is high-volume noise for this feed, not a category it
-    wants — Iran already has its own category and its own priority tag pass,
-    independently of this one, so dropping Politics does not touch it.
+def test_a_category_that_is_not_enabled_is_skipped_and_counted(settings, stats):
+    """A category the deployment has not asked for is dropped, by name.
 
-    Kept as an explicit test rather than left implicit in the parametrised
-    cases above: those pass a settings fixture that could be widened without
-    anyone noticing the default had changed underneath it.
+    The suite's configuration enables Iran, Macro and Crypto, so Politics is
+    the category left out here. It is a real one — Gamma tags plenty of events
+    with it — which is what makes this the honest case: the event is well
+    formed and simply not wanted, and that shows up as a named skip rather
+    than as an event that silently never arrived.
     """
     assert "Politics" not in settings.discovery_categories
 
     event = fx.event("p1", tags=[{"label": "US Politics", "slug": "us-politics"}])
     assert normalize(event, settings, stats) is None
     assert stats.skips["event_category_not_wanted"] == 1
+
+
+def test_the_shipped_default_is_a_general_feed_with_no_favourite():
+    """What a deployment gets when it configures nothing.
+
+    The three broad categories, ranked by volume, with no category given a
+    pass of its own. The priority mechanism is still there — the tests around
+    this one exercise it — but it is something an operator turns on for a feed
+    built around one topic, not something every visitor inherits.
+    """
+    import os
+
+    pinned = ("DISCOVERY_CATEGORIES", "DISCOVERY_PRIORITY_CATEGORY", "DISCOVERY_PRIORITY_TAG_SLUGS")
+    saved = {name: os.environ.pop(name) for name in pinned if name in os.environ}
+    try:
+        from backend.config import Settings
+
+        defaults = Settings()
+    finally:
+        os.environ.update(saved)
+
+    assert defaults.discovery_categories == ["Politics", "Macro", "Crypto"]
+    assert defaults.discovery_priority_category == ""
+    assert defaults.discovery_priority_tag_slugs == []
 
 
 def test_a_deployment_can_drop_a_category(stats):

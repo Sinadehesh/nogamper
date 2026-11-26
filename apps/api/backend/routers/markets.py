@@ -1,4 +1,4 @@
-"""GET /v1/markets — the market list the Mini App renders.
+"""GET /v1/markets — the list of open questions the site renders.
 
 Metadata comes from Postgres; the probability comes from Redis when it is
 there. That split is the point: the durable row is a fallback that is at worst
@@ -6,7 +6,7 @@ one sync tick old, and the cache is what keeps the front door fast.
 
 Prices are never invented. If the cache misses and the stored price is older
 than the staleness tolerance, the market still appears — with `stale: true` —
-rather than being hidden or shown at a number nobody should bet on.
+rather than being hidden or shown at a number nobody should act on.
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from ..cache import prices as price_cache
 from ..config import Settings, get_settings
 from ..repositories import markets as markets_repo
 from ..schemas import (
-    MarketBoost,
     MarketEventSummary,
     MarketPage,
     MarketSummary,
@@ -87,21 +86,6 @@ def _probability(
     )
 
 
-def _boosts(raw: object) -> list[MarketBoost]:
-    entries = json.loads(raw) if isinstance(raw, str) else (raw or [])
-    return [
-        MarketBoost(
-            id=str(entry["id"]),
-            side=entry["side"],
-            multiplier=entry["multiplier"],
-            ends_at=datetime.fromisoformat(entry["ends_at"]),
-            remaining_stake=Money.of(int(entry["remaining_stake_minor"])),
-            max_stake_per_user=Money.of(int(entry["max_stake_per_user_minor"])),
-        )
-        for entry in entries
-    ]
-
-
 @router.get(
     "/markets",
     response_model=MarketPage,
@@ -139,7 +123,9 @@ async def list_markets(
             category=row["category"],
             image_url=row["image_url"],
             event=MarketEventSummary(
-                id=str(row["event_id"]), title=row["event_title"], slug=row["event_slug"]
+                id=str(row["event_id"]),
+                title=row["event_title"],
+                slug=row["event_slug"],
             ),
             probability=_probability(
                 row["id"],
@@ -153,7 +139,6 @@ async def list_markets(
             volume_usd=str(row["volume_usd"]),
             lock_at=row["lock_at"],
             end_date=row["end_date"],
-            boosts=_boosts(row["boosts"]),
         )
         for row in rows
     ]
@@ -162,11 +147,11 @@ async def list_markets(
     return MarketPage(
         markets=markets,
         next_cursor=next_cursor,
-        min_legs=settings.min_legs,
         max_legs=settings.max_legs,
-        vig_rate=str(settings.vig_rate),
-        parlay_bonus_by_legs=[str(b) for b in settings.parlay_bonus_by_legs],
-        example_stake=Money.of(settings.example_stake_minor),
-        signup_bonus=Money.of(settings.signup_bonus_minor),
-        referral_bonus=Money.of(settings.referral_bonus_minor),
+        min_prob=str(settings.min_prob),
+        max_prob=str(settings.max_prob),
+        max_combined_odds=str(settings.max_combined_odds),
+        min_stake=Money.of(settings.min_stake_minor),
+        max_stake=Money.of(settings.max_stake_minor),
+        payout_cap=Money.of(settings.payout_cap_minor),
     )

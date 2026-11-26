@@ -107,7 +107,7 @@ class NormalizedMarket:
     polymarket_market_id: str
     condition_id: str
     question: str
-    """What the player reads. Equals `question_source` until localisation."""
+    """What the player reads: Polymarket's own English, same as `question_source`."""
     description: str | None
     category: str
     image_url: str | None
@@ -119,7 +119,9 @@ class NormalizedMarket:
     lock_at: datetime
     end_date: datetime
     question_source: str = ""
-    """Polymarket's original English, kept for audit and for future locales."""
+    """Polymarket's original text. Identical to `question`; the column predates
+    the site being English-only and is still what the API reads, so a row
+    written while questions were being translated renders in English too."""
     description_source: str | None = None
 
 

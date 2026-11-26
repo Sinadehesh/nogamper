@@ -22,7 +22,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from conftest import TEST_ADMIN_TELEGRAM_ID, authorise
+from conftest import authorise, make_admin
 
 from backend import db
 from backend.repositories import diagnostics
@@ -97,14 +97,14 @@ async def diag(client, headers):
 async def test_a_player_cannot_read_the_diagnostics(app_client):
     """It reports market counts, job holders and container names. None of that
     is a player's business, and the holder note names infrastructure."""
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
     assert (await app_client.get(DIAG, headers=headers)).status_code == 404
 
 
 async def test_an_empty_database_points_at_discovery(app_client):
     """The very first launch failure: the app came up with no markets at all
     and the feed was simply empty."""
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     body = await diag(app_client, headers)
 
     assert body["layer"] == "discovery"
@@ -115,7 +115,7 @@ async def test_everything_locked_and_nothing_active_points_at_discovery(app_clie
     """Distinct from an empty database, and a different fix: markets were
     ingested once and have all since expired, so discovery has stopped keeping
     up rather than never having run."""
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(status="LOCKED")
 
     body = await diag(app_client, headers)
@@ -132,7 +132,7 @@ async def test_a_job_holding_its_lease_too_long_points_at_the_worker(app_client)
     finishing. That distinction is the whole finding, so the advice says it in
     as many words rather than leaving somebody to conclude "stuck lock" again.
     """
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(priced_secs_ago=1800)
     await hold_lease("polymarket_price_sync", held_for_secs=1800)
 
@@ -148,7 +148,7 @@ async def test_stale_prices_with_no_lease_at_all_points_at_the_worker(app_client
     """Nothing is running the job — a worker that never started, or
     WORKERS_ENABLED left false. Reads differently from a job that is running
     and stuck, and the fix is somewhere else entirely."""
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(priced_secs_ago=1800)
 
     body = await diag(app_client, headers)
@@ -164,7 +164,7 @@ async def test_a_running_job_that_lands_no_prices_points_upstream(app_client):
     That is the CLOB returning nothing usable, which is neither the database
     nor the app — and is the case that would otherwise be misread as either.
     """
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(priced_secs_ago=1800)
     await hold_lease("polymarket_price_sync", held_for_secs=5)
 
@@ -175,7 +175,7 @@ async def test_a_running_job_that_lands_no_prices_points_upstream(app_client):
 
 
 async def test_fresh_prices_report_healthy(app_client):
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await warm_cache(await seed_market(priced_secs_ago=5))
 
     body = await diag(app_client, headers)
@@ -189,7 +189,7 @@ async def test_a_partly_truncated_pass_reads_as_degraded_not_broken(app_client):
     """Some markets past the window while the newest is current is the
     deadline doing its job under load, not a fault. Calling it an outage would
     train the operator to ignore this endpoint."""
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await warm_cache(await seed_market(priced_secs_ago=5), await seed_market(priced_secs_ago=600))
 
     body = await diag(app_client, headers)
@@ -209,7 +209,7 @@ async def test_a_cold_cache_on_fresh_markets_is_not_called_a_fault(app_client):
     operator to ignore this endpoint — so it reads as degraded, and the advice
     says outright that it is harmless if the markets are new.
     """
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(priced_secs_ago=5)
 
     body = await diag(app_client, headers)
@@ -298,7 +298,7 @@ async def test_the_failure_census_reaches_the_operator(app_client):
     "No price has landed" says a pass is failing. "40x ReadTimeout" says what
     to do about it, and that number lived only in a log line.
     """
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(priced_secs_ago=1800)
     await hold_lease("polymarket_price_sync", held_for_secs=5)
     await record_run(
@@ -324,7 +324,7 @@ async def test_the_failure_census_reaches_the_operator(app_client):
 async def test_a_job_that_raised_says_so_rather_than_going_quiet(app_client):
     """A run that raises is the one most worth having a record of, and it is
     the one a report-shaped log line never covered."""
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(priced_secs_ago=1800)
     await hold_lease("polymarket_price_sync", held_for_secs=5)
     await record_run(
@@ -342,7 +342,7 @@ async def test_a_job_that_raised_says_so_rather_than_going_quiet(app_client):
 async def test_never_having_finished_a_pass_is_said_out_loud(app_client):
     """Distinct from a failing pass and a different fix: nothing has completed
     since the container started, so there is no census to show."""
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(priced_secs_ago=1800)
     await hold_lease("polymarket_price_sync", held_for_secs=5)
 
@@ -355,7 +355,7 @@ async def test_never_having_finished_a_pass_is_said_out_loud(app_client):
 async def test_a_stuck_job_reports_what_its_last_completed_pass_did(app_client):
     """The eighty-six minute discovery run. The lease said which job; only the
     report says what it had been doing when it last got through."""
-    headers = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    headers = await make_admin(app_client)
     await seed_market(priced_secs_ago=1800)
     await hold_lease("polymarket_discovery", held_for_secs=5200)
     await record_run(

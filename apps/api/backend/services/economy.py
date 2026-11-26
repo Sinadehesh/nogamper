@@ -1,29 +1,31 @@
-"""The engagement economy: daily drip, inactivity decay, boosts, leaderboard.
+"""The free economy: the daily top-up and the leaderboard.
 
-Every coin that moves here goes through `ledger_entries` with a date-scoped
-idempotency key, so a job that runs twice — a retry, an overlapping replica, a
-manual re-run during an incident — credits or debits exactly once. The unique
-index on `(user_id, idempotency_key)` is what enforces that, not the code.
+Every point that moves here goes through `ledger_entries` with a date-scoped
+idempotency key, so a request that arrives twice — a double tap, a retry, two
+tabs — credits exactly once. The unique index on `(user_id, idempotency_key)`
+is what enforces that, not the code.
 
 **Dates come from a timezone, not from the server clock.** `CURRENT_DATE` in a
-UTC database rolls the daily claim over mid-evening for an audience east of
-it, which reads as arbitrary and silently shortens somebody's streak. Every
-date here is computed in `economy_timezone`.
+UTC database rolls the day over mid-evening for an audience east of it, which
+reads as arbitrary. Every date here — the top-up, a daily limit, a season — is
+computed in `economy_timezone`.
 
-**Ledger metadata carries both a code and Farsi prose.** `reason` is stable and
-machine-readable; `note` is what a human reads. Storing only the prose would
-lock the ledger to one language, and storing only the code would make the
-history unreadable to the people whose money it is.
+## What is deliberately absent
+
+This module used to charge accounts that had not played recently, pay a
+growing bonus for consecutive days, and schedule short-lived better prices.
+Each was a reason to open the app that had nothing to do with wanting to.
+None of them survive: points do not expire, a missed day costs nothing, and no
+price here is ever about to end.
 """
 
 from __future__ import annotations
 
 import logging
-import random
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import asyncpg
@@ -35,19 +37,13 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ClaimResult",
     "EconomyError",
-    "claim_daily_drip",
+    "claim_daily_topup",
+    "day_start",
     "economy_date",
     "ensure_current_season",
-    "generate_boosts",
     "next_claim_at",
     "roll_up_leaderboard",
-    "run_inactivity_decay",
-    "streak_bonus_for",
 ]
-
-NOTE_DAILY_DRIP = "هدیهٔ روزانه"
-NOTE_STREAK_BONUS = "پاداش روزهای پیاپی"
-NOTE_INACTIVITY_DECAY = "کسر به دلیل بی‌فعالیتی"
 
 
 class EconomyError(Exception):
@@ -64,38 +60,40 @@ def economy_date(settings: Settings, now: datetime | None = None) -> date:
     return moment.astimezone(ZoneInfo(settings.economy_timezone)).date()
 
 
+def day_start(settings: Settings, now: datetime | None = None) -> datetime:
+    """The instant today began, in the economy timezone.
+
+    What a daily limit is measured from. Using the same boundary as the
+    top-up means a player sees one "day", not two that disagree by however far
+    the server sits from them.
+    """
+    tz = ZoneInfo(settings.economy_timezone)
+    return datetime.combine(economy_date(settings, now), datetime.min.time(), tzinfo=tz)
+
+
 def next_claim_at(settings: Settings, claimed_on: date) -> datetime:
     """Midnight after `claimed_on`, in the economy timezone."""
     tz = ZoneInfo(settings.economy_timezone)
     return datetime.combine(claimed_on + timedelta(days=1), datetime.min.time(), tzinfo=tz)
 
 
-def streak_bonus_for(streak: int, settings: Settings) -> int:
-    """Bonus for the nth consecutive day. Day one earns the base drip only."""
-    step = max(0, streak - 1) * settings.streak_bonus_step_minor
-    return min(step, settings.streak_bonus_max_minor)
-
-
 @dataclass(frozen=True, slots=True)
 class ClaimResult:
     claim_id: uuid.UUID
     claim_date: date
-    base_minor: int
-    streak_bonus_minor: int
-    streak: int
+    amount_minor: int
     balance_after_minor: int
     next_claim_at: datetime
 
-    @property
-    def total_minor(self) -> int:
-        return self.base_minor + self.streak_bonus_minor
 
+_LOCK_USER = "SELECT last_claim_date, status FROM users WHERE id = $1 FOR UPDATE"
 
-_LOCK_USER = "SELECT last_claim_date, streak_count, status FROM users WHERE id = $1 FOR UPDATE"
-
+# streak_bonus and streak_after are columns of a mechanic that no longer
+# exists. They are written as "no bonus, day one" on every row rather than
+# dropped, so the table reads the same for claims made before and after.
 _INSERT_CLAIM = """
 INSERT INTO daily_claims (user_id, claim_date, base_amount, streak_bonus, streak_after)
-VALUES ($1, $2, $3, $4, $5)
+VALUES ($1, $2, $3, 0, 1)
 ON CONFLICT (user_id, claim_date) DO NOTHING
 RETURNING id
 """
@@ -103,23 +101,27 @@ RETURNING id
 _CREDIT = """
 INSERT INTO ledger_entries (user_id, entry_type, amount, ref_type, ref_id,
                             idempotency_key, metadata)
-VALUES ($1, $2::ledger_entry_type, $3, 'DAILY_CLAIM', $4, $5, $6::jsonb)
+VALUES ($1, 'DAILY_DRIP_CREDIT', $2, 'DAILY_CLAIM', $3, $4, '{"reason":"daily_topup"}'::jsonb)
 RETURNING balance_after
 """
 
 
-async def claim_daily_drip(
+async def claim_daily_topup(
     conn: asyncpg.Connection,
     *,
     user_id: uuid.UUID,
     settings: Settings,
     today: date | None = None,
 ) -> ClaimResult:
-    """Credit today's drip, once.
+    """Credit today's top-up, once.
 
     The row lock serialises a double-tapped button; the unique constraint on
     `(user_id, claim_date)` is the guarantee behind it. A second call on the
     same day raises rather than crediting again.
+
+    A player on a break can still claim. A break is from forecasting, and the
+    top-up is not a nudge to do that — withholding it would turn stepping away
+    into something that costs points, which is the opposite of the intent.
     """
     today = today or economy_date(settings)
 
@@ -129,262 +131,28 @@ async def claim_daily_drip(
     if user["status"] != "ACTIVE":
         raise EconomyError("account_restricted", "This account cannot claim right now.", status=403)
 
-    last_claim: date | None = user["last_claim_date"]
-    streak = (user["streak_count"] or 0) + 1 if last_claim == today - timedelta(days=1) else 1
+    amount = settings.daily_topup_minor
+    if amount <= 0:
+        raise EconomyError("topup_disabled", "The daily top-up is switched off.", status=409)
 
-    base = settings.daily_drip_minor
-    bonus = streak_bonus_for(streak, settings)
-
-    claim_id = await conn.fetchval(_INSERT_CLAIM, user_id, today, base, bonus, streak)
+    claim_id = await conn.fetchval(_INSERT_CLAIM, user_id, today, amount)
     if claim_id is None:
-        raise EconomyError("already_claimed", "Today's gift has already been claimed.", status=409)
-
-    balance = await conn.fetchval(
-        _CREDIT,
-        user_id,
-        "DAILY_DRIP_CREDIT",
-        base,
-        claim_id,
-        f"drip:{user_id}:{today.isoformat()}",
-        f'{{"reason":"daily_drip","note":"{NOTE_DAILY_DRIP}","streak":{streak}}}',
-    )
-
-    if bonus > 0:
-        balance = await conn.fetchval(
-            _CREDIT,
-            user_id,
-            "STREAK_BONUS_CREDIT",
-            bonus,
-            claim_id,
-            f"streak:{user_id}:{today.isoformat()}",
-            f'{{"reason":"streak_bonus","note":"{NOTE_STREAK_BONUS}","streak":{streak}}}',
+        raise EconomyError(
+            "already_claimed", "Today's top-up has already been claimed.", status=409
         )
 
-    await conn.execute(
-        "UPDATE users SET last_claim_date = $2, streak_count = $3 WHERE id = $1",
-        user_id,
-        today,
-        streak,
+    balance = await conn.fetchval(
+        _CREDIT, user_id, amount, claim_id, f"drip:{user_id}:{today.isoformat()}"
     )
+    await conn.execute("UPDATE users SET last_claim_date = $2 WHERE id = $1", user_id, today)
 
     return ClaimResult(
         claim_id=claim_id,
         claim_date=today,
-        base_minor=base,
-        streak_bonus_minor=bonus,
-        streak=streak,
+        amount_minor=amount,
         balance_after_minor=balance,
         next_claim_at=next_claim_at(settings, today),
     )
-
-
-@dataclass
-class DecayReport:
-    users_considered: int = 0
-    users_charged: int = 0
-    total_decayed_minor: int = 0
-    skipped_at_floor: int = 0
-
-
-_DECAY_CANDIDATES = """
-SELECT u.id, u.coin_balance
-  FROM users u
- WHERE u.status = 'ACTIVE'
-   AND u.coin_balance > $1
-   -- A player who has never predicted gets the same grace period from signup
-   -- rather than being charged for not having started yet.
-   AND COALESCE(u.last_prediction_at, u.created_at) < NOW() - make_interval(days => $2)
-   AND NOT EXISTS (
-         SELECT 1 FROM decay_events d WHERE d.user_id = u.id AND d.run_date = $3
-       )
-   AND ($4::bool IS FALSE OR NOT EXISTS (
-         SELECT 1 FROM predictions p WHERE p.user_id = u.id AND p.status = 'PENDING'
-       ))
- ORDER BY u.id
- LIMIT $5
-"""
-
-_INSERT_DECAY = """
-INSERT INTO decay_events (user_id, run_date, days_inactive, decay_rate, amount,
-                          balance_before, balance_after)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (user_id, run_date) DO NOTHING
-RETURNING id
-"""
-
-
-def decay_amount(balance: int, settings: Settings) -> int:
-    """5% of balance, never taking it below the floor.
-
-    The floor is what keeps decay from reading as confiscation: a dormant
-    account still has something to come back to, which is the difference
-    between a nudge and a reason to uninstall.
-    """
-    if balance <= settings.decay_floor_minor:
-        return 0
-    proportional = int(
-        (Decimal(balance) * Decimal(str(settings.decay_rate))).quantize(
-            Decimal(1), rounding=ROUND_HALF_UP
-        )
-    )
-    return max(0, min(proportional, balance - settings.decay_floor_minor))
-
-
-async def run_inactivity_decay(
-    conn: asyncpg.Connection, settings: Settings, *, run_date: date | None = None
-) -> DecayReport:
-    run_date = run_date or economy_date(settings)
-    report = DecayReport()
-
-    candidates = await conn.fetch(
-        _DECAY_CANDIDATES,
-        settings.decay_floor_minor,
-        settings.decay_inactive_days,
-        run_date,
-        settings.decay_skips_open_slips,
-        settings.decay_batch_size,
-    )
-    report.users_considered = len(candidates)
-
-    for row in candidates:
-        amount = decay_amount(row["coin_balance"], settings)
-        if amount <= 0:
-            report.skipped_at_floor += 1
-            continue
-
-        balance_before = row["coin_balance"]
-        event_id = await conn.fetchval(
-            _INSERT_DECAY,
-            row["id"],
-            run_date,
-            settings.decay_inactive_days,
-            Decimal(str(settings.decay_rate)),
-            amount,
-            balance_before,
-            balance_before - amount,
-        )
-        if event_id is None:
-            continue
-
-        await conn.execute(
-            """
-            INSERT INTO ledger_entries (user_id, entry_type, amount, ref_type, ref_id,
-                                        idempotency_key, metadata)
-            VALUES ($1, 'INACTIVITY_DECAY_DEBIT', $2, 'DECAY_EVENT', $3, $4, $5::jsonb)
-            """,
-            row["id"],
-            -amount,
-            event_id,
-            f"decay:{row['id']}:{run_date.isoformat()}",
-            f'{{"reason":"inactivity_decay","note":"{NOTE_INACTIVITY_DECAY}",'
-            f'"rate":"{settings.decay_rate}"}}',
-        )
-
-        report.users_charged += 1
-        report.total_decayed_minor += amount
-
-    return report
-
-
-@dataclass
-class BoostReport:
-    candidates: int = 0
-    created: int = 0
-    no_longshot_side: int = 0
-    collisions: int = 0
-
-
-_BOOST_CANDIDATES = """
-SELECT m.id, m.raw_yes_prob, m.volume_usd, m.question
-  FROM markets m
- WHERE m.status = 'ACTIVE'
-   AND m.lock_at > NOW() + make_interval(hours => $1)
-   AND m.volume_usd >= $2
-   AND NOT EXISTS (
-         SELECT 1 FROM odds_boosts b
-          WHERE b.market_id = m.id AND b.is_active AND b.ends_at > NOW()
-       )
- ORDER BY m.volume_usd DESC
- LIMIT $3
-"""
-
-_INSERT_BOOST = """
-INSERT INTO odds_boosts (market_id, side, boost_multiplier, max_raw_prob, starts_at,
-                         ends_at, max_total_stake, max_stake_per_user)
-VALUES ($1, $2::outcome_side, $3, $4, NOW(), NOW() + make_interval(hours => $5), $6, $7)
-RETURNING id
-"""
-
-
-def longshot_side(raw_yes_prob: Decimal, max_raw_prob: Decimal) -> str | None:
-    """Which side, if either, is unlikely enough to be worth boosting.
-
-    Not a coin toss between YES and NO: the quoting layer refuses to apply a
-    boost whose side is likelier than `max_raw_prob`, so a randomly chosen
-    side would be inert roughly half the time. Boosting a favourite also has
-    no engagement value — the payout is already small, and inflating it is
-    money handed away for nothing.
-    """
-    if raw_yes_prob <= max_raw_prob:
-        return "YES"
-    if (Decimal(1) - raw_yes_prob) <= max_raw_prob:
-        return "NO"
-    return None
-
-
-async def generate_boosts(
-    conn: asyncpg.Connection, settings: Settings, *, rng: random.Random | None = None
-) -> BoostReport:
-    rng = rng or random.SystemRandom()
-    report = BoostReport()
-    max_raw_prob = Decimal(str(settings.boost_max_raw_prob))
-
-    candidates = await conn.fetch(
-        _BOOST_CANDIDATES,
-        settings.boost_duration_hours,
-        Decimal(str(settings.boost_min_volume_usd)),
-        settings.boosts_per_run * 4,
-    )
-    report.candidates = len(candidates)
-
-    for row in candidates:
-        if report.created >= settings.boosts_per_run:
-            break
-
-        side = longshot_side(row["raw_yes_prob"], max_raw_prob)
-        if side is None:
-            report.no_longshot_side += 1
-            continue
-
-        multiplier = Decimal(
-            str(round(rng.uniform(settings.boost_min_multiplier, settings.boost_max_multiplier), 3))
-        )
-
-        try:
-            await conn.fetchval(
-                _INSERT_BOOST,
-                row["id"],
-                side,
-                multiplier,
-                max_raw_prob,
-                settings.boost_duration_hours,
-                settings.boost_max_total_stake_minor,
-                settings.boost_max_stake_per_user_minor,
-            )
-        except asyncpg.ExclusionViolationError:
-            report.collisions += 1
-            continue
-
-        report.created += 1
-        logger.info(
-            "boost created: market=%s side=%s multiplier=%s budget=%s",
-            row["id"],
-            side,
-            multiplier,
-            settings.boost_max_total_stake_minor,
-        )
-
-    return report
 
 
 @dataclass

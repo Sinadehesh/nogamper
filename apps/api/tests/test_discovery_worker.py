@@ -153,8 +153,8 @@ async def test_an_event_in_both_passes_is_ingested_once(resources):
     """The priority tag overlaps the ordinary feed by design.
 
     A high-volume Iran event is returned by both passes. Upserting is
-    idempotent, but the duplicate would still be translated and written twice
-    and would consume the ingest budget twice over.
+    idempotent, but the duplicate would still be written twice and would
+    consume the ingest budget twice over.
     """
     page = [fx.event("1", tags=fx.IRAN_TAGS, markets=[fx.binary_market("57000")])]
 
@@ -237,10 +237,21 @@ async def test_a_malformed_feed_does_not_wipe_the_market_list(resources):
 
 
 async def test_only_one_replica_runs_a_tick(resources):
-    """The advisory lock is what makes lifespan-attached workers safe at N replicas."""
-    import asyncio
+    """The lease is what makes lifespan-attached workers safe at N replicas.
 
-    async with mock_http_client(gamma_serving([fx.event()])) as client:
+    Gamma is made to answer slowly, because the property is about replicas
+    that *overlap*. A pass is quick enough now that three started together
+    can otherwise run one after another — each finding the lease free — and
+    that is correct behaviour which only looks like a failure of this test.
+    """
+
+    serve = gamma_serving([fx.event()])
+
+    async def slow_gamma(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.2)
+        return serve(request)
+
+    async with mock_http_client(slow_gamma) as client:
         reports = await asyncio.gather(
             discovery.run_discovery(client, resources),
             discovery.run_discovery(client, resources),
@@ -364,9 +375,9 @@ async def test_discovery_ingests_only_what_the_price_sync_can_keep_fresh(resourc
     """The run that took eighty-six minutes.
 
     Discovery read its whole page budget and upserted 7,268 markets — two
-    sequential database round trips and a translation call each — so that
-    `retire_surplus_markets` could park 6,868 of them seconds later. The work
-    was not slow; it was unnecessary.
+    sequential database round trips each — so that `retire_surplus_markets`
+    could park 6,868 of them seconds later. The work was not slow; it was
+    unnecessary.
     """
     monkeypatch.setattr(resources, "price_sync_max_markets", 1)
 
@@ -394,7 +405,6 @@ async def test_a_pass_that_overruns_is_abandoned_rather_than_left_running(resour
     Nothing is half-written: the ingest is a transaction and an abandoned one
     rolls back.
     """
-    import asyncio
 
     monkeypatch.setattr(resources, "discovery_deadline_seconds", 0.05)
 
@@ -420,40 +430,3 @@ async def test_the_deadline_is_inside_the_runaway_threshold(resources):
     from backend.workers import locks
 
     assert resources.discovery_deadline_seconds < locks.RUNAWAY_AFTER_SECONDS
-
-
-def test_the_deadline_allows_a_pass_that_actually_translates():
-    """240 seconds was measured against a pass that translated nothing.
-
-    With a reasoning provider that takes one request at a time, every
-    production run spent about a minute on Gamma and was then cut off at 241
-    seconds with the batches still in flight — outcome=deadline every hour,
-    and an empty translations table, from a budget that was never wrong so
-    much as written for different work.
-    """
-    from backend.config import Settings
-
-    assert Settings().discovery_deadline_seconds >= 900.0
-
-
-async def test_an_abandoned_run_still_reports_what_it_translated(resources, monkeypatch):
-    """A run that overruns used to report only that it overran.
-
-    That is the same report whether it translated four hundred strings or
-    could not translate one, and those need opposite fixes — raise the
-    deadline, or go look at the provider.
-    """
-    monkeypatch.setattr(resources, "discovery_deadline_seconds", 0.05)
-
-    async def crawl(*args, **kwargs):
-        await asyncio.sleep(1)
-        return []
-
-    monkeypatch.setattr(gamma, "fetch_events", crawl)
-
-    async with mock_http_client(gamma_serving([fx.event()])) as client:
-        report = await discovery.run_discovery(client, resources)
-
-    assert report.error == "deadline_exceeded"
-    assert report.translation is not None, "the counters must survive the deadline"
-    assert report.translation["translated"] == 0

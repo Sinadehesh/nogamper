@@ -1,29 +1,33 @@
 """The odds engine.
 
 Pure arithmetic: no database, no cache, no clock. Everything here is a
-function of the probabilities handed to it, which is what makes the house
-edge auditable rather than a matter of trust.
+function of the probabilities handed to it.
 
 ## The arithmetic
 
-For a leg on a side with true probability `p`:
+For a pick on a side with probability `p`:
 
-    fair   = 1 / p                      what a zero-margin book would pay
-    taxed  = (1 - vig) / p              our price
-    locked = taxed x boost              after any promotional boost
+    odds = 1 / p
 
-Above roughly `p = (1 - vig) / min_leg_odds` there is no price to offer: the
-margin consumes the entire payout and the player would lose money by winning.
-Those legs are refused rather than quoted.
+That is the whole of it. There is no margin: the price of an outcome is the
+reciprocal of how likely the market thinks it is, so a pick is worth exactly
+its stake on average, and so is any combination of picks:
 
-For a slip of n legs, the payout multiplier is the product of the legs, and
-the house's expected share follows directly:
+    combined   = Π odds_i
+    E[return]  = Π p_i x Π odds_i  =  1
 
-    combined  = Π locked_i
-    E[house]  = 1 - Π p_i x Π locked_i  =  1 - Π ((1 - vig) x boost_i)
+A player ends up ahead of where they started only by being right more often
+than the crowd they are forecasting against. Nothing is skimmed on the way.
 
-With no boosts that is `1 - (1 - vig)^n` — 5% on a single, 22.6% on a five-leg
-parlay. The compounding is the product; nothing else is doing any work.
+## What used to be here
+
+This module once priced `(1 - vig) / p`, multiplied in promotional boosts and
+a bonus for longer slips, and sold cover against a near miss at a loaded
+premium. The margin compounded per pick — 5% on a single became 22.6% on five
+— which is the mechanism that makes an accumulator the most profitable thing
+a bookmaker sells. `bookmaker_take` at the bottom of this file keeps that one
+formula, because the reality check uses it to show a player what the same
+record would have cost somewhere that charges it.
 
 ## Rounding is not cosmetic here
 
@@ -41,18 +45,15 @@ from dataclasses import dataclass
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 __all__ = [
-    "InsuranceQuote",
     "OddsError",
     "PricedLeg",
     "PricedSlip",
-    "failure_distribution",
-    "price_insurance",
+    "bookmaker_take",
     "price_leg",
     "price_slip",
 ]
 
 _ODDS_PLACES = Decimal("0.000001")
-_RATE_PLACES = Decimal("0.000001")
 _ONE = Decimal(1)
 
 
@@ -70,29 +71,9 @@ class PricedLeg:
     raw_prob: Decimal
     """The market's YES probability, as fetched."""
     true_prob: Decimal
-    """The probability of the *selected* side, clamped."""
-    vig_rate: Decimal
-    boost_multiplier: Decimal
-    boost_id: str | None
+    """The probability of the *selected* side."""
     locked_odds: Decimal
     """Quantised to the column scale — this is what settlement will multiply."""
-
-    @property
-    def fair_odds(self) -> Decimal:
-        return (_ONE / self.true_prob).quantize(_ODDS_PLACES, rounding=ROUND_DOWN)
-
-
-@dataclass(frozen=True, slots=True)
-class InsuranceQuote:
-    available: bool
-    rate: Decimal
-    premium_minor: int
-    covers_failed_legs: int
-    min_legs: int
-    fair_rate: Decimal
-    """Probability of a covered near-miss, before the margin load. Kept for
-    risk reporting: `rate - fair_rate` is the margin actually charged."""
-    unavailable_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,28 +86,8 @@ class PricedSlip:
     payout_cap_minor: int
     potential_payout_minor: int
     capped: bool
-    house_edge_bps: int
-    insurance: InsuranceQuote
-    parlay_bonus: Decimal = _ONE
-    """Slip-wide multiplier for building a longer slip. Stored on the
-    prediction and applied by fn_effective_parlay_odds, so settlement agrees with
-    the quote."""
     true_probability: Decimal = Decimal(1)
-    """Product of the legs' true probabilities: the chance this slip wins.
-
-    Kept because two decisions read it — whether the payout cap applies, and
-    whether the liability guard does — and both need the same number."""
-    uncapped: bool = False
-    """Paid in full because it is too unlikely to be exposure. See
-    Settings.uncapped_below_probability."""
-
-    @property
-    def total_cost_minor(self) -> int:
-        return self.stake_minor + self.insurance.premium_minor
-
-
-def _clamp(value: Decimal, low: Decimal, high: Decimal) -> Decimal:
-    return min(max(value, low), high)
+    """Product of the legs' probabilities: the chance this slip comes in."""
 
 
 def price_leg(
@@ -134,139 +95,46 @@ def price_leg(
     market_id: str,
     side: str,
     raw_yes_prob: Decimal,
-    vig_rate: Decimal,
     min_prob: Decimal,
     max_prob: Decimal,
-    min_leg_odds: Decimal = Decimal("1.01"),
-    boost_multiplier: Decimal = _ONE,
-    boost_id: str | None = None,
 ) -> PricedLeg:
+    """The fair price of one outcome, or a refusal if it has none worth offering.
+
+    **Outside the band is refused, not clamped.** Clamping looks harmless and
+    is not: an outcome the market puts at 99.7% would be priced as though it
+    were 99%, which pays more than fair on something that almost always
+    happens — a slow, riskless way to manufacture points, and the first thing
+    anyone optimising a leaderboard would find. The other end fails the other
+    way, quietly paying less than fair. A question that is all but settled is
+    simply not one there is a forecast left to make on.
+
+    Truncated, not rounded: rounding up would pay a sliver more than fair on
+    half of all prices. Truncation errs by at most one millionth, always in
+    the same direction.
+
+    The band is also what keeps the result storable. `max_prob` below 1 means
+    odds strictly above 1.0, which the column demands — a "win" that returns
+    only the stake is not a price — and `min_prob` above 0 bounds the longest
+    price a single pick can carry.
+    """
     if side not in {"YES", "NO"}:
         raise OddsError("bad_side", f"{side!r} is not YES or NO.")
 
     selected = raw_yes_prob if side == "YES" else _ONE - raw_yes_prob
-    true_prob = _clamp(selected, min_prob, max_prob)
+    if selected > max_prob:
+        raise OddsError("leg_unpriceable", "This outcome is too close to certain to forecast.")
+    if selected < min_prob:
+        raise OddsError("leg_unpriceable", "This outcome is too unlikely to carry a fair price.")
 
-    taxed = (_ONE - vig_rate) / true_prob
-    locked = (taxed * boost_multiplier).quantize(_ODDS_PLACES, rounding=ROUND_DOWN)
-
-    locked = max(locked, min_leg_odds)
+    locked = (_ONE / selected).quantize(_ODDS_PLACES, rounding=ROUND_DOWN)
 
     return PricedLeg(
         market_id=market_id,
         side=side,
         raw_prob=raw_yes_prob,
-        true_prob=true_prob,
-        vig_rate=vig_rate,
-        boost_multiplier=boost_multiplier,
-        boost_id=boost_id,
+        true_prob=selected,
         locked_odds=locked,
     )
-
-
-def failure_distribution(probabilities: list[Decimal]) -> list[Decimal]:
-    """P(exactly k legs fail), for k = 0..n. A Poisson-binomial, computed
-    exactly by convolution because the legs have different probabilities."""
-    distribution = [_ONE]
-    for p in probabilities:
-        q = _ONE - p
-        updated = [Decimal(0)] * (len(distribution) + 1)
-        for k, weight in enumerate(distribution):
-            updated[k] += weight * p
-            updated[k + 1] += weight * q
-        distribution = updated
-    return distribution
-
-
-def price_insurance(
-    legs: tuple[PricedLeg, ...],
-    stake_minor: int,
-    *,
-    load: Decimal,
-    min_rate: Decimal,
-    max_rate: Decimal,
-    min_legs: int,
-    covers_failed_legs: int,
-    requested: bool,
-) -> InsuranceQuote:
-    """Price near-miss cover from the legs actually on the slip.
-
-    A flat rate cannot work. The cover pays when between 1 and
-    `covers_failed_legs` legs fail, and that probability swings by more than
-    an order of magnitude with the legs chosen:
-
-        five legs at p=0.30  ->  P(exactly one fails) = 2.8%
-        five legs at p=0.50  ->  15.6%
-        five legs at p=0.80  ->  41.0%
-
-    A flat 15% premium is nearly free money on longshots and catastrophic on
-    the favourites players actually parlay. Charging `(1 + load)` times the
-    real probability makes the expected margin `stake x P x load`, which is
-    non-negative for every slip that can be constructed.
-    """
-    unavailable = _insurance_unavailable_reason(legs, min_legs, covers_failed_legs)
-    if unavailable is not None:
-        return InsuranceQuote(
-            available=False,
-            rate=Decimal(0),
-            premium_minor=0,
-            covers_failed_legs=covers_failed_legs,
-            min_legs=min_legs,
-            fair_rate=Decimal(0),
-            unavailable_reason=unavailable,
-        )
-
-    distribution = failure_distribution([leg.true_prob for leg in legs])
-    fair_rate = sum(distribution[1 : covers_failed_legs + 1], Decimal(0))
-    loaded = (_ONE + load) * fair_rate
-
-    if loaded > max_rate:
-        return InsuranceQuote(
-            available=False,
-            rate=Decimal(0),
-            premium_minor=0,
-            covers_failed_legs=covers_failed_legs,
-            min_legs=min_legs,
-            fair_rate=fair_rate,
-            unavailable_reason="cover_too_expensive_for_these_legs",
-        )
-
-    rate = max(loaded, min_rate).quantize(_RATE_PLACES, rounding=ROUND_HALF_UP)
-
-    premium = 0
-    if requested:
-        premium = int((Decimal(stake_minor) * rate).quantize(_ONE, rounding=ROUND_HALF_UP))
-        if premium <= 0:
-            return InsuranceQuote(
-                available=False,
-                rate=rate,
-                premium_minor=0,
-                covers_failed_legs=covers_failed_legs,
-                min_legs=min_legs,
-                fair_rate=fair_rate,
-                unavailable_reason="stake_too_small_for_cover",
-            )
-
-    return InsuranceQuote(
-        available=True,
-        rate=rate,
-        premium_minor=premium,
-        covers_failed_legs=covers_failed_legs,
-        min_legs=min_legs,
-        fair_rate=fair_rate,
-    )
-
-
-def _insurance_unavailable_reason(
-    legs: tuple[PricedLeg, ...], min_legs: int, covers_failed_legs: int
-) -> str | None:
-    if len(legs) < min_legs:
-        return "too_few_legs"
-    if covers_failed_legs < 1:
-        return "cover_disabled"
-    if covers_failed_legs >= len(legs):
-        return "cover_exceeds_slip"
-    return None
 
 
 def price_slip(
@@ -275,27 +143,15 @@ def price_slip(
     stake_minor: int,
     payout_cap_minor: int,
     max_combined_odds: Decimal,
-    insurance: InsuranceQuote,
-    uncapped_below_probability: Decimal = Decimal(0),
-    parlay_bonus: Decimal = _ONE,
 ) -> PricedSlip:
-    """Price a whole slip.
-
-    **The payout cap is waived below a probability, not below an odds.** The
-    two look interchangeable and are not: odds carry the vig and the boost, so
-    an odds threshold would waive the cap on a slip made expensive by a
-    promotion rather than by being unlikely. The chance the house actually
-    pays is the product of the legs' true probabilities, and that is what
-    decides.
-    """
     if not legs:
-        raise OddsError("no_legs", "A slip needs at least one leg.")
+        raise OddsError("no_legs", "A slip needs at least one pick.")
 
     exact_product = _ONE
+    true_probability = _ONE
     for leg in legs:
         exact_product *= leg.locked_odds
-
-    exact_product *= parlay_bonus
+        true_probability *= leg.true_prob
 
     if exact_product > max_combined_odds:
         raise OddsError(
@@ -303,33 +159,30 @@ def price_slip(
             f"Combined odds {exact_product:.2f} exceed the maximum of {max_combined_odds:.0f}.",
         )
 
-    true_probability = _ONE
-    for leg in legs:
-        true_probability *= leg.true_prob
-
     gross = int((Decimal(stake_minor) * exact_product).quantize(_ONE, rounding=ROUND_HALF_UP))
-
-    uncapped = uncapped_below_probability > 0 and true_probability <= uncapped_below_probability
-
-    effective_cap = gross if uncapped else payout_cap_minor
-    potential = min(gross, effective_cap)
-
-    expected_return = parlay_bonus
-    for leg in legs:
-        expected_return *= leg.true_prob * leg.locked_odds
-    edge_bps = int(((_ONE - expected_return) * 10000).quantize(_ONE, rounding=ROUND_HALF_UP))
+    potential = min(gross, payout_cap_minor)
 
     return PricedSlip(
         legs=legs,
         stake_minor=stake_minor,
         combined_odds=exact_product.quantize(_ODDS_PLACES, rounding=ROUND_DOWN),
         gross_payout_minor=gross,
-        payout_cap_minor=effective_cap,
+        payout_cap_minor=payout_cap_minor,
         potential_payout_minor=potential,
-        capped=not uncapped and gross > payout_cap_minor,
+        capped=gross > payout_cap_minor,
         true_probability=true_probability,
-        uncapped=uncapped,
-        parlay_bonus=parlay_bonus,
-        house_edge_bps=edge_bps,
-        insurance=insurance,
     )
+
+
+def bookmaker_take(margin: Decimal, legs: int) -> Decimal:
+    """The share of a stake a margin of `margin` per pick removes, on average.
+
+        take = 1 - (1 - margin)^legs
+
+    Not used to price anything here. It is the arithmetic of the product this
+    one replaces, kept so the reality check can put a number on it: 5% a pick
+    is 5% on a single, 9.8% on a double and 22.6% on five.
+    """
+    if legs < 1:
+        return Decimal(0)
+    return _ONE - (_ONE - margin) ** legs

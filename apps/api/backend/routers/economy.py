@@ -1,4 +1,4 @@
-"""Player-facing economy: the daily claim and the leaderboard."""
+"""Player-facing economy: the free daily top-up and the leaderboard."""
 
 from __future__ import annotations
 
@@ -25,21 +25,18 @@ router = APIRouter(prefix="/v1/economy", tags=["economy"])
     "/claim",
     response_model=ClaimResponse,
     responses={409: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Claim today's coins",
+    summary="Claim today's free top-up",
 )
 async def claim(
     user: CurrentUser,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ClaimResponse:
     async with db.transaction() as conn:
-        result = await economy.claim_daily_drip(conn, user_id=user["id"], settings=settings)
+        result = await economy.claim_daily_topup(conn, user_id=user["id"], settings=settings)
 
     return ClaimResponse(
         claim_date=result.claim_date.isoformat(),
-        base=Money.of(result.base_minor),
-        streak_bonus=Money.of(result.streak_bonus_minor),
-        total=Money.of(result.total_minor),
-        streak=result.streak,
+        amount=Money.of(result.amount_minor),
         balance=Money.of(result.balance_after_minor),
         next_claim_at=result.next_claim_at,
     )
@@ -58,11 +55,14 @@ SELECT e.rank, e.user_id, e.slips_settled, e.slips_won, e.total_staked,
 
 
 def _display_name(first_name: str | None) -> str:
-    """A label for the leaderboard that never carries the player's real
-    handle — see the identical fix and rationale in routers/activity.py.
-    Whoever reaches rank 1 is the most-viewed row on this page, which used to
-    make the top of the leaderboard the single most exposed spot in the app
-    for a player who happened to have a Telegram username set.
+    """A label for the leaderboard that never carries the player's own name.
+
+    An initial and nothing else. Whoever reaches rank 1 is the most-viewed
+    row on this page, and a display name is free text a stranger typed — so
+    printing it here would make the top of the table both the most exposed
+    place to be named and the most rewarding place to put something that
+    should not be on screen. A player finds themselves by `is_me`, not by
+    reading their name.
     """
     return f"{(first_name or '?').strip()[:1].upper()}."
 

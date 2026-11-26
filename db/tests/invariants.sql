@@ -289,6 +289,64 @@ BEGIN
     IF v_drift <> 0 THEN RAISE EXCEPTION 'FAIL: % account(s) drifted', v_drift; END IF;
 END $$;
 
+\echo '14. A web account is an email and a password together, or neither'
+DO $$
+BEGIN
+    INSERT INTO users (email, password_hash, first_name)
+    VALUES ('ada@example.com', '$argon2id$stub', 'Ada');
+
+    BEGIN
+        INSERT INTO users (email, first_name) VALUES ('nopass@example.com', 'NoPass');
+        RAISE EXCEPTION 'FAIL: an email without a password was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO users (password_hash, first_name, is_guest) VALUES ('$argon2id$stub', 'NoMail', TRUE);
+        RAISE EXCEPTION 'FAIL: a password without an email was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO users (email, password_hash, first_name)
+        VALUES ('Ada@Example.com', '$argon2id$stub', 'Shouting Ada');
+        RAISE EXCEPTION 'FAIL: an email that is not lower-cased was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO users (email, password_hash, first_name)
+        VALUES ('ada@example.com', '$argon2id$stub', 'Second Ada');
+        RAISE EXCEPTION 'FAIL: the same email registered twice';
+    EXCEPTION WHEN unique_violation THEN NULL; END;
+END $$;
+
+\echo '15. A guest has no credentials, and nobody exists without an identity'
+DO $$
+BEGIN
+    INSERT INTO users (first_name, is_guest) VALUES ('Guest', TRUE);
+    INSERT INTO users (first_name, is_guest) VALUES ('Guest', TRUE);  -- many guests are fine
+
+    BEGIN
+        INSERT INTO users (email, password_hash, first_name, is_guest)
+        VALUES ('both@example.com', '$argon2id$stub', 'Both', TRUE);
+        RAISE EXCEPTION 'FAIL: a guest with credentials was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO users (first_name) VALUES ('Nobody');
+        RAISE EXCEPTION 'FAIL: a user with no identity at all was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+END $$;
+
+\echo '16. Nothing is on sale and nothing is redeemable'
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM coin_packages WHERE is_active) THEN
+        RAISE EXCEPTION 'FAIL: a coin package is still on sale';
+    END IF;
+    IF EXISTS (SELECT 1 FROM rewards WHERE is_active) THEN
+        RAISE EXCEPTION 'FAIL: a reward is still redeemable';
+    END IF;
+END $$;
+
 \echo ''
 \echo 'ALL INVARIANTS HOLD'
 ROLLBACK;
