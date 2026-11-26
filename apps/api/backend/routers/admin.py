@@ -55,6 +55,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
+# A refund is a debit, so the sum is what was bought and kept.
+_BOUGHT = frozenset({"POINTS_PURCHASE_CREDIT", "POINTS_REFUND_DEBIT"})
+
 _GRANTED = frozenset(
     {
         "SIGNUP_BONUS_CREDIT",
@@ -112,6 +115,7 @@ async def read_overview(
         ),
         points=OverviewPoints(
             granted=Money.of(_sum_of(report.ledger, _GRANTED)),
+            bought=Money.of(_sum_of(report.ledger, _BOUGHT)),
             staked=Money.of(-_sum_of(report.ledger, _STAKED)),
             returned=Money.of(_sum_of(report.ledger, _RETURNED)),
             adjusted=Money.of(_sum_of(report.ledger, "ADMIN_ADJUSTMENT")),

@@ -81,7 +81,52 @@ export type GameRules = {
   limit_loosen_delay_hours: number;
   break_options_hours: number[];
   password_min_length: number;
+  shop: ShopTerms;
 };
+
+export type ShopPack = { points: Money; price_cents: number };
+
+/** What is for sale and on what terms. `open: false` means nothing is. */
+export type ShopTerms = {
+  open: boolean;
+  currency: string;
+  price_per_thousand_cents: number;
+  packs: ShopPack[];
+  monthly_cap_cents: number;
+  min_age: number;
+};
+
+export type ShopBlock =
+  | "shop_closed"
+  | "account_required"
+  | "account_restricted"
+  | "on_break"
+  | "shop_closed_by_you"
+  | "spend_limit_reached";
+
+export type ShopPurchase = {
+  id: string;
+  points: Money;
+  amount_cents: number;
+  currency: string;
+  status: "PAID" | "REFUNDED";
+  at: string;
+};
+
+export type ShopStanding = {
+  spent_month_cents: number;
+  pending_cents: number;
+  spent_all_cents: number;
+  limit_cents: number | null;
+  limit_loosen_at: string | null;
+  remaining_cents: number;
+  resets_at: string;
+  blocked: ShopBlock | null;
+  blocked_until: string | null;
+  purchases: ShopPurchase[];
+};
+
+export type Shop = ShopTerms & { mine: ShopStanding | null };
 
 export type MarketSort = "tossup" | "closing" | "volume";
 
@@ -305,7 +350,8 @@ export type Overview = {
     claimed_in_window: number;
   };
   forecasts: { placed: number; settled: number; won: number; lost: number; open: number };
-  points: { granted: Money; staked: Money; returned: Money; adjusted: Money; net_change: Money };
+  points: { granted: Money;
+    bought: Money; staked: Money; returned: Money; adjusted: Money; net_change: Money };
   safer_play: { with_daily_limit: number; on_break: number; erased: number };
   daily: { day: string; new_players: number; forecasts: number; forecasters: number }[];
   ledger: LedgerFlow[];

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 
 import { usePlayer } from "@/components/PlayerProvider";
+import { ShopCard } from "@/components/Shop";
 import {
   changePassword,
   eraseAccount,
@@ -31,12 +32,13 @@ function FlashLine({ flash }: { flash: Flash }) {
   );
 }
 
-export function AccountPanel() {
+export function AccountPanel({ onOpenSafer }: { onOpenSafer: () => void }) {
   const { player } = usePlayer();
 
   return (
     <section className="space-y-4">
       <ProfileCard />
+      <ShopCard onOpenSafer={onOpenSafer} />
       {player.is_guest ? null : <PasswordCard />}
       <WritingCard />
       <ContactCard />

@@ -16,7 +16,7 @@ export const t = {
   tagline: "Prediction markets without the gambling.",
   description:
     `${APP_NAME} is a free forecasting game. Real questions, live odds from real ` +
-    "prediction markets, and points instead of money — nothing to buy and nothing to cash out.",
+    "prediction markets, and points instead of money — free to play, and nothing to cash out.",
 
   // ----- navigation ---------------------------------------------------------
   navLabel: "Site",
@@ -24,6 +24,7 @@ export const t = {
   navMission: "Mission",
   navArticles: "Articles",
   navPrivacy: "Privacy",
+  navSupport: "Support the site",
   navAbout: "How it works",
   navHelp: "Worried about gambling?",
   navSignIn: "Sign in",
@@ -32,7 +33,7 @@ export const t = {
   skipToContent: "Skip to content",
 
   footerNoValue:
-    "Points have no cash value. They cannot be bought, sold, transferred or redeemed for anything.",
+    "Points have no cash value. They cannot be cashed out, transferred or redeemed for anything.",
   footerAdults: "For adults aged 18 and over.",
   footerNotAffiliated:
     "Market questions and prices come from public Polymarket data. This site is not " +
@@ -56,7 +57,7 @@ export const t = {
   signInTitle: "Sign in",
   signInIntro: "Welcome back.",
   signUpTitle: "Create your account",
-  signUpIntro: "Free, and it takes a few seconds. No card, because there is nothing to pay for.",
+  signUpIntro: "Free, and it takes a few seconds. No card needed.",
   upgradeTitle: "Keep your progress",
   upgradeIntro:
     "You have been playing as a guest. Add an email and a password and everything you " +
@@ -255,6 +256,72 @@ export const t = {
   calibrationExpected: "Expected",
   calibrationRange: (low: string, high: string) => `${low}–${high}`,
 
+  // ----- the shop ------------------------------------------------------------
+  shopTitle: "Points",
+  shopFreeFirst: (topUp: string) =>
+    `You get ${topUp} points free every day, so you never need to buy any.`,
+  shopWhy:
+    "If you would like more to play with, you can buy extra points. There are no adverts " +
+    "here, so this is how the site is paid for — thank you for helping it continue.",
+  shopChoose: "Choose a pack",
+  shopPackPoints: (amount: string) => `${amount} points`,
+  shopSameRate: "The price per point is the same for every pack.",
+  shopAdult: (age: number) =>
+    `I am ${age} or over, and I understand that points have no cash value and cannot be cashed out.`,
+  shopBuy: "Pay with card",
+  shopGoing: "Opening the payment page…",
+  shopStripeNote:
+    "Payment is taken on Stripe's secure page. This site never sees your card. Your points " +
+    "arrive a few seconds after you pay.",
+  shopSpentMonth: (spent: string, ceiling: string) =>
+    `Spent this month: ${spent} of a ${ceiling} limit.`,
+  shopSetLimit: "Set a lower limit",
+  shopHistory: "Your purchases",
+  shopRefunded: "refunded",
+  shopNoValue: "Points have no cash value and can never be cashed out, traded or redeemed.",
+  shopTermsLink: "The terms in full",
+  shopLink: "Buy points",
+  shopNeedsAccount: "Create an account to buy points. A guest account is only a cookie.",
+  shopOnBreak: "You are on a break, and the shop is closed until it ends.",
+  shopOnBreakUntil: (when: string) =>
+    `You are on a break until ${when}. The shop is closed until it ends.`,
+  shopClosedByYou:
+    "You have set your spending limit to zero, so the shop is closed for you. That was your " +
+    "decision and it is respected: the free top-up carries on as usual.",
+  shopLimitReached: (limit: string, resets: string) =>
+    `You have reached this month's spending limit of ${limit}` +
+    (resets ? `. It starts again on ${resets}` : "") +
+    ". The free top-up carries on as usual.",
+  shopOverLimit: "That pack would take you past this month's spending limit.",
+  shopRestricted: "This account cannot buy points.",
+  shopClosed: "Nothing is for sale at the moment.",
+  shopAdultRequired: "Please confirm that you are old enough.",
+  shopUnknownPack: "That pack is no longer on sale. Reload the page and choose again.",
+  shopUnavailable: "Payment is unavailable right now. Nothing was charged. Please try later.",
+  shopThanks:
+    "Thank you — that is what keeps this site running. Your points will appear here within a " +
+    "minute.",
+  shopArrived: "Thank you — your points have arrived, and you have helped keep this site running.",
+  shopCancelled: "No payment was taken.",
+
+  spendTitle: "Spending limit",
+  spendIntro: (cap: string) =>
+    `Real money, not points. Nobody can spend more than ${cap} a month here, and you can set ` +
+    "yourself a lower limit — or close the shop for yourself altogether.",
+  spendThisMonth: "Spent this month",
+  spendAllTime: "Spent in total",
+  spendYourLimit: "Your limit",
+  spendNoLimit: (cap: string) => `${cap} (the site's)`,
+  spendClosed: "Shop closed",
+  spendChange: "Change my monthly limit",
+  spendChoose: "Choose…",
+  spendOption: (amount: string) => `${amount} a month`,
+  spendOptionZero: "Nothing — close the shop for me",
+  spendOptionNone: (cap: string) => `No limit of my own (${cap})`,
+  spendRule:
+    "A limit can be lowered at once. Raising or removing it takes effect only after it has " +
+    "stood for a day.",
+
   limitTitle: "Daily limit",
   limitIntro: "The most you can stake in a day. Tighten it whenever you like.",
   limitCurrent: (amount: string) => `Current limit: ${amount} points a day.`,
@@ -348,7 +415,7 @@ export const t = {
   articleMore: "Keep reading",
   articleBack: "All articles",
   articleTryTitle: "See what forecasting is like with no money in it",
-  articleTryBody: "Real questions, live odds, points that cannot be bought or cashed out.",
+  articleTryBody: "Real questions, live odds, and points that can never be cashed out.",
 
   // ----- articles: writing --------------------------------------------------
   writeTitle: "Write an article",
@@ -457,9 +524,11 @@ export const t = {
   adminForecastsRight: "Right / settled",
   adminPointsTitle: "Where points went",
   adminPointsNote:
-    "Nothing is sold, so there is no revenue line. Points are granted free; at fair odds the " +
-    "gap between staked and returned is luck and skill, and it is nobody's income.",
+    "Points in the game are nobody's income: at fair odds the gap between staked and " +
+    "returned is luck and skill. Money from points bought and from donations is in Stripe, " +
+    "not here.",
   adminGranted: "Granted free",
+  adminBought: "Bought (net of refunds)",
   adminStaked: "Staked",
   adminReturned: "Returned",
   adminAdjusted: "Adjusted by an operator",

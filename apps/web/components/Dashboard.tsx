@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { AccountPanel } from "@/components/AccountPanel";
 import { ForecastHistory } from "@/components/ForecastHistory";
@@ -13,7 +13,7 @@ import { SessionReminder } from "@/components/SessionReminder";
 import { Wordmark } from "@/components/SiteChrome";
 import { SlipProvider, useSlip } from "@/components/SlipProvider";
 import { SlipSheet } from "@/components/SlipSheet";
-import { claimTopUp } from "@/lib/api";
+import { claimTopUp, getShop } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
 import { dateTime, points, timeUntil } from "@/lib/format";
 import { TABS, type Tab } from "@/lib/tabs";
@@ -31,22 +31,96 @@ const TAB_LABEL: Record<Tab, string> = {
 /** Until the feed has answered, a slip may hold this many picks. */
 const FALLBACK_MAX_LEGS = 5;
 
-export function Dashboard({ initialTab }: { initialTab: Tab }) {
+/** How somebody arrived back from Stripe's payment page, if they did. */
+export type PurchaseReturn = "done" | "cancelled" | null;
+
+export function Dashboard({
+  initialTab,
+  purchase = null,
+}: {
+  initialTab: Tab;
+  purchase?: PurchaseReturn;
+}) {
   const [rules, setRules] = useState<MarketRules | null>(null);
 
   return (
     <SlipProvider maxLegs={rules?.max_legs ?? FALLBACK_MAX_LEGS}>
-      <Screen initialTab={initialTab} rules={rules} onRules={setRules} />
+      <Screen initialTab={initialTab} purchase={purchase} rules={rules} onRules={setRules} />
     </SlipProvider>
+  );
+}
+
+/** A checkout stays open for half an hour, so a purchase paid just now was
+ *  started no longer ago than this. */
+const JUST_NOW_MS = 35 * 60 * 1000;
+
+/**
+ * The word from Stripe's payment page, and the wait for the points.
+ *
+ * Arriving at the "done" address proves nothing and credits nothing — anyone
+ * can type it. The points are added when Stripe's own signed message reaches
+ * the server, which may be a moment before this page loads or a few seconds
+ * after. So this says thank you, then asks the server whether a purchase has
+ * actually been paid, and only then says the points have arrived.
+ */
+function PurchaseNotice({ outcome }: { outcome: Exclude<PurchaseReturn, null> }) {
+  const { refresh } = usePlayer();
+  const [arrived, setArrived] = useState(false);
+
+  useEffect(() => {
+    if (outcome !== "done") return;
+    let cancelled = false;
+    let tries = 0;
+    let timer: number | undefined;
+
+    const look = async () => {
+      const result = await getShop();
+      if (cancelled) return;
+      const paid =
+        result.ok &&
+        (result.data.mine?.purchases ?? []).some(
+          (purchase) =>
+            purchase.status === "PAID" &&
+            Date.now() - new Date(purchase.at).getTime() < JUST_NOW_MS,
+        );
+      if (paid) {
+        setArrived(true);
+        void refresh();
+        return;
+      }
+      tries += 1;
+      if (tries < 10) timer = window.setTimeout(() => void look(), 3000);
+    };
+    void look();
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [outcome, refresh]);
+
+  if (outcome === "cancelled") {
+    return (
+      <p role="status" className="notice">
+        {t.shopCancelled}
+      </p>
+    );
+  }
+  return (
+    <p role="status" className="notice notice-ok">
+      {arrived ? t.shopArrived : t.shopThanks}
+    </p>
   );
 }
 
 function Screen({
   initialTab,
+  purchase,
   rules,
   onRules,
 }: {
   initialTab: Tab;
+  purchase: PurchaseReturn;
   rules: MarketRules | null;
   onRules: (rules: MarketRules) => void;
 }) {
@@ -54,6 +128,16 @@ function Screen({
   const [tab, setTab] = useState<Tab>(initialTab);
   const [historyToken, setHistoryToken] = useState(0);
   const [placedFlash, setPlacedFlash] = useState(false);
+  const [shopOpen, setShopOpen] = useState(false);
+
+  useEffect(() => {
+    // Only to know whether to offer the link at all. The card on the account
+    // tab asks again for the detail; this must not hold up the screen.
+    void getShop().then((result) => setShopOpen(result.ok && result.data.open));
+    // Take the outcome out of the address, so a reload does not thank
+    // somebody a second time for one purchase.
+    if (purchase) window.history.replaceState(null, "", "/play");
+  }, [purchase]);
 
   const select = useCallback((next: Tab) => {
     setTab(next);
@@ -84,7 +168,12 @@ function Screen({
       </header>
 
       <main id="main" className="container-page flex-1 space-y-5 pb-28 pt-5">
-        <Summary onOpenSafer={() => select("safer")} />
+        {purchase ? <PurchaseNotice outcome={purchase} /> : null}
+
+        <Summary
+          onOpenSafer={() => select("safer")}
+          onOpenShop={shopOpen ? () => select("account") : null}
+        />
 
         {/* Five tabs do not fit across a phone. They wrap onto two rows of
             three and two rather than scroll sideways: a tab that has scrolled
@@ -129,7 +218,7 @@ function Screen({
           ) : tab === "safer" ? (
             <SaferPlayPanel />
           ) : (
-            <AccountPanel />
+            <AccountPanel onOpenSafer={() => select("safer")} />
           )}
         </div>
       </main>
@@ -161,7 +250,14 @@ function Screen({
   );
 }
 
-function Summary({ onOpenSafer }: { onOpenSafer: () => void }) {
+function Summary({
+  onOpenSafer,
+  onOpenShop,
+}: {
+  onOpenSafer: () => void;
+  /** Null when nothing is for sale, and then no link is shown. */
+  onOpenShop: (() => void) | null;
+}) {
   const { player, refresh, onBreak, limitReached } = usePlayer();
   const [claiming, setClaiming] = useState(false);
   const [flash, setFlash] = useState<{ ok: boolean; text: string } | null>(null);
@@ -211,6 +307,20 @@ function Summary({ onOpenSafer }: { onOpenSafer: () => void }) {
             </div>
           ) : player.next_claim_at ? (
             <p className="text-muted">{t.topUpNext(timeUntil(player.next_claim_at))}</p>
+          ) : null}
+          {/* After the free top-up, never instead of it, and in the same
+              place whatever the balance: it does not appear when somebody
+              runs out, because that is the moment not to be sold to. */}
+          {onOpenShop ? (
+            <p className="mt-1 text-right">
+              <button
+                type="button"
+                className="text-muted underline underline-offset-2 hover:text-ink"
+                onClick={onOpenShop}
+              >
+                {t.shopLink}
+              </button>
+            </p>
           ) : null}
         </div>
       </div>

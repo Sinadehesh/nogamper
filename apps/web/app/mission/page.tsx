@@ -3,7 +3,7 @@ import Link from "next/link";
 import { JsonLd } from "@/components/JsonLd";
 import { StartActions } from "@/components/SignedIn";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
-import { mission } from "@/lib/content";
+import { DONATE_URL, mission } from "@/lib/content";
 import { t } from "@/lib/copy";
 import { breadcrumbLd, pageMetadata } from "@/lib/seo";
 import { getRules } from "@/lib/server/rules";
@@ -111,8 +111,8 @@ export default async function MissionPage() {
               {mission.wontTitle}
             </h2>
             <ul className="mt-5 space-y-3">
-              {mission.wont.map((promise) => (
-                <li key={promise} className="flex gap-3">
+              {mission.wont(rules).map((promise) => (
+                <li key={promise.slice(0, 32)} className="flex gap-3">
                   <span aria-hidden className="mt-0.5 font-bold text-no">
                     ✕
                   </span>
@@ -167,6 +167,23 @@ export default async function MissionPage() {
                 <li key={measure.slice(0, 24)}>{measure}</li>
               ))}
             </ul>
+
+            <h2 id="paid" className="mt-12 text-2xl font-bold tracking-tight">
+              {mission.paidTitle}
+            </h2>
+            <div className="prose-block mt-4 text-muted">
+              {mission.paid(rules, DONATE_URL !== "").map((paragraph) => (
+                <p key={paragraph.slice(0, 24)}>{paragraph}</p>
+              ))}
+            </div>
+            <p className="mt-4">
+              <Link
+                href="/support"
+                className="font-semibold text-accent underline underline-offset-2"
+              >
+                {mission.paidLink}
+              </Link>
+            </p>
 
             <h2 className="mt-12 text-2xl font-bold tracking-tight">
               {mission.independenceTitle}

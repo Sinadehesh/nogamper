@@ -5,6 +5,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 
 import { usePlayer } from "@/components/PlayerProvider";
 import { REMINDER_OPTIONS, readReminderMinutes, writeReminderMinutes } from "@/components/SessionReminder";
+import { SpendLimitCard } from "@/components/Shop";
 import { getRealityCheck, setDailyLimit, takeBreak, type ApiFailure } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
 import {
@@ -34,6 +35,7 @@ export function SaferPlayPanel() {
         <DailyLimitCard />
         <BreakCard />
       </div>
+      <SpendLimitCard />
       <ReminderCard />
       <p className="notice">
         {t.helpPrompt}{" "}

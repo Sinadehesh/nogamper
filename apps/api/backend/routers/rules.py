@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends
 
 from ..config import Settings, get_settings
 from ..schemas import GameRules, Money
+from .shop import terms as shop_terms
 
 router = APIRouter(prefix="/v1", tags=["rules"])
 
@@ -38,4 +39,5 @@ async def read_rules(settings: Annotated[Settings, Depends(get_settings)]) -> Ga
         limit_loosen_delay_hours=round(settings.limit_loosen_delay_seconds / 3600),
         break_options_hours=settings.break_options_hours,
         password_min_length=settings.password_min_length,
+        shop=shop_terms(settings),
     )

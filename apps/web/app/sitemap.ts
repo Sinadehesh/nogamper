@@ -28,6 +28,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
     { url: absolute("/help"), changeFrequency: "monthly", priority: 0.9 },
     { url: absolute("/about"), changeFrequency: "monthly", priority: 0.7 },
+    { url: absolute("/support"), changeFrequency: "monthly", priority: 0.4 },
     { url: absolute("/privacy"), lastModified: PRIVACY_UPDATED, priority: 0.3 },
     ...guides.map((guide) => ({
       url: absolute(`/articles/${guide.slug}`),

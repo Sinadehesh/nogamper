@@ -203,6 +203,24 @@ services:
       # so, rather than failing at the first request that needs a date.
       - key: ECONOMY_TIMEZONE
         sync: false
+      # ----- The shop: closed unless you open it ------------------------------
+      # Not declared here, so that creating this Blueprint never asks for a
+      # payment key and never opens a shop by accident. With none set, nothing
+      # is for sale and the site says so. To open it, add these three to THIS
+      # service by hand (Environment tab), and nowhere else:
+      #
+      #   STRIPE_SECRET_KEY      a live key: sk_live_… or a restricted rk_live_…
+      #                          with write access to Checkout Sessions only
+      #   STRIPE_WEBHOOK_SECRET  the whsec_… of a webhook endpoint pointed at
+      #                          https://<this service>/v1/payments/stripe/webhook
+      #                          sending checkout.session.completed,
+      #                          checkout.session.expired, charge.refunded and
+      #                          charge.dispute.created
+      #   SITE_URL               the website's https address
+      #
+      # The service refuses to start with a key and no webhook secret, because
+      # that would take money and never credit it. Prices, pack sizes and the
+      # monthly cap have defaults; see apps/api/.env.example to change them.
 
   # -------------------------------------------------------------------------
   # Worker — background, exactly one instance, owns every scheduled job:

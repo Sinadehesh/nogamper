@@ -28,6 +28,39 @@ function oddsCeiling(rules: GameRules): string {
   return Number(rules.max_combined_odds).toLocaleString("en-US");
 }
 
+/**
+ * Whether points are on sale right now.
+ *
+ * The site can run with the shop open or closed, and every sentence about
+ * money has to be true in both. So the pages ask, rather than assume — and
+ * when the API cannot be reached they say the shop is closed, because a page
+ * should never advertise something it cannot see.
+ */
+function selling(rules: Rules): rules is GameRules {
+  return rules?.shop?.open === true;
+}
+
+/** "$2" or "$2.50" — whole amounts lose their decimals. */
+export function price(cents: number, currency = "usd"): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+  }).format(cents / 100);
+}
+
+function httpsOnly(value: string | undefined): string {
+  const trimmed = (value ?? "").trim();
+  return trimmed.startsWith("https://") ? trimmed : "";
+}
+
+/**
+ * Where the Donate button goes — a Stripe payment link, normally. Empty means
+ * donations are not open and no button is shown. Anything that is not an
+ * https address is treated as empty rather than rendered as a link.
+ */
+export const DONATE_URL = httpsOnly(process.env.DONATE_URL);
+
 export const REPOSITORY_URL =
   process.env.NEXT_PUBLIC_REPOSITORY_URL ?? "https://github.com/Sinadehesh/nogamper";
 
@@ -43,7 +76,7 @@ export const landing = {
   metaTitle: `${APP_NAME} — prediction markets without the gambling`,
   metaDescription:
     `${APP_NAME} is a free forecasting game: real questions, live odds from real prediction ` +
-    "markets, and points instead of money. Nothing to deposit, nothing to cash out.",
+    "markets, and points instead of money. Free to play, and nothing can ever be cashed out.",
 
   eyebrow: "A free forecasting game",
   headline: "All the fun of calling it. None of the betting.",
@@ -55,16 +88,23 @@ export const landing = {
   ctaContinue: "Carry on playing",
   ctaSignUp: "Create an account",
   ctaSignIn: "Sign in",
-  ctaNote: "Free. No card. Nothing to deposit, ever.",
+  ctaNote: "Free to play. No card needed, and nothing to win or lose but points.",
 
   promisesTitle: "What makes it not gambling",
   promises: (rules: Rules) => [
     {
       title: "Points, never money",
       body:
-        "You cannot buy points, cash them out or win anything worth money. Everybody starts " +
+        (selling(rules)
+          ? "Points cannot be cashed out, traded or won as anything worth money. "
+          : "You cannot buy points, cash them out or win anything worth money. ") +
+        "Everybody starts " +
         (rules ? `with the same ${rules.signup_bonus.display}` : "with the same balance") +
-        ", and a free top-up every day means nobody is ever stuck.",
+        ", and a free top-up every day means nobody is ever stuck" +
+        (selling(rules)
+          ? " or ever has to pay. You can buy extra points to support the site, and they are " +
+            "worth exactly as little as the free ones."
+          : "."),
     },
     {
       title: "Fair odds, no house",
@@ -277,13 +317,30 @@ export const about = {
     {
       title: "Points have no value",
       body:
-        "There is no way to buy points and no way to turn them into money, goods or prizes. " +
+        (selling(rules)
+          ? "There is no way to turn points into money, goods or prizes. "
+          : "There is no way to buy points and no way to turn them into money, goods or prizes. ") +
         (rules
           ? `Everyone starts with ${rules.signup_bonus.display} and can claim a free ` +
             `${rules.daily_topup.display} every day. `
           : "Everyone starts with the same balance and can claim a free top-up every day. ") +
         "The top-up is the same every day: there is no streak, so missing one costs nothing.",
     },
+    ...(selling(rules)
+      ? [
+          {
+            title: "Paying is optional, and capped",
+            body:
+              "You never need to pay to play. If you want a bigger balance you can buy one: " +
+              `${price(rules.shop.price_per_thousand_cents, rules.shop.currency)} per 1,000 ` +
+              "points, at the same rate whatever the size of the pack, so there is no reason " +
+              "to buy more than you came for. No account can spend more than " +
+              `${price(rules.shop.monthly_cap_cents, rules.shop.currency)} in a month, you ` +
+              "can set a lower limit of your own, and nothing is sold to anyone on a break. " +
+              "Bought points are the same as free ones: they cannot be cashed out either.",
+          },
+        ]
+      : []),
     {
       title: "Prices are fair",
       body:
@@ -464,14 +521,19 @@ export const mission = {
   doTitle: "What we do",
   commitments: (rules: Rules) => [
     {
-      title: "A place to play that cannot cost you anything",
+      title: "A place to play that never needs your money",
       body:
-        "There is no way to deposit, nothing to buy and nothing to win. That is not a policy " +
-        "that might change next quarter: the code that would take money does not exist. " +
         (rules
-          ? `Everyone starts with ${rules.signup_bonus.display} points and can claim ` +
-            `${rules.daily_topup.display} more each day.`
-          : "Everyone starts with the same points and can claim more each day."),
+          ? `Playing is free, for good: everyone starts with ${rules.signup_bonus.display} ` +
+            `points and can claim ${rules.daily_topup.display} more each day. `
+          : "Playing is free, for good: everyone starts with the same points and can claim " +
+            "more each day. ") +
+        "There is nothing to win and no way to take anything out. That is not a policy that " +
+        "might change next quarter: the code that would pay out does not exist." +
+        (selling(rules)
+          ? " You can buy extra points to help keep the site running, within a monthly cap " +
+            "that nobody can raise in a hurry."
+          : ""),
     },
     {
       title: "Honest numbers",
@@ -503,8 +565,16 @@ export const mission = {
   ],
 
   wontTitle: "What we will not do",
-  wont: [
-    "Take money from the people who play, in any form.",
+  wont: (rules: Rules) => [
+    "Pay out, in any form. Points cannot be cashed out, traded or redeemed, so there is " +
+    "nothing to win and nothing to chase.",
+    "Make anyone pay to play. The free points never stop.",
+    ...(selling(rules)
+      ? [
+          "Sell points without a limit, on credit, at a discount for buying more, or to " +
+          "anyone who is on a break.",
+        ]
+      : []),
     "Carry advertising, sponsorship or affiliate links from gambling companies.",
     "Earn anything from sending someone to a betting or trading site.",
     "Use streaks, countdowns, near-miss messages or anything else built to bring you back.",
@@ -539,9 +609,28 @@ export const mission = {
     "someone opens the help page and makes the call.",
   ],
 
+  paidTitle: "How it is paid for",
+  paid: (rules: Rules, donations: boolean) => [
+    "Not by advertising, and not by the gambling industry: no sponsorship, no affiliate " +
+    "links, no selling of data. Those are the usual ways a site like this earns its keep, " +
+    "and each of them would put it on the wrong side of the people it is for.",
+    selling(rules) || donations
+      ? "That leaves the people who use it. " +
+        (selling(rules) && donations
+          ? "You can donate, or buy extra points to play with."
+          : selling(rules)
+            ? "You can buy extra points to play with."
+            : "You can donate.") +
+        " Nobody has to, the game is the same either way, and what comes in goes on servers " +
+        "and the time it takes to keep the place honest."
+      : "For now that leaves the person who built it, who pays the bills. If that changes, " +
+        "this page and the support page will say so before anything is asked of you.",
+  ],
+  paidLink: "How to support the site",
+
   independenceTitle: "Independent, free and open",
   independence:
-    `${APP_NAME} is free to use and its source code is public, so anyone can check that it ` +
+    `${APP_NAME} is free to play and its source code is public, so anyone can check that it ` +
     "does what this page says. It is run independently and takes no money from the gambling " +
     "industry.",
 
@@ -623,7 +712,22 @@ export const privacy = {
         "its behalf and keep ordinary server logs for a limited time. Market prices come " +
         "from Polymarket's public data, fetched by the site's own servers; your browser " +
         "never contacts Polymarket.",
-        "Nothing is sold, and nothing is shared with advertisers or gambling companies.",
+        "Your data is not sold, and nothing is shared with advertisers or gambling companies.",
+      ],
+    },
+    {
+      title: "If you pay for anything",
+      body: [
+        "Payments are taken by Stripe, on Stripe's own page. Your card details go to Stripe " +
+        "and never reach this site; what Stripe does with them is covered by Stripe's " +
+        "privacy policy. When a purchase is started, Stripe is sent the amount and a random " +
+        "reference for it — not your name, your email address or your account.",
+        "This site keeps a record of each purchase: the amount, the date, how many points it " +
+        "was for, and Stripe's reference. That record is kept even if you delete your " +
+        "account, because it is a financial record and may be needed for a refund or for " +
+        "accounts. It is not linked to your email once the account is gone.",
+        "A donation is made entirely on Stripe's page and is not connected to your account " +
+        "here at all.",
       ],
     },
     {
@@ -653,9 +757,9 @@ export const articlesPage = {
   metaTitle: "Articles on odds, prediction markets and quitting gambling",
   metaDescription:
     "Plain-English guides to how betting odds and prediction markets really work, and to " +
-    "stepping back from gambling — with sources, and nothing to sell.",
+    "stepping back from gambling — with sources, and no affiliate links.",
 
-  title: "Plain answers, nothing to sell",
+  title: "Plain answers, no sales pitch",
   lede:
     "How odds and prediction markets really work, and how to step back from gambling when " +
     "it stops being fun. Written carefully, with the sources listed.",
@@ -694,4 +798,109 @@ export const articlesPage = {
     `The guides are written by the ${APP_NAME} project with the help of AI tools, checked ` +
     "against the sources listed at the foot of each one, and corrected when they turn out to " +
     "be wrong. They are general information, not medical, legal or financial advice.",
+};
+
+// ---------------------------------------------------------------------------
+// Support
+// ---------------------------------------------------------------------------
+
+export const support = {
+  metaTitle: `Support ${APP_NAME}`,
+  metaDescription:
+    `How ${APP_NAME} is paid for: no advertising and no gambling money, only optional ` +
+    "support from the people who use it. What your money does, and the limits on taking it.",
+
+  title: "Keeping this going",
+  lede:
+    "There is no advertising here and no money from gambling companies. That is the point of " +
+    "the place, and it means the bills are paid by the person who built it and by the " +
+    "people who use it. If it has been useful to you, this is how to help it continue.",
+
+  nothingYet:
+    "Right now there is nothing to pay for: donations are not open and nothing is for sale. " +
+    "The site is paid for by the person who built it. If that changes, this page is where " +
+    "it will say so — and the game will stay free either way.",
+
+  costsTitle: "What the money is for",
+  costs: [
+    "Servers, a database and a domain name.",
+    "The time it takes to keep the questions fresh, read every article before it is " +
+    "published, and answer the people who write in.",
+    "Staying independent: every month this is paid for by its users is a month it does not " +
+    "need an advertiser.",
+  ],
+
+  donateTitle: "Donate",
+  donateBody:
+    "The simplest way to help. A donation buys nothing — no points, no perks, no badge — it " +
+    "just helps this continue. Choose your own amount. Payment is taken by Stripe on " +
+    "Stripe's page, and this site never sees your card.",
+  donateCta: "Donate",
+  donateNote: "Opens Stripe's secure payment page.",
+
+  pointsTitle: "Buy extra points",
+  pointsBody: (rules: GameRules) =>
+    `You never need to: everyone starts with ${rules.signup_bonus.display} points and gets ` +
+    `${rules.daily_topup.display} more every day, free. But if you would like a bigger ` +
+    "balance to play with you can buy one, and the money goes to keeping the site running.",
+  pointsPriceLabel: "Packs",
+  pointsPack: (pointsDisplay: string, cost: string) => `${pointsDisplay} points — ${cost}`,
+  pointsTermsTitle: "The terms, in full",
+  pointsTerms: (rules: GameRules) => [
+    "Points have no cash value. They cannot be cashed out, transferred or exchanged for " +
+    "anything, whether they were bought or free. You are paying to support the site and " +
+    "to have more to play with, and for nothing else.",
+    "One price per point. A bigger pack is never cheaper per point, so there is no reason " +
+    "to buy more than you want.",
+    `No account can spend more than ${price(rules.shop.monthly_cap_cents, rules.shop.currency)} ` +
+    "in a calendar month. You can set a lower limit of your own, down to zero, which closes " +
+    "the shop for you. Lowering it takes effect at once; raising it takes a day.",
+    "Nothing is sold to anyone on a break, and buying points does not raise a daily " +
+    "forecast limit.",
+    `You must be ${rules.shop.min_age} or over and have an account.`,
+  ],
+  pointsCta: "Buy points",
+  pointsCtaNote: "On your account page, in the game.",
+
+  cautionTitle: "If buying points starts to feel like chasing",
+  cautionBody:
+    "Running out and wanting to win it back is the feeling this site was built to get people " +
+    "away from. If you notice it here, treat it as a signal rather than a plan: set your " +
+    "spending limit to zero on the Safer play page, and let the free points be enough. And " +
+    "if it is a feeling you know from somewhere else,",
+  cautionLink: "there is free, confidential help.",
+
+  refundsTitle: "Refunds",
+  refundsBody:
+    "Changed your mind? Use “Write to us” on your account page within 14 days of a purchase " +
+    "and it will be refunded in full, and the points it bought removed from your balance. " +
+    "Donations can be refunded the same way.",
+
+  otherTitle: "Other ways to help",
+  other: [
+    {
+      title: "Write something",
+      body:
+        "Anyone with an account can write an article. Something you learned the hard way " +
+        "about odds, or about stopping, may be exactly what the next reader needs.",
+      href: "/write",
+      cta: "Write an article",
+    },
+    {
+      title: "Tell one person",
+      body:
+        "Somebody you know likes calling the football, or is trying to bet less. A link from " +
+        "a friend does more than any advertisement this site will never buy.",
+      href: "/",
+      cta: "The front page",
+    },
+    {
+      title: "Check our work",
+      body:
+        "The source code is public. If anything here does not do what it says, saying so is " +
+        "a contribution.",
+      href: REPOSITORY_URL,
+      cta: "Read the code",
+    },
+  ],
 };

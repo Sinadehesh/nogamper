@@ -11,6 +11,7 @@ from .repositories.messages import MessageError
 from .repositories.players import PlayerAdminError
 from .repositories.predictions import PlacementError
 from .repositories.safer_play import SaferPlayError
+from .repositories.shop import ShopError
 from .security.ratelimit import RateLimited
 from .security.tokens import TokenError
 from .services.economy import EconomyError
@@ -91,6 +92,13 @@ def install_error_handlers(app) -> None:
 
     @app.exception_handler(SaferPlayError)
     async def _safer_play(_: Request, exc: SaferPlayError) -> JSONResponse:
+        body = {"code": exc.code, "detail": exc.detail}
+        if exc.until is not None:
+            body["until"] = exc.until.isoformat()
+        return JSONResponse(status_code=exc.status, content=body)
+
+    @app.exception_handler(ShopError)
+    async def _shop(_: Request, exc: ShopError) -> JSONResponse:
         body = {"code": exc.code, "detail": exc.detail}
         if exc.until is not None:
             body["until"] = exc.until.isoformat()

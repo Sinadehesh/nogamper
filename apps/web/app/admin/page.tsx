@@ -82,6 +82,7 @@ export default function AdminOverviewPage() {
           <table className="table mt-3">
             <tbody>
               <FlowRow label={t.adminGranted} value={points(flow.granted.minor)} />
+              <FlowRow label={t.adminBought} value={points(flow.bought.minor)} />
               <FlowRow label={t.adminStaked} value={points(flow.staked.minor)} />
               <FlowRow label={t.adminReturned} value={points(flow.returned.minor)} />
               <FlowRow label={t.adminAdjusted} value={signedPoints(flow.adjusted.minor)} />

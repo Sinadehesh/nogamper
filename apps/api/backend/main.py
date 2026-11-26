@@ -23,6 +23,7 @@ from .routers import (
     messages,
     predictions,
     rules,
+    shop,
 )
 from .workers.scheduler import build_scheduler
 
@@ -52,6 +53,16 @@ async def lifespan(app: FastAPI):
             "INTERNAL_API_KEY is not set: sign-up and sign-in are open to any caller and "
             "throttled by socket address. Fine on one machine; not for a deployment."
         )
+    if settings.shop_open:
+        logger.info(
+            "the shop is open: packs of %s points at %s %s per thousand, capped at %s a month",
+            ", ".join(f"{size:,}" for size in settings.shop_pack_points),
+            settings.shop_price_per_thousand_cents / 100,
+            settings.shop_currency.upper(),
+            settings.shop_monthly_cap_cents / 100,
+        )
+    else:
+        logger.info("STRIPE_SECRET_KEY is not set: the shop is closed and nothing is for sale")
     if not settings.admin_player_codes:
         logger.info("ADMIN_PLAYER_CODES is empty: the admin pages answer 404 to everyone")
 
@@ -102,6 +113,7 @@ def create_app() -> FastAPI:
     app.include_router(rules.router)
     app.include_router(predictions.router)
     app.include_router(economy.router)
+    app.include_router(shop.router)
     app.include_router(messages.router)
     app.include_router(articles.public)
     app.include_router(articles.desk)

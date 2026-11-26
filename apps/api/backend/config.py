@@ -2,11 +2,17 @@
 
 ## What is deliberately not here
 
-This service used to price a house margin, sell its currency and pay out
-prizes, and every one of those had a setting. They are gone rather than set to
-zero: there is no `vig_rate`, no boost schedule, no insurance load, no package
-list. A product that says it takes nothing should not be one environment
-variable away from taking something.
+This service used to price a house margin and pay out prizes, and each of those
+had a setting. They are gone rather than set to zero: there is no `vig_rate`,
+no boost schedule, no insurance load, no prize table. A product that says every
+price is fair should not be one environment variable away from shading one.
+
+## What is here, and is not the same thing
+
+Points can be bought (the `shop_*` settings, below), because a site with no
+advertising has to be paid for by somebody. That is the only place money
+enters, and there is no setting anywhere that lets it leave: nothing converts
+points into anything.
 """
 
 from __future__ import annotations
@@ -68,8 +74,8 @@ class Settings(BaseSettings):
     """
 
     signup_bonus_minor: int = 100_000
-    """Opening balance: 1,000 points. Nothing is ever sold, so this and the
-    daily top-up are the only two ways points come into existence."""
+    """Opening balance: 1,000 points. With the daily top-up, this is enough to
+    play indefinitely without paying anything."""
 
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:3000"]
@@ -280,8 +286,53 @@ class Settings(BaseSettings):
     Flat on purpose. It used to grow with a streak, and a streak is a reason
     to come back that has nothing to do with wanting to — miss a day and
     something is taken away. The top-up exists so that nobody is ever stuck
-    and nobody is ever sold anything, and it does that job at any cadence.
+    and nobody ever *has* to buy anything, and it does that job at any cadence.
     """
+
+    # ----- the shop --------------------------------------------------------
+
+    stripe_secret_key: str = ""
+    """Stripe's secret key. **Empty means the shop is closed**: no route sells
+    anything, the site says points cannot be bought, and nothing below matters.
+    Setting it is the act of opening the shop."""
+
+    stripe_webhook_secret: str = ""
+    """The signing secret of the Stripe webhook endpoint that points at
+    `/v1/payments/stripe/webhook`. Points are credited only by a webhook whose
+    signature this verifies — never by the browser coming back from checkout,
+    which proves nothing. Required whenever `stripe_secret_key` is set."""
+
+    stripe_api_base: str = "https://api.stripe.com"
+
+    site_url: str = ""
+    """The public address of the website, e.g. https://example.org. Where
+    Stripe sends somebody after they pay or change their mind. Falls back to
+    the first of `cors_origins`."""
+
+    shop_currency: str = "usd"
+
+    shop_price_per_thousand_cents: int = 200
+    """What 1,000 points cost. **One price, whatever the size of the pack**:
+    there is deliberately no setting for a volume discount, because a discount
+    for buying more is a reason to buy more than somebody came for."""
+
+    shop_pack_points: Annotated[list[int], NoDecode] = Field(
+        default_factory=lambda: [1_000, 2_500, 5_000]
+    )
+    """The pack sizes on offer, in whole points."""
+
+    shop_monthly_cap_cents: int = 2_000
+    """The most one account can spend in a calendar month, in cents. A ceiling
+    nobody can lift for themselves: a player's own limit may be lower, never
+    higher. This is what stops running out of points from turning into the
+    thing this site exists to get people away from."""
+
+    shop_checkout_minutes: int = 30
+    """How long a started checkout stays open — Stripe's minimum. An unfinished
+    one counts towards the monthly cap until it lapses, so that several cannot
+    be opened side by side to step over it."""
+
+    shop_min_age: int = 18
 
     leaderboard_min_volume_minor: int = 10_000
     leaderboard_full_credit_volume_minor: int = 500_000
@@ -296,6 +347,33 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @field_validator("shop_pack_points", mode="before")
+    @classmethod
+    def _split_packs(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [int(part) for part in value.split(",") if part.strip()]
+        return value
+
+    @field_validator("shop_pack_points")
+    @classmethod
+    def _sensible_packs(cls, value: list[int]) -> list[int]:
+        if any(size <= 0 for size in value):
+            raise ValueError("shop_pack_points must all be positive")
+        return sorted(set(value))
+
+    @field_validator("shop_currency")
+    @classmethod
+    def _currency_code(cls, value: str) -> str:
+        code = value.strip().lower()
+        if len(code) != 3 or not code.isalpha():
+            raise ValueError("shop_currency must be a three-letter currency code, e.g. usd")
+        return code
+
+    @field_validator("site_url", "stripe_api_base")
+    @classmethod
+    def _no_trailing_slash(cls, value: str) -> str:
+        return value.strip().rstrip("/")
 
     @field_validator("break_options_hours", mode="before")
     @classmethod
@@ -401,6 +479,21 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment == "production"
 
+    @property
+    def shop_open(self) -> bool:
+        """Whether anything is for sale. One switch: the Stripe key."""
+        return bool(self.stripe_secret_key)
+
+    @property
+    def public_site_url(self) -> str:
+        if self.site_url:
+            return self.site_url
+        return self.cors_origins[0].rstrip("/") if self.cors_origins else ""
+
+    def pack_price_cents(self, points: int) -> int:
+        """The price of a pack of `points` whole points. Linear, by design."""
+        return round(points * self.shop_price_per_thousand_cents / 1000)
+
     def require_secrets(self) -> None:
         """Refuse to serve production traffic with development placeholders."""
         if not self.jwt_secret:
@@ -421,6 +514,51 @@ class Settings(BaseSettings):
             raise RuntimeError('CORS_ORIGINS must not be "*" in production.')
         if self.min_stake_minor <= 0 or self.max_stake_minor < self.min_stake_minor:
             raise RuntimeError("Stake limits are inconsistent: need 0 < MIN_STAKE <= MAX_STAKE.")
+        if self.shop_open:
+            self._require_a_safe_shop()
+
+    def _require_a_safe_shop(self) -> None:
+        """Refuse to sell anything on a half-configured shop.
+
+        Each of these would take somebody's money and then fail to do the
+        other half of the bargain, or would quietly remove a limit. Better
+        that the service does not start.
+        """
+        if not self.stripe_webhook_secret:
+            # Without it nothing can confirm a payment, so every purchase
+            # would be paid for and never credited.
+            raise RuntimeError(
+                "STRIPE_WEBHOOK_SECRET is required when STRIPE_SECRET_KEY is set: "
+                "points are credited only by a verified webhook."
+            )
+        if self.is_production and not self.stripe_secret_key.startswith(("sk_live_", "rk_live_")):
+            raise RuntimeError(
+                "STRIPE_SECRET_KEY is not a live key. Production would send real visitors "
+                "to a test checkout."
+            )
+        if not self.public_site_url.startswith(("https://", "http://localhost")):
+            raise RuntimeError(
+                "SITE_URL must be the site's https address when the shop is open: "
+                "it is where Stripe returns people after checkout."
+            )
+        if self.shop_monthly_cap_cents <= 0:
+            raise RuntimeError(
+                "SHOP_MONTHLY_CAP_CENTS must be positive. To stop selling, unset "
+                "STRIPE_SECRET_KEY; a shop with no cap is not an option."
+            )
+        if self.shop_price_per_thousand_cents <= 0 or not self.shop_pack_points:
+            raise RuntimeError("The shop has nothing to sell: set a price and at least one pack.")
+        if not 30 <= self.shop_checkout_minutes <= 24 * 60:
+            raise RuntimeError(
+                "SHOP_CHECKOUT_MINUTES must be between 30 and 1440 (Stripe's limits)."
+            )
+        cheapest = self.pack_price_cents(self.shop_pack_points[0])
+        if cheapest < 50:
+            raise RuntimeError(
+                "The smallest pack costs less than Stripe's minimum charge (50 cents)."
+            )
+        if cheapest > self.shop_monthly_cap_cents:
+            raise RuntimeError("The smallest pack costs more than the monthly cap allows.")
 
 
 @lru_cache

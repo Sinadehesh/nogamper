@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: t.navPlay, robots: { index: false, fo
 export default async function PlayPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; purchase?: string }>;
 }) {
   // Asked of the API on the server, so the page arrives already knowing who
   // it is for: no spinner, and nobody who is signed out ever sees the game
@@ -20,12 +20,13 @@ export default async function PlayPage({
   const viewer = await getViewer();
   if (!viewer) redirect("/login");
 
-  const requested = (await searchParams).tab;
+  const { tab: requested, purchase } = await searchParams;
   const initialTab = isTab(requested) ? requested : "markets";
+  const returned = purchase === "done" || purchase === "cancelled" ? purchase : null;
 
   return (
     <PlayerProvider initial={viewer}>
-      <Dashboard initialTab={initialTab} />
+      <Dashboard initialTab={initialTab} purchase={returned} />
     </PlayerProvider>
   );
 }

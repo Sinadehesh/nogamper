@@ -19,6 +19,7 @@ import type {
   QueuedArticle,
   RealityCheck,
   ReviewDecision,
+  Shop,
   Side,
   Slip,
   SlipPage,
@@ -136,6 +137,18 @@ export const getRealityCheck = () => request<RealityCheck>("/api/me/reality-chec
 export const claimTopUp = () => post<ClaimResult>("/api/economy/claim");
 
 export const getLeaderboard = () => request<Leaderboard>("/api/economy/leaderboard");
+
+// ----- the shop -------------------------------------------------------------
+
+export const getShop = () => request<Shop>("/api/shop");
+
+export const setSpendLimit = (limit_cents: number | null) =>
+  request<Shop>("/api/shop/limit", { method: "PUT", body: JSON.stringify({ limit_cents }) });
+
+/** Returns Stripe's payment page for one pack. Nothing is charged until the
+ *  buyer pays there, and nothing is credited until Stripe confirms it. */
+export const startCheckout = (points: number, adult: boolean) =>
+  post<{ url: string }>("/api/shop/checkout", { points, adult });
 
 // ----- markets and forecasts ------------------------------------------------
 

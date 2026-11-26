@@ -2,7 +2,7 @@
 
 **Prediction markets without the gambling.** A free forecasting game: real
 questions about the news, live odds taken from real markets, and points that
-cannot be bought, sold or cashed out.
+can never be cashed out.
 
 ![The landing page](docs/screenshots/landing.png)
 
@@ -10,7 +10,8 @@ Calling an outcome, putting something behind it and finding out whether you
 were right is genuinely fun. Most places that let you do it are built to keep
 you there after you have lost money. This is the same game with the money
 taken out and those mechanisms left out — an alternative for people who enjoy
-the forecasting and do not want the rest.
+the forecasting and do not want the rest. The site states its
+[mission](apps/web/lib/content.ts) in full, including what it will not do.
 
 It is also a portfolio project: a small system with the parts a larger one
 has, built end to end with AI coding agents under human direction, with the
@@ -18,6 +19,7 @@ behaviour pinned by tests.
 
 - [What makes it not gambling](#what-makes-it-not-gambling)
 - [What you can do](#what-you-can-do)
+- [How it is paid for](#how-it-is-paid-for)
 - [How it is built](#how-it-is-built)
 - [Run it locally](#run-it-locally)
 - [Tests](#tests)
@@ -27,12 +29,13 @@ behaviour pinned by tests.
 ## What makes it not gambling
 
 Gambling needs three things: something of value staked, an outcome you do not
-control, and something of value to win. The first and the last are removed
-here, structurally rather than by policy.
+control, and something of value to win. Here there is nothing to win — not as
+a policy, but because no table, column or route moves value out — and nothing
+has to be staked, because the points are free.
 
 | On a betting site | Here |
 | --- | --- |
-| You deposit money | There is no way to pay. Everyone starts with 1,000 points and can claim 200 more each day |
+| You deposit money to play | Playing is free. Everyone starts with 1,000 points and can claim 200 more each day, for good |
 | You can win money or prizes | Points buy nothing and redeem for nothing. The leaderboard has no prizes |
 | The price includes a margin, and it compounds on multi-pick bets | Odds are exactly `1 ÷ probability`. Nothing is taken out at any length |
 | Streaks, boosts and limited-time offers bring you back | The daily top-up is flat, so a missed day costs nothing. Nothing is boosted and nothing is on offer for a limited time |
@@ -43,7 +46,6 @@ The codebase began as a conventional betting-style product. These were
 **removed, not switched off** — the settings no longer exist, so nothing is one
 environment variable away from coming back:
 
-- buying points with real money, and every payment path
 - prizes and anything redeemable
 - a house margin on each pick
 - a bonus for adding picks to a slip, and paid "insurance" on losing ones
@@ -52,6 +54,11 @@ environment variable away from coming back:
 - streak bonuses that punish a missed day
 - rewards for recruiting friends
 - a live ticker of other people's wins
+
+The original store — points sold for Telegram Stars — was removed with them.
+Selling points has since come back in a different shape, optional and hedged
+about: see [How it is paid for](#how-it-is-paid-for). What has not come back,
+and has no code to come back through, is any way for value to leave.
 
 This is a description of how the game works, not legal advice, and it is not
 a treatment for a gambling problem. For some people in recovery, odds and
@@ -73,10 +80,51 @@ stakes of any kind are a trigger; the site says so plainly and links to
   leaderboard for bragging rights.
 - **Use the brakes**: a daily limit, a break of a day to a month, a reminder
   after a set time on the site, and account deletion that works immediately.
-- **Run it**: an operator view with player support, an inbox, an overview of
-  where points went, and diagnostics that name which layer is unhealthy.
+- **Read**: plain-English guides to how odds, margins and prediction markets
+  work, and to stepping back from gambling — each with its sources listed.
+- **Write**: anyone with an account can write an article. A person reads it
+  before it is published.
+- **Run it**: an operator view with player support, an inbox, a review queue
+  for articles, an overview of where points went, and diagnostics that name
+  which layer is unhealthy.
 
 ![Safer-play tools](docs/screenshots/safer-play.png)
+
+## How it is paid for
+
+There is no advertising and no money from gambling companies — no sponsorship,
+no affiliate links, no selling of data — because each of those would put the
+site on the wrong side of the people it is for. That leaves its author and its
+users, and two optional ways for users to help. **Both are off until
+configured**; out of the box nothing is for sale and the site says so.
+
+- **Donations.** Set `DONATE_URL` on the site to a Stripe Payment Link and the
+  [support page](apps/web/app/support/page.tsx) shows a Donate button. It is a
+  plain link: no Stripe script runs on the site.
+- **Buying points.** Set `STRIPE_SECRET_KEY` on the API and packs of points go
+  on sale through Stripe Checkout. Points are credited only by a
+  [signature-checked webhook](apps/api/backend/clients/stripe.py), never by
+  the browser coming back from the payment page, and once per purchase however
+  often the message arrives.
+
+"You have run out — pay to carry on" is the mechanism people come here to get
+away from, so [the shop](apps/api/backend/repositories/shop.py) is built with
+the brakes in it rather than added afterwards:
+
+| | |
+| --- | --- |
+| A monthly cap | No account can spend more than the cap ($20 by default) in a calendar month, and an open checkout counts as spent, so the cap cannot be stepped over by starting several. The service refuses to start with the cap set to zero or less |
+| A limit of your own | Any amount below the cap, down to zero, which closes the shop for that player. Lowered at once; raised only after it has stood for a day |
+| One price per point | A bigger pack is never cheaper per point. There is no setting for a volume discount |
+| Not during a break | A break closes the shop as well as the game, and buying points does not raise a daily forecast limit |
+| Free first | The free top-up is offered before the shop, every time. The link to the shop does not appear when a balance runs out — it sits in the same place whatever the balance |
+| Nothing leaves | Bought points are the same as free ones: no cash value, no withdrawal, no transfer |
+| Refunds | A refund or dispute in Stripe takes the points back automatically |
+
+If you run this yourself: selling virtual currency is treated differently from
+place to place, and payment processors have their own rules about anything
+that resembles gambling. Check both before you set the key. The numbers above
+are defaults in [`apps/api/.env.example`](apps/api/.env.example).
 
 ## How it is built
 
@@ -152,8 +200,33 @@ front of Postgres exposes nothing.
 [`lib/copy.ts`](apps/web/lib/copy.ts) and
 [`lib/content.ts`](apps/web/lib/content.ts), and any sentence that states a
 number reads it from the API's live rules. CI fails if text is typed straight
-into a component. The site loads nothing from third parties — no web fonts, no
-analytics.
+into a component.
+
+**Nothing unreviewed is published.** A site that search engines file under
+gambling, with a box that publishes whatever is typed into it, fills with
+casino advertising. So a reader's article waits for an operator, a refusal
+always carries a reason the author is shown, and the article is rendered from
+Markdown with no raw HTML and no images — it cannot carry a script or a
+tracking pixel whatever a reviewer misses. Its links are marked as
+user-generated and not followed, which removes the reason to write one in
+order to place a link ([`articles.py`](apps/api/backend/repositories/articles.py),
+[`Prose.tsx`](apps/web/components/Prose.tsx)).
+
+**The guides are reviewed like code.** The site's own articles are Markdown
+files in [`content/articles`](apps/web/content/articles), each stating its
+sources. A guide with no sources, a description of the wrong length, or a link
+to a guide that does not exist fails the build.
+
+**Public pages are built once.** Nothing a stranger or a crawler sees reads
+the request, so those pages are static, cached and refreshed in the
+background, and they still load when the API does not. Each states its
+canonical address, a description and a preview image; there is a sitemap with
+real dates and structured data that claims nothing the page does not show
+([`seo.ts`](apps/web/lib/seo.ts)).
+
+**No third-party scripts.** No web fonts, no advertising, no trackers. Page
+views are counted by the host without cookies, and the
+[privacy page](apps/web/lib/content.ts) says exactly what is stored.
 
 ## Run it locally
 
@@ -202,8 +275,8 @@ make schema-test              # needs PostgreSQL's own binaries (initdb) on PATH
 
 | What | How |
 | --- | --- |
-| Schema invariants | Every migration replayed into a throwaway cluster, then [`invariants.sql`](db/tests/invariants.sql): the ledger cannot overdraw, a balance always equals its ledger, nothing is on sale |
-| API | More than 550 tests against a real Postgres and Redis: pricing, placement, settlement, sign-in, throttling, limits and breaks, the workers, and the migration runner itself |
+| Schema invariants | Every migration replayed into a throwaway cluster, then [`invariants.sql`](db/tests/invariants.sql): the ledger cannot overdraw, a balance always equals its ledger, a purchase is credited once and refunded no more than it gave |
+| API | Close to 700 tests against a real Postgres and Redis: pricing, placement, settlement, sign-in, throttling, limits and breaks, articles and their review, the shop (webhook signatures, the cap under a burst of simultaneous checkouts, refunds), the workers, and the migration runner itself |
 | Configuration | The example environment file is [checked against the code](apps/api/tests/test_env_example.py), so it cannot advertise a setting that is gone |
 | Site | Typecheck, production build, and a check that no UI text is hard-coded |
 
@@ -224,6 +297,10 @@ from `apps/web`.
 | API and worker | `ADMIN_PLAYER_CODES` | Your own player code, once your account exists |
 | Site | `API_BASE_URL` | The API's public URL |
 | Site | `INTERNAL_API_KEY` | The same value the API has |
+| Site | `NEXT_PUBLIC_SITE_URL` | The one public address, e.g. `https://example.com` — canonical links and the sitemap are built from it |
+| Site | `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | Optional: ownership strings from the search consoles |
+| Site | `DONATE_URL` | Optional: a Stripe Payment Link. Unset, there is no Donate button |
+| API only | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SITE_URL` | Optional, and together: they open the shop. The webhook endpoint is `https://<api>/v1/payments/stripe/webhook` |
 
 In production the API refuses to start without a signing secret and a web-tier
 key of at least 32 characters each.
@@ -242,9 +319,10 @@ Migration `0016` is additive and drops nothing.
 - `ADMIN_PLAYER_CODES` replaces `ADMIN_TELEGRAM_IDS`, and `INTERNAL_API_KEY`
   is new and required on the API, the worker and the site. Every other old
   variable is ignored and can be deleted.
-- The retired tables — purchases, rewards, boosts and the rest — are kept with
-  the rows they already hold. Nothing writes to them, and the migration marks
-  everything in them as no longer on sale.
+- The retired tables — Telegram Stars purchases, rewards, boosts and the rest —
+  are kept with the rows they already hold. Nothing writes to them, and the
+  migration marks everything in them as no longer on sale. Points bought
+  through the website are recorded separately, in `point_purchases`.
 - Earlier migrations still contain the old product's text. They are
   checksummed, so they are superseded rather than edited.
 
@@ -255,7 +333,9 @@ Migration `0016` is additive and drops nothing.
 - **A guest account lives in one browser.** Clear the cookie and it is gone.
   The site tells guests so, and offers to make the account permanent.
 - **Age is self-declared.** The site is for adults and says so; it does not
-  check.
+  check. Buying points asks for the declaration again.
+- **The shop does not know where a buyer is.** It applies the same cap to
+  everyone and does not block by country or state.
 - **Prices are borrowed.** Questions and odds come from Polymarket's public
   data. This project is not affiliated with Polymarket and places no trades.
   When the source is unreachable, questions show as updating and cannot be

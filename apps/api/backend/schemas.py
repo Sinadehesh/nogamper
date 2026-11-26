@@ -32,7 +32,7 @@ def format_points(minor: int) -> str:
 
 class Money(BaseModel):
     """An amount of points. Named for its shape, not for what it is worth:
-    points cannot be bought, sold, transferred or redeemed."""
+    points cannot be sold, transferred, withdrawn or redeemed for anything."""
 
     minor: int
     display: str
@@ -194,6 +194,28 @@ class MarketPage(BaseModel):
     payout_cap: Money
 
 
+class ShopPack(BaseModel):
+    points: Money
+    price_cents: int
+
+
+class ShopTerms(BaseModel):
+    """What is for sale and on what terms. Public: it is the price list.
+
+    `open` is false when no payment key is configured, and then nothing is
+    for sale and `packs` is empty. Pages that describe the site read this
+    rather than assuming, so they cannot claim a shop that is not there or
+    deny one that is.
+    """
+
+    open: bool
+    currency: str
+    price_per_thousand_cents: int
+    packs: list[ShopPack]
+    monthly_cap_cents: int
+    min_age: int
+
+
 class GameRules(BaseModel):
     """The configured rules, for the pages that explain the game.
 
@@ -216,6 +238,57 @@ class GameRules(BaseModel):
     limit_loosen_delay_hours: int
     break_options_hours: list[int]
     password_min_length: int
+    shop: ShopTerms
+
+
+class ShopPurchase(BaseModel):
+    id: str
+    points: Money
+    amount_cents: int
+    currency: str
+    status: Literal["PAID", "REFUNDED"]
+    at: datetime
+
+
+class ShopStanding(BaseModel):
+    """One player's position against the spending limits, in cents."""
+
+    spent_month_cents: int
+    pending_cents: int
+    """Checkouts started and not yet finished. Counted as spent until they
+    lapse, so the cap cannot be stepped over by opening several."""
+    spent_all_cents: int
+    limit_cents: int | None = None
+    """Their own monthly limit, or null when only the site's cap applies."""
+    limit_loosen_at: datetime | None = None
+    remaining_cents: int
+    resets_at: datetime
+    blocked: str | None = None
+    """Why nothing can be bought right now: a code, or null."""
+    blocked_until: datetime | None = None
+    purchases: list[ShopPurchase] = Field(default_factory=list)
+
+
+class ShopOut(ShopTerms):
+    mine: ShopStanding | None = None
+    """Null for a visitor who is not signed in."""
+
+
+class SpendLimitRequest(BaseModel):
+    limit_cents: int | None = Field(default=None, ge=0, le=10_000_000)
+    """Null removes the player's own limit, leaving the site's cap."""
+
+
+class CheckoutRequest(BaseModel):
+    points: int = Field(gt=0, le=10_000_000)
+    """The pack, in whole points. Must be one of the sizes on sale."""
+    adult: bool = False
+    """The buyer's own statement that they are old enough. Must be true."""
+
+
+class CheckoutOut(BaseModel):
+    url: str
+    """Stripe's payment page for this purchase."""
 
 
 # ----- forecasts ------------------------------------------------------------
@@ -520,13 +593,15 @@ class OverviewForecasts(BaseModel):
 class OverviewPoints(BaseModel):
     """Where points came from and where they went, in the window.
 
-    There is no line for takings because there are none: `granted` is the
-    only source, and the gap between `staked` and `returned` is what forecasts
-    cost the players who made them — at fair odds that gap is luck and skill,
-    and it sums to nobody's income.
+    Points arrive two ways: `granted` free, and `bought` (net of anything
+    refunded). The gap between `staked` and `returned` is what forecasts cost
+    the players who made them — at fair odds that gap is luck and skill, and
+    it sums to nobody's income. The money paid for `bought` points is not in
+    this report at all: it is in Stripe, which is the record of it.
     """
 
     granted: Money
+    bought: Money
     staked: Money
     returned: Money
     adjusted: Money

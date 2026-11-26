@@ -88,6 +88,9 @@ export function SiteFooter() {
           <Link href="/about" className="hover:text-ink">
             {t.navAbout}
           </Link>
+          <Link href="/support" className="hover:text-ink">
+            {t.navSupport}
+          </Link>
           <Link href="/privacy" className="hover:text-ink">
             {t.navPrivacy}
           </Link>
