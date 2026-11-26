@@ -282,7 +282,5 @@ async def stripe_webhook(
 
     outcome = await _handle(event)
     if outcome != "ignored":
-        logger.info(
-            "stripe event %s (%s): %s", event.get("id"), event.get("type"), outcome
-        )
+        logger.info("stripe event %s (%s): %s", event.get("id"), event.get("type"), outcome)
     return {"received": True, "outcome": outcome}

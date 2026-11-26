@@ -62,8 +62,14 @@ class CheckoutSession:
     url: str
 
 
-def _form(purchase_id: uuid.UUID, *, points: int, amount_cents: int, expires_at: datetime,
-          settings: Settings) -> dict[str, str]:
+def _form(
+    purchase_id: uuid.UUID,
+    *,
+    points: int,
+    amount_cents: int,
+    expires_at: datetime,
+    settings: Settings,
+) -> dict[str, str]:
     """Stripe's form encoding of a one-line, one-off, card-only checkout.
 
     Card only, on purpose: a card is confirmed while the buyer is still on the

@@ -70,7 +70,10 @@ class FakeStripe:
         number = len(self.requests)
         return httpx.Response(
             200,
-            json={"id": f"cs_test_{number}", "url": f"https://checkout.stripe.com/c/pay/cs_test_{number}"},
+            json={
+                "id": f"cs_test_{number}",
+                "url": f"https://checkout.stripe.com/c/pay/cs_test_{number}",
+            },
         )
 
     def form(self, index: int = -1) -> dict[str, str]:
@@ -101,8 +104,14 @@ def signed(event: dict, *, secret: str = SECRET, at: float | None = None) -> tup
     }
 
 
-def completed(purchase_id: str, *, amount: int = 200, currency: str = "usd",
-              payment_status: str = "paid", intent: str | None = None) -> dict:
+def completed(
+    purchase_id: str,
+    *,
+    amount: int = 200,
+    currency: str = "usd",
+    payment_status: str = "paid",
+    intent: str | None = None,
+) -> dict:
     return {
         "id": f"evt_{uuid.uuid4().hex}",
         "type": "checkout.session.completed",
@@ -151,9 +160,7 @@ async def buy(client, headers, points: int = 1000, player: int = 5000) -> str:
     response = await start(client, headers, points)
     assert response.status_code == 200, response.text
     row = await latest_purchase(player)
-    confirmation = await deliver(
-        client, completed(str(row["id"]), amount=row["amount_cents"])
-    )
+    confirmation = await deliver(client, completed(str(row["id"]), amount=row["amount_cents"]))
     assert confirmation.json()["outcome"] == "credited"
     return str(row["id"])
 
@@ -351,7 +358,10 @@ async def test_checkout_sends_the_buyer_to_stripe_and_credits_nothing(app_client
 
     row = await latest_purchase()
     assert (row["status"], row["points"], row["amount_cents"], row["currency"]) == (
-        "PENDING", 250_000, 500, "usd",
+        "PENDING",
+        250_000,
+        500,
+        "usd",
     )
     assert row["stripe_session_id"] == "cs_test_1"
     window = row["expires_at"] - row["created_at"]
@@ -505,7 +515,9 @@ async def test_a_confirmed_payment_is_credited(app_client, open_shop):
             row["id"],
         )
     assert (entry["entry_type"], entry["amount"], entry["ref_type"]) == (
-        "POINTS_PURCHASE_CREDIT", THOUSAND, "POINT_PURCHASE",
+        "POINTS_PURCHASE_CREDIT",
+        THOUSAND,
+        "POINT_PURCHASE",
     )
     assert json.loads(entry["metadata"]) == {"amount_cents": 200, "currency": "usd"}
 
@@ -688,9 +700,9 @@ async def test_money_that_arrives_after_a_checkout_lapsed_is_still_honoured(app_
 
 async def test_the_cap_is_a_cap(app_client, open_shop):
     headers = await authorise(app_client)
-    await buy(app_client, headers, 5000)   # 10.00
-    await buy(app_client, headers, 2500)   #  5.00
-    await buy(app_client, headers, 2500)   #  5.00 → 20.00, the cap
+    await buy(app_client, headers, 5000)  # 10.00
+    await buy(app_client, headers, 2500)  #  5.00
+    await buy(app_client, headers, 2500)  #  5.00 → 20.00, the cap
 
     mine = (await app_client.get(SHOP, headers=headers)).json()["mine"]
     assert mine["spent_month_cents"] == 2000
@@ -711,7 +723,7 @@ async def test_a_pack_that_would_cross_the_cap_is_refused_and_a_smaller_one_is_n
     headers = await authorise(app_client)
     await buy(app_client, headers, 5000)
     await buy(app_client, headers, 2500)
-    await buy(app_client, headers, 1000)   # 17.00 spent, 3.00 left
+    await buy(app_client, headers, 1000)  # 17.00 spent, 3.00 left
 
     too_big = await start(app_client, headers, 2500)
     assert too_big.status_code == 409
