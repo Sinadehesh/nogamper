@@ -14,6 +14,7 @@ from .errors import install_error_handlers
 from .logging_config import configure_logging
 from .routers import (
     admin,
+    articles,
     auth,
     economy,
     health,
@@ -102,6 +103,9 @@ def create_app() -> FastAPI:
     app.include_router(predictions.router)
     app.include_router(economy.router)
     app.include_router(messages.router)
+    app.include_router(articles.public)
+    app.include_router(articles.desk)
+    app.include_router(articles.review)
     app.include_router(admin.router)
     return app
 

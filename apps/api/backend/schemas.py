@@ -401,6 +401,95 @@ class MessageList(BaseModel):
     messages: list[MessageOut]
 
 
+# ----- articles -------------------------------------------------------------
+
+
+class ArticleDraft(BaseModel):
+    """What an author sends. The ceilings here only stop an absurd body before
+    any work is done on it; the real limits, and the messages that name them,
+    are in repositories/articles.py."""
+
+    title: str = Field(max_length=400)
+    summary: str = Field(max_length=1_000)
+    body: str = Field(max_length=120_000)
+
+
+class ArticleSummaryOut(BaseModel):
+    """A published article as a listing shows it."""
+
+    slug: str
+    title: str
+    summary: str
+    author: str
+    published_at: datetime
+    edited_at: datetime
+    reading_minutes: int
+
+
+class ArticleOut(ArticleSummaryOut):
+    body: str
+
+
+class ArticlePage(BaseModel):
+    articles: list[ArticleSummaryOut]
+    total: int
+
+
+class MyArticleOut(BaseModel):
+    """An author's own article, in whatever state it is in."""
+
+    id: str
+    slug: str
+    title: str
+    summary: str
+    body: str
+    status: Literal["DRAFT", "SUBMITTED", "PUBLISHED", "REJECTED", "REMOVED"]
+    review_note: str | None = None
+    reading_minutes: int
+    created_at: datetime
+    edited_at: datetime
+    submitted_at: datetime | None = None
+    published_at: datetime | None = None
+
+
+class ArticleLimits(BaseModel):
+    """The rules of the writing form, so the form states them from the same
+    place that enforces them."""
+
+    title_min: int
+    title_max: int
+    summary_min: int
+    summary_max: int
+    body_min: int
+    body_max: int
+    max_open: int
+
+
+class MyArticleList(BaseModel):
+    articles: list[MyArticleOut]
+    limits: ArticleLimits
+    can_write: bool
+    """False for a guest: writing needs an account."""
+    publishes_directly: bool
+    """True for an operator, whose own articles skip the review queue."""
+
+
+class ArticleReview(BaseModel):
+    decision: Literal["publish", "reject", "remove"]
+    note: str | None = Field(default=None, max_length=4_000)
+
+
+class QueuedArticleOut(MyArticleOut):
+    author: str
+    author_code: str
+
+
+class ArticleQueueOut(BaseModel):
+    articles: list[QueuedArticleOut]
+    waiting: int
+    live: int
+
+
 # ----- operator -------------------------------------------------------------
 
 

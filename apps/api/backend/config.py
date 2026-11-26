@@ -121,6 +121,17 @@ class Settings(BaseSettings):
     message_rate_window_seconds: int = 3600
     message_rate_max: int = 5
 
+    # ----- articles --------------------------------------------------------
+
+    article_max_open: int = 20
+    """Unfinished articles one account may hold at a time."""
+
+    article_submit_rate_max: int = 3
+    article_submit_rate_window_seconds: int = 86_400
+    """Different articles one account may put in front of a reviewer per
+    window. Protects the person who reads the queue, like the message limit
+    protects the person who reads the inbox."""
+
     # ----- safer play ------------------------------------------------------
 
     limit_loosen_delay_seconds: int = 86_400

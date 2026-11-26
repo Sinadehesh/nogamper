@@ -5,6 +5,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse
 
 from .engine.quoting import QuoteError
+from .repositories.articles import ArticleError
 from .repositories.auth import AccountError, AccountSuspended
 from .repositories.messages import MessageError
 from .repositories.players import PlayerAdminError
@@ -103,6 +104,12 @@ def install_error_handlers(app) -> None:
 
     @app.exception_handler(MessageError)
     async def _message(_: Request, exc: MessageError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status, content={"code": exc.code, "detail": exc.detail}
+        )
+
+    @app.exception_handler(ArticleError)
+    async def _article(_: Request, exc: ArticleError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status, content={"code": exc.code, "detail": exc.detail}
         )

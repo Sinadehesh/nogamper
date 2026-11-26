@@ -343,7 +343,8 @@ async def erase_account(conn: asyncpg.Connection, user_id: uuid.UUID) -> bool:
     not only this player's history — a settled market's totals and a season's
     standings were computed from them, and deleting the rows would quietly
     rewrite results other people were shown. What goes is every field that
-    identifies a person: the address, the password, the name, the messages.
+    identifies a person — the address, the password, the name — and everything
+    they wrote: their messages and their articles.
 
     `SELF_EXCLUDED` is the status the schema always had for "this account
     closed itself", which is exactly what happened.
@@ -356,6 +357,10 @@ async def erase_account(conn: asyncpg.Connection, user_id: uuid.UUID) -> bool:
     # wrote, nothing else is computed from them, and an empty shell of a
     # conversation is not worth keeping.
     await conn.execute("DELETE FROM player_messages WHERE user_id = $1", user_id)
+    # Articles too, published ones included. Leaving somebody's writing up
+    # under "Deleted player" would be keeping the part of them a stranger is
+    # most likely to recognise.
+    await conn.execute("DELETE FROM articles WHERE author_id = $1", user_id)
     await conn.execute("DELETE FROM leaderboard_entries WHERE user_id = $1", user_id)
     await revoke_all_sessions(conn, user_id)
     return True
