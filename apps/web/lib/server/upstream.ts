@@ -3,6 +3,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { API_BASE_URL, INTERNAL_API_KEY } from "@/lib/server/api-address";
 import { SIGNED_IN_COOKIE } from "@/lib/session-marker";
 
 /**
@@ -16,11 +17,6 @@ import { SIGNED_IN_COOKIE } from "@/lib/session-marker";
 
 export const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME ?? "session";
 
-const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:8000";
-
-// Shared with the API. It is what lets the API believe the visitor address
-// sent below, and what stops anyone else calling its sign-up routes directly.
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
 // The one request header this deployment's platform guarantees carries the
 // visitor's address. Unset, the two conventional ones are read — see
