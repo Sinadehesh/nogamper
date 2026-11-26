@@ -38,6 +38,22 @@ __all__ = [
     "verify_webhook",
 ]
 
+API_VERSION = "2026-09-30.endive"
+"""The Stripe API version every request is made against.
+
+Sent explicitly, never left to the account's default. Stripe renames and
+removes request fields between versions — the field that used to restrict a
+checkout to cards, `payment_method_types`, is gone from this one and replaced
+by `allowed_payment_method_types` — and an account's default depends on when
+the account was opened. Left unpinned, the same code would work on one
+account and be refused on another.
+
+Every field sent below was checked against Stripe's published specification
+for this version; `tests/fixtures/stripe_checkout_fields.json` is the record
+of that, and a test fails if a field is sent that is not in it. To move to a
+newer version, check the fields again and change both together.
+"""
+
 SIGNATURE_TOLERANCE_SECONDS = 300
 """How old a signed message may be. Stripe's own default: long enough for a
 slow delivery, short enough that a captured message cannot be replayed later."""
@@ -74,7 +90,9 @@ def _form(
 
     Card only, on purpose: a card is confirmed while the buyer is still on the
     page, so "paid" and "the session completed" are the same moment. Methods
-    that settle days later would mean crediting points on a promise.
+    that settle days later would mean crediting points on a promise. The
+    field is a filter on whatever the Stripe account has switched on, so cards
+    must be enabled there — which they are on any account by default.
 
     The purchase id travels three ways — on the session, in its metadata and
     in the payment's metadata — so that whichever object a later message is
@@ -84,7 +102,7 @@ def _form(
     reference = str(purchase_id)
     return {
         "mode": "payment",
-        "payment_method_types[0]": "card",
+        "allowed_payment_method_types[0]": "card",
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": settings.shop_currency,
         "line_items[0][price_data][unit_amount]": str(amount_cents),
@@ -133,6 +151,7 @@ async def create_checkout_session(
             ),
             headers={
                 "Authorization": f"Bearer {settings.stripe_secret_key}",
+                "Stripe-Version": API_VERSION,
                 "Idempotency-Key": f"checkout-{purchase_id}",
             },
             timeout=15.0,

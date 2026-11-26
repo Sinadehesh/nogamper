@@ -1,0 +1,25 @@
+{
+  "about": "Request fields for POST /v1/checkout/sessions that were checked, one by one, against Stripe's published OpenAPI specification (github.com/stripe/openapi, openapi/spec3.json) for the version below. Not a copy of the specification: only the fields this service sends. Checked on 2026-11-26.",
+  "version": "2026-09-30.endive",
+  "fields": [
+    "mode",
+    "allowed_payment_method_types[0]",
+    "line_items[0][quantity]",
+    "line_items[0][price_data][currency]",
+    "line_items[0][price_data][unit_amount]",
+    "line_items[0][price_data][product_data][name]",
+    "line_items[0][price_data][product_data][description]",
+    "custom_text[submit][message]",
+    "success_url",
+    "cancel_url",
+    "client_reference_id",
+    "metadata[purchase_id]",
+    "payment_intent_data[metadata][purchase_id]",
+    "expires_at"
+  ],
+  "limits": {
+    "custom_text[submit][message]": 1200,
+    "client_reference_id": 200
+  },
+  "removed_in_this_version": ["payment_method_types[0]"]
+}

@@ -22,6 +22,7 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from urllib.parse import parse_qs
 
 import httpx
@@ -379,8 +380,9 @@ async def test_what_stripe_is_told(app_client, open_shop):
     assert str(request.url) == "https://api.stripe.com/v1/checkout/sessions"
     assert request.headers["Authorization"] == f"Bearer {KEY}"
     assert request.headers["Idempotency-Key"] == f"checkout-{row['id']}"
+    assert request.headers["Stripe-Version"] == stripe.API_VERSION
     assert form["mode"] == "payment"
-    assert form["payment_method_types[0]"] == "card"
+    assert form["allowed_payment_method_types[0]"] == "card"
     assert form["line_items[0][price_data][unit_amount]"] == "200"
     assert form["line_items[0][price_data][currency]"] == "usd"
     assert form["line_items[0][quantity]"] == "1"
@@ -392,6 +394,29 @@ async def test_what_stripe_is_told(app_client, open_shop):
     assert "no cash value" in form["line_items[0][price_data][product_data][description]"]
     assert "no cash value" in form["custom_text[submit][message]"]
     assert abs(int(form["expires_at"]) - row["expires_at"].timestamp()) < 2
+
+
+async def test_every_field_sent_to_stripe_was_checked_against_its_specification(
+    app_client, open_shop
+):
+    """Stripe renames request fields between API versions, and a field it does
+    not know is refused — which here would mean every checkout failing, in
+    production only. So the version is pinned, and the fields sent are held to
+    the list that was checked against that version's published specification.
+    Adding a field, or moving to a newer version, means checking again."""
+    checked = json.loads(
+        (Path(__file__).parent / "fixtures/stripe_checkout_fields.json").read_text()
+    )
+    headers = await authorise(app_client)
+    await start(app_client, headers, 1000)
+
+    form = open_shop.form()
+
+    assert stripe.API_VERSION == checked["version"]
+    assert set(form) == set(checked["fields"])
+    assert not set(form) & set(checked["removed_in_this_version"])
+    for field, limit in checked["limits"].items():
+        assert len(form[field]) <= limit, f"{field} is longer than Stripe allows"
 
 
 async def test_nothing_about_the_player_is_sent_to_stripe(app_client, open_shop):
