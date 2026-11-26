@@ -20,7 +20,10 @@
 # FIRST DEPLOY
 # ---------------------------------------------------------------------------
 #   1. Render → New → Blueprint → this repository → Apply. Render shows what
-#      it will create, and what it costs, before anything is created.
+#      it will create, and what it costs, before anything is created. At
+#      Render's prices in November 2026 that is about $14.50 a month: $7 for
+#      the API, $6 for the database, $1.50 for its 5 GB of storage, and
+#      nothing for the cache.
 #   2. When `middlemost-api` is live, give the website two values
 #      (Vercel → project → Settings → Environment Variables):
 #        API_BASE_URL      the service's https address, shown at the top of
@@ -61,9 +64,18 @@ databases:
   - name: middlemost-db
     databaseName: middlemost
     region: frankfurt
-    # The smallest plan that does not expire. The free plan is deleted after
-    # thirty days, which is not a property a ledger should have.
-    plan: basic-256mb
+    # The smallest plan that does not expire. A free database stops working
+    # thirty days after it is created, which is not a property a ledger
+    # should have.
+    plan: 0.1c-256mb
+    # Storage is billed by the gigabyte, and a disk can be made larger but
+    # never smaller, so this starts small rather than at Render's default of
+    # 15. The price history the sync job keeps is what grows: by a rough
+    # estimate, a few gigabytes a year. A full disk suspends the database, so
+    # Render is allowed to add space before that happens: at 90% full it
+    # grows the disk by half, rounded up to the next 5 GB.
+    diskSizeGB: 5
+    storageAutoscalingEnabled: true
     # Reachable from the private network only.
     ipAllowList: []
 
@@ -71,6 +83,9 @@ services:
   - type: keyvalue
     name: middlemost-cache
     region: frankfurt
+    # Free is enough to start: 25 MB, kept in memory only. Render allows one
+    # free Key Value per workspace — if yours already has one, this Blueprint
+    # is refused, and the fix is `plan: 256mb` on the next line.
     plan: free
     # Reachable from the private network only.
     ipAllowList: []
@@ -85,10 +100,10 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     region: frankfurt
-    # Not `free`: a free web service sleeps when idle, which would stop the
-    # scheduled jobs, and it cannot run a preDeployCommand, which is how the
-    # migrations are applied.
-    plan: starter
+    # The smallest paid plan (half a CPU, 512 MB). Not `free`: a free web
+    # service sleeps when idle, which would stop the scheduled jobs, and it
+    # cannot run a preDeployCommand, which is how the migrations are applied.
+    plan: 0.5c-512mb
     numInstances: 1
     healthCheckPath: /health/ready
     autoDeployTrigger: commit
