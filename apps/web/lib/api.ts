@@ -1,20 +1,17 @@
-
 import type {
-  ActivityEntry,
-  CoinPackage,
+  ClaimResult,
   Diagnostics,
-  EconomyReport,
   Inbox,
-  InvoiceIssued,
+  Leaderboard,
+  Limits,
   MarketPage,
+  MarketSort,
   Money,
+  Overview,
   PlayerList,
   PlayerMessage,
   PlayerRow,
-  RedeemResult,
-  ReplyResult,
-  RewardCatalogue,
-  RewardClaim,
+  RealityCheck,
   Side,
   Slip,
   SlipPage,
@@ -22,22 +19,26 @@ import type {
   UserProfile,
 } from "@/lib/types";
 
+/**
+ * Calls to this site's own /api routes. Nothing here knows the API's address
+ * or holds a credential: the browser's HttpOnly cookie rides along on its own
+ * and the server turns it into a token.
+ */
+
 export type ApiFailure = {
   ok: false;
   status: number;
   code: string;
   detail: string;
   marketId?: string;
-  requiredLegs?: number;
+  until?: string;
+  retryAfter?: number;
 };
 
 export type ApiSuccess<T> = { ok: true; status: number; data: T };
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<ApiResult<T>> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -46,12 +47,7 @@ async function request<T>(
       cache: "no-store",
     });
   } catch {
-    return {
-      ok: false,
-      status: 0,
-      code: "network_unavailable",
-      detail: "Couldn't reach the server. Check your connection.",
-    };
+    return { ok: false, status: 0, code: "network_unavailable", detail: "" };
   }
 
   if (response.status === 204) {
@@ -63,50 +59,92 @@ async function request<T>(
   if (!response.ok) {
     const error = body as {
       code?: string;
-      detail?: string;
+      detail?: unknown;
       market_id?: string;
-      required_legs?: number;
+      until?: string;
+      retry_after?: number;
     } | null;
     return {
       ok: false,
       status: response.status,
-      code: error?.code ?? "unexpected_error",
-      detail: error?.detail ?? "Something went wrong.",
+      // A 422 from the API's own validation has no `code`, only a list of
+      // field errors that mean nothing to a visitor. Name it, and let the
+      // copy table say something useful.
+      code: error?.code ?? (response.status === 422 ? "invalid_request" : "unexpected_error"),
+      detail: typeof error?.detail === "string" ? error.detail : "",
       marketId: error?.market_id,
-      requiredLegs: error?.required_legs,
+      until: error?.until,
+      retryAfter: error?.retry_after,
     };
   }
 
   return { ok: true, status: response.status, data: body as T };
 }
 
-
-export function getProfile() {
-  return request<UserProfile>("/api/me");
+function post<T>(path: string, body?: unknown, headers?: Record<string, string>) {
+  return request<T>(path, {
+    method: "POST",
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers,
+  });
 }
 
+// ----- session --------------------------------------------------------------
+
+type SessionOpened = { user: UserProfile; isNewUser: boolean };
+
+export const startAsGuest = () => post<SessionOpened>("/api/session/guest");
+
+export const signIn = (email: string, password: string) =>
+  post<SessionOpened>("/api/session/login", { email, password });
+
+export const register = (input: { email: string; password: string; display_name: string }) =>
+  post<SessionOpened>("/api/session/register", input);
+
+export const signOut = () => request<void>("/api/session", { method: "DELETE" });
+
+export const changePassword = (current_password: string, new_password: string) =>
+  post<void>("/api/auth/password", { current_password, new_password });
+
+// ----- the player -----------------------------------------------------------
+
+export const getProfile = () => request<UserProfile>("/api/me");
+
+export const renamePlayer = (display_name: string) =>
+  request<UserProfile>("/api/me", { method: "PATCH", body: JSON.stringify({ display_name }) });
+
+export const eraseAccount = (password: string | null) =>
+  post<void>("/api/me/erase", { password });
+
+export const setDailyLimit = (daily_limit_minor: number | null) =>
+  request<Limits>("/api/me/limits", {
+    method: "PUT",
+    body: JSON.stringify({ daily_limit_minor }),
+  });
+
+export const takeBreak = (hours: number) => post<Limits>("/api/me/break", { hours });
+
+export const getRealityCheck = () => request<RealityCheck>("/api/me/reality-check");
+
+export const claimTopUp = () => post<ClaimResult>("/api/economy/claim");
+
+export const getLeaderboard = () => request<Leaderboard>("/api/economy/leaderboard");
+
+// ----- markets and forecasts ------------------------------------------------
+
 export function getMarkets(
-  params: { category?: string; limit?: number; cursor?: string } = {},
+  params: { category?: string; sort?: MarketSort; limit?: number; cursor?: string } = {},
 ) {
   const query = new URLSearchParams();
   if (params.category) query.set("category", params.category);
+  if (params.sort) query.set("sort", params.sort);
   if (params.limit) query.set("limit", String(params.limit));
   if (params.cursor) query.set("cursor", params.cursor);
   const suffix = query.toString();
   return request<MarketPage>(`/api/markets${suffix ? `?${suffix}` : ""}`);
 }
 
-export function getActivity(limit = 15, includeLosses = false) {
-  const query = new URLSearchParams({
-    limit: String(limit),
-    include_losses: String(includeLosses),
-  });
-  return request<{ entries: ActivityEntry[] }>(`/api/activity?${query}`);
-}
-
-export function getSlips(
-  params: { status?: string; limit?: number; cursor?: string } = {},
-) {
+export function getSlips(params: { status?: string; limit?: number; cursor?: string } = {}) {
   const query = new URLSearchParams();
   if (params.status) query.set("status", params.status);
   if (params.limit) query.set("limit", String(params.limit));
@@ -115,131 +153,34 @@ export function getSlips(
   return request<SlipPage>(`/api/predictions${suffix ? `?${suffix}` : ""}`);
 }
 
-export function getPackages() {
-  return request<{ packages: CoinPackage[] }>("/api/payments/packages");
-}
-
-export function getRewards() {
-  return request<RewardCatalogue>("/api/rewards");
-}
-
-export function getRewardClaims() {
-  return request<{ claims: RewardClaim[] }>("/api/rewards/claims");
-}
-
-export function redeemReward(code: string) {
-  return request<RedeemResult>("/api/rewards/redeem", {
-    method: "POST",
-    body: JSON.stringify({ reward_code: code }),
-  });
-}
-
-
 export type SlipBody = {
   legs: { market_id: string; side: Side }[];
   stake: number;
-  insurance: boolean;
   accepted_odds?: string;
 };
 
-export function quoteSlip(body: SlipBody) {
-  return request<SlipQuote>("/api/predictions/quote", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
+export const quoteSlip = (body: SlipBody) => post<SlipQuote>("/api/predictions/quote", body);
 
-export type PlacementResult =
-  | { kind: "placed"; slip: Slip; replayed: boolean }
-  | {
-      kind: "insufficient_funds";
-      code: string;
-      shortfallMinor: number;
-      detail: string;
-    }
-  | { kind: "odds_moved"; code: string; detail: string }
-  | { kind: "unavailable"; code: string; detail: string; marketId?: string };
+/**
+ * Place a slip under an idempotency key.
+ *
+ * The key is what makes a double click, or a retry after a dropped
+ * connection, return the slip that was already placed rather than a second
+ * one. The caller keeps the same key until the slip is placed or changed.
+ */
+export const placeSlip = (body: SlipBody, idempotencyKey: string) =>
+  post<Slip>("/api/predictions", body, { "Idempotency-Key": idempotencyKey });
 
-export async function placeSlip(
-  body: SlipBody,
-  idempotencyKey: string,
-  totalCostMinor: number,
-  balanceMinor: number,
-): Promise<PlacementResult> {
-  const result = await request<Slip>("/api/predictions", {
-    method: "POST",
-    body: JSON.stringify(body),
-    headers: { "Idempotency-Key": idempotencyKey },
-  });
+// ----- messages -------------------------------------------------------------
 
-  if (result.ok) {
-    return {
-      kind: "placed",
-      slip: result.data,
-      replayed: result.status === 200,
-    };
-  }
+export const sendMessage = (body: string) => post<PlayerMessage>("/api/messages", { body });
 
-  if (result.status === 402 || result.code === "insufficient_funds") {
-    return {
-      kind: "insufficient_funds",
-      code: "insufficient_funds",
-      shortfallMinor: Math.max(0, totalCostMinor - balanceMinor),
-      detail: result.detail,
-    };
-  }
+export const getMyMessages = () => request<{ messages: PlayerMessage[] }>("/api/messages");
 
-  if (result.code === "odds_moved") {
-    return { kind: "odds_moved", code: result.code, detail: result.detail };
-  }
+// ----- operator -------------------------------------------------------------
 
-  return {
-    kind: "unavailable",
-    code: result.code,
-    detail: result.detail,
-    marketId: result.marketId,
-  };
-}
-
-
-export function createInvoice(packageCode: string) {
-  return request<InvoiceIssued>("/api/payments/invoices", {
-    method: "POST",
-    body: JSON.stringify({ package_code: packageCode }),
-  });
-}
-
-export async function openInvoice(
-  link: string,
-): Promise<"paid" | "cancelled" | "failed" | "pending" | "unsupported"> {
-  const { default: WebApp } = await import("@twa-dev/sdk");
-  if (typeof WebApp.openInvoice !== "function") return "unsupported";
-
-  return new Promise((resolve) => {
-    WebApp.openInvoice(link, (status) => resolve(status));
-  });
-}
-
-
-export function getEconomyReport(days: number) {
-  return request<EconomyReport>(`/api/admin/economy?days=${days}`);
-}
-
-
-export function sendMessage(
-  body: string,
-  kind: "MESSAGE" | "PRIZE_CLAIM" = "MESSAGE",
-) {
-  return request<PlayerMessage>("/api/messages", {
-    method: "POST",
-    body: JSON.stringify({ body, kind }),
-  });
-}
-
-export function getMyMessages() {
-  return request<{ messages: PlayerMessage[] }>("/api/messages");
-}
-
+export const getOverview = (days: number) =>
+  request<Overview>(`/api/admin/overview?days=${days}`);
 
 export function getPlayers(search: string, limit = 50) {
   const query = new URLSearchParams({ limit: String(limit) });
@@ -247,54 +188,29 @@ export function getPlayers(search: string, limit = 50) {
   return request<PlayerList>(`/api/admin/players?${query}`);
 }
 
-export function adjustPlayer(input: {
-  player_code?: string;
-  telegram_id?: number;
+export const adjustPlayer = (input: {
+  player_code: string;
   amount_minor: number;
   reason: string;
   reference: string;
-}) {
-  return request<{ player_code: string; balance: Money }>(
-    "/api/admin/players/adjust",
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-}
+}) => post<{ player_code: string; balance: Money }>("/api/admin/players/adjust", input);
 
-export function setPlayerStatus(
-  player_code: string,
-  status: PlayerRow["status"],
-) {
-  return request<{ player_code: string; status: string }>(
-    "/api/admin/players/status",
-    {
-      method: "POST",
-      body: JSON.stringify({ player_code, status }),
-    },
-  );
-}
-
-export function getInbox(status?: string) {
-  const query = status ? `?status=${status}` : "";
-  return request<Inbox>(`/api/admin/messages${query}`);
-}
-
-export function resolveMessage(id: string, status: string, note?: string) {
-  return request<PlayerMessage>(`/api/admin/messages/${id}`, {
-    method: "POST",
-    body: JSON.stringify({ status, note: note || null }),
+export const setPlayerStatus = (player_code: string, status: PlayerRow["status"]) =>
+  post<{ player_code: string; status: string }>("/api/admin/players/status", {
+    player_code,
+    status,
   });
-}
 
-export function replyToMessage(id: string, body: string) {
-  return request<ReplyResult>(`/api/admin/messages/${id}/reply`, {
-    method: "POST",
-    body: JSON.stringify({ body }),
-  });
-}
+export const getInbox = (status?: string) =>
+  request<Inbox>(`/api/admin/messages${status ? `?status=${status}` : ""}`);
 
-export function getDiagnostics() {
-  return request<Diagnostics>("/api/admin/diagnostics");
-}
+export const resolveMessage = (id: string, status: string, note?: string) =>
+  post<PlayerMessage>(`/api/admin/messages/${id}`, { status, note: note || null });
+
+export const replyToMessage = (id: string, body: string) =>
+  post<{ id: string; status: string; reply_body: string; replied_at: string }>(
+    `/api/admin/messages/${id}/reply`,
+    { body },
+  );
+
+export const getDiagnostics = () => request<Diagnostics>("/api/admin/diagnostics");

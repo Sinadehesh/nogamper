@@ -1,43 +1,37 @@
 import type { Metadata, Viewport } from "next";
-import { Vazirmatn } from "next/font/google";
 
-import { fa } from "@/lib/i18n";
+import { t } from "@/lib/copy";
 import "./globals.css";
 
-const vazirmatn = Vazirmatn({
-  subsets: ["arabic", "latin"],
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
-  variable: "--font-vazirmatn",
-});
-
 export const metadata: Metadata = {
-  title: fa.appName,
-  description: fa.tagline,
+  title: { default: `${t.appName} — ${t.tagline}`, template: `%s · ${t.appName}` },
+  description: t.description,
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: "cover",
+  // No maximumScale and no userScalable=false: pinch-to-zoom is how some
+  // people read, and a page that forbids it has decided they should not.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f5f1" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f141a" },
+  ],
 };
-
-const CAPTURE_INIT_DATA = `
-try {
-  var d = new URLSearchParams(location.hash.slice(1)).get('tgWebAppData');
-  if (d) sessionStorage.setItem('app:init-data', d);
-} catch (e) {}
-`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fa" dir="rtl" className={vazirmatn.variable} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: CAPTURE_INIT_DATA }} />
-      </head>
-      <body className="min-h-dvh antialiased">{children}</body>
+    <html lang="en">
+      <body className="flex min-h-dvh flex-col antialiased">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:start-3 focus:top-3 focus:z-50
+                     focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2"
+        >
+          {t.skipToContent}
+        </a>
+        {children}
+      </body>
     </html>
   );
 }

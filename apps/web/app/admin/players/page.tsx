@@ -1,331 +1,251 @@
 "use client";
 
+import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 
-import { useCallback, useEffect, useState } from "react";
-
-import { AdminNav } from "@/components/AdminNav";
-import { StatusBanner } from "@/components/StatusBanner";
-import { TelegramGate } from "@/components/TelegramGate";
 import { adjustPlayer, getPlayers, setPlayerStatus } from "@/lib/api";
+import { errorMessage, t } from "@/lib/copy";
+import { date, points, signedPoints, timeAgo } from "@/lib/format";
 import type { PlayerRow } from "@/lib/types";
 
-export default function PlayersPage() {
-  return (
-    <TelegramGate>
-      <Roster />
-    </TelegramGate>
-  );
-}
+type Flash = { ok: boolean; text: string } | null;
 
-function toman(minor: number): string {
-  const sign = minor < 0 ? "-" : "";
-  return sign + Math.floor(Math.abs(minor) / 100).toLocaleString("en-US");
-}
-
-function Roster() {
+export default function AdminPlayersPage() {
   const [search, setSearch] = useState("");
   const [players, setPlayers] = useState<PlayerRow[] | null>(null);
   const [total, setTotal] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [flash, setFlash] = useState<Flash>(null);
+  const [adjusting, setAdjusting] = useState<PlayerRow | null>(null);
 
   const load = useCallback(async (term: string) => {
     const result = await getPlayers(term);
     if (result.ok) {
       setPlayers(result.data.players);
       setTotal(result.data.total);
-      setError(null);
     } else {
-      setError(
-        result.status === 404
-          ? "This page is not available for your account."
-          : result.detail,
-      );
+      setFlash({ ok: false, text: result.status === 404 ? t.adminDenied : errorMessage(result.code) });
     }
   }, []);
 
+  // Debounced, so the roster is not re-queried for every keystroke.
   useEffect(() => {
-    const timer = setTimeout(() => void load(search), 250);
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(() => void load(search), 250);
+    return () => window.clearTimeout(timer);
   }, [search, load]);
 
-  const adjust = useCallback(
-    async (player: PlayerRow) => {
-      const raw = window.prompt(
-        `Adjust ${player.player_code} (${player.display_name}).\n\n` +
-          `Balance now: ${player.balance.display} toman.\n` +
-          `Enter a signed amount in TOMAN — e.g. 50000 to credit, -50000 to debit.`,
-      );
-      if (raw === null) return;
-
-      const tomanAmount = Number(raw.replace(/[, ]/g, ""));
-      if (!Number.isFinite(tomanAmount) || tomanAmount === 0) {
-        setNotice("Enter a non-zero number.");
-        return;
-      }
-
-      const reason = window.prompt("Why? (recorded on the ledger entry)");
-      if (!reason?.trim()) return;
-
-      setBusy(player.player_code);
-      const result = await adjustPlayer({
-        player_code: player.player_code,
-        amount_minor: Math.round(tomanAmount * 100),
-        reason: reason.trim(),
-        reference: `${player.player_code}-${Date.now()}`,
-      });
-      setBusy(null);
-
-      if (result.ok) {
-        setNotice(
-          `${player.player_code} now holds ${result.data.balance.display} toman.`,
-        );
-        await load(search);
-      } else {
-        setNotice(result.detail);
-      }
-    },
-    [load, search],
-  );
-
-  const changeStatus = useCallback(
-    async (player: PlayerRow, status: PlayerRow["status"]) => {
-      const verb =
-        status === "BANNED"
-          ? "Ban"
-          : status === "ACTIVE"
-            ? "Reinstate"
-            : "Restrict";
-      const typed = window.prompt(
-        `${verb} ${player.display_name}?\n\n` +
-          (status === "BANNED"
-            ? "They will be signed out immediately and cannot place predictions.\n\n"
-            : "") +
-          `Type the player code ${player.player_code} to confirm.`,
-      );
-      if (typed?.trim().toUpperCase() !== player.player_code) return;
-
-      setBusy(player.player_code);
-      const result = await setPlayerStatus(player.player_code, status);
-      setBusy(null);
-
-      setNotice(
-        result.ok
-          ? `${player.player_code} is now ${result.data.status}.`
-          : result.detail,
-      );
-      if (result.ok) await load(search);
-    },
-    [load, search],
-  );
-
-  if (error) {
-    return (
-      <main className="admin-shell">
-        <AdminNav />
-        <p className="admin-empty">{error}</p>
-      </main>
+  async function changeStatus(player: PlayerRow, status: PlayerRow["status"]) {
+    const result = await setPlayerStatus(player.player_code, status);
+    setFlash(
+      result.ok
+        ? { ok: true, text: t.adminStatusSet(player.player_code, result.data.status) }
+        : { ok: false, text: errorMessage(result.code) },
     );
+    void load(search);
   }
 
   return (
-    <main className="admin-shell">
-      <AdminNav />
-
-      <header className="admin-head">
-        <div>
-          <h1 className="admin-title">Players</h1>
-          <p className="admin-sub">{total.toLocaleString()} registered</p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-black tracking-tight">{t.adminPlayers}</h1>
         <input
+          className="field max-w-xs"
+          type="search"
+          placeholder={t.adminSearch}
+          aria-label={t.adminSearch}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="code, @username or name"
-          className="admin-search"
+          onChange={(event) => setSearch(event.target.value)}
         />
-      </header>
+      </div>
 
-      <StatusBanner />
+      {flash ? (
+        <p role={flash.ok ? "status" : "alert"} className={`notice ${flash.ok ? "notice-ok" : "notice-error"}`}>
+          {flash.text}
+        </p>
+      ) : null}
 
-      <GiveCoins
-        onDone={(message) => {
-          setNotice(message);
-          void load(search);
-        }}
-      />
-
-      {notice ? <p className="admin-notice">{notice}</p> : null}
+      {adjusting ? (
+        <AdjustForm
+          player={adjusting}
+          onClose={() => setAdjusting(null)}
+          onDone={(message) => {
+            setAdjusting(null);
+            setFlash(message);
+            void load(search);
+          }}
+        />
+      ) : null}
 
       {players === null ? (
-        <p className="admin-empty">Loading…</p>
+        <p className="text-muted">{t.loading}</p>
       ) : players.length === 0 ? (
-        <p className="admin-empty">Nobody matches that.</p>
+        <p className="text-muted">{t.adminNoPlayers}</p>
       ) : (
-        <div className="admin-panel">
-          <div className="scroll">
-            <table className="admin-table admin-roster">
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th className="num">Balance</th>
-                  <th className="num">Staked</th>
-                  <th className="num">Returned</th>
-                  <th className="num">Net</th>
-                  <th className="num">W / L</th>
-                  <th className="num">★</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {players.map((p) => (
-                  <tr
-                    key={p.id}
-                    className={p.status === "BANNED" ? "is-banned" : ""}
-                  >
-                    <td>
-                      <span className="admin-code">{p.player_code}</span>
-                      <span className="sub">
-                        {p.display_name}
-                        {p.username ? ` · @${p.username}` : ""}
-                        {p.status !== "ACTIVE" ? ` · ${p.status}` : ""}
+        <article className="card overflow-x-auto p-4">
+          <p className="mb-2 text-xs text-muted">{t.adminShowing(players.length, total)}</p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th scope="col">{t.adminColPlayer}</th>
+                <th scope="col">{t.adminColStatus}</th>
+                <th scope="col" className="num">{t.adminColBalance}</th>
+                <th scope="col" className="num">{t.adminColStaked}</th>
+                <th scope="col" className="num">{t.adminColNet}</th>
+                <th scope="col" className="num">{t.adminColSlips}</th>
+                <th scope="col">{t.adminColBrakes}</th>
+                <th scope="col">{t.adminColSeen}</th>
+                <th scope="col" />
+              </tr>
+            </thead>
+            <tbody>
+              {players.map((player) => (
+                <tr key={player.id} className={player.status === "BANNED" ? "opacity-60" : ""}>
+                  <td>
+                    <span className="block font-mono font-bold tracking-widest">
+                      {player.player_code}
+                    </span>
+                    <span className="block text-xs">{player.display_name}</span>
+                    <span className="block break-all text-xs text-muted">
+                      {player.is_guest ? t.adminGuestTag : player.email}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="chip">{player.status}</span>
+                  </td>
+                  <td className="num">{points(player.balance.minor)}</td>
+                  <td className="num">{points(player.staked.minor)}</td>
+                  <td className={`num ${player.net.minor >= 0 ? "text-yes" : "text-no"}`}>
+                    {signedPoints(player.net.minor)}
+                  </td>
+                  <td className="num">
+                    {player.won} / {player.slips}
+                    {player.open_slips > 0 ? (
+                      <span className="block text-xs text-muted">
+                        {t.adminOpenCount(player.open_slips)}
                       </span>
-                    </td>
-                    <td className="num" data-label="Balance">
-                      {p.balance.display}
-                    </td>
-                    <td className="num" data-label="Staked">
-                      {p.staked.display}
-                    </td>
-                    <td className="num" data-label="Returned">
-                      {p.returned.display}
-                    </td>
-                    <td
-                      data-label="Net"
-                      className={`num ${p.net.minor > 0 ? "is-bad" : "is-good"}`}
-                    >
-                      {p.net.display}
-                    </td>
-                    <td className="num" data-label="Won / lost">
-                      {p.won} / {p.lost}
-                      {p.open_slips ? (
-                        <span className="sub">{p.open_slips} open</span>
-                      ) : null}
-                    </td>
-                    <td className="num" data-label="Stars bought">
-                      {p.lifetime_stars || "—"}
-                    </td>
-                    <td className="admin-actions">
+                    ) : null}
+                  </td>
+                  <td className="text-xs">
+                    {player.daily_limit ? (
+                      <span className="block">{t.adminLimitTag(player.daily_limit.display)}</span>
+                    ) : null}
+                    {player.break_until ? (
+                      <span className="block">{t.adminBreakTag(date(player.break_until))}</span>
+                    ) : null}
+                    {!player.daily_limit && !player.break_until ? "—" : null}
+                  </td>
+                  <td className="whitespace-nowrap text-xs text-muted">
+                    {timeAgo(player.last_seen_at)}
+                  </td>
+                  <td>
+                    <span className="flex justify-end gap-1">
                       <button
                         type="button"
-                        disabled={busy === p.player_code}
-                        onClick={() => void adjust(p)}
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setAdjusting(player)}
                       >
-                        Adjust
+                        {t.adminAdjust}
                       </button>
-                      <button
-                        type="button"
-                        disabled={busy === p.player_code}
-                        className="is-danger"
-                        onClick={() =>
-                          void changeStatus(
-                            p,
-                            p.status === "BANNED" ? "ACTIVE" : "BANNED",
-                          )
-                        }
-                      >
-                        {p.status === "BANNED" ? "Unban" : "Ban"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="admin-note">
-            Net is returned minus staked, from the ledger. Positive means the
-            house is down against them. Open slips count their stake but not
-            their outcome.
-          </p>
-        </div>
+                      {player.status === "ACTIVE" ? (
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => void changeStatus(player, "BANNED")}
+                        >
+                          {t.adminBan}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => void changeStatus(player, "ACTIVE")}
+                        >
+                          {t.adminUnban}
+                        </button>
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </article>
       )}
-    </main>
+    </div>
   );
 }
 
-function GiveCoins({ onDone }: { onDone: (message: string) => void }) {
-  const [id, setId] = useState("");
+function AdjustForm({
+  player,
+  onClose,
+  onDone,
+}: {
+  player: PlayerRow;
+  onClose: () => void;
+  onDone: (flash: Flash) => void;
+}) {
+  const amountId = useId();
+  const reasonId = useId();
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const give = useCallback(async () => {
-    const telegramId = Number(id.trim());
-    const toman = Number(amount.replace(/[, ]/g, ""));
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const whole = Number(amount.replace(/[,\s]/g, ""));
+    if (!Number.isInteger(whole) || whole === 0) return;
 
-    if (!Number.isSafeInteger(telegramId) || telegramId === 0) {
-      setProblem("A Telegram id is a whole number — digits only, no letters.");
-      return;
-    }
-    if (!Number.isFinite(toman) || toman === 0) {
-      setProblem("Enter a non-zero amount. Negative takes coins away.");
-      return;
-    }
-    if (!reason.trim()) {
-      setProblem("Say why. It is recorded on the ledger entry.");
-      return;
-    }
-
-    setProblem(null);
     setBusy(true);
+    // A fresh reference per submission. The API refuses a repeated one, which
+    // is what stops a double click from posting the adjustment twice.
     const result = await adjustPlayer({
-      telegram_id: telegramId,
-      amount_minor: Math.round(toman * 100),
+      player_code: player.player_code,
+      amount_minor: whole * 100,
       reason: reason.trim(),
-      reference: `tg-${telegramId}-${Date.now()}`,
+      reference: crypto.randomUUID(),
     });
     setBusy(false);
 
-    if (!result.ok) {
-      setProblem(result.detail);
-      return;
+    if (result.ok) {
+      onDone({ ok: true, text: t.adminAdjusted2(result.data.player_code, result.data.balance.display) });
+    } else {
+      setError(errorMessage(result.code));
     }
-    setAmount("");
-    setReason("");
-    onDone(
-      `${result.data.player_code} now holds ${result.data.balance.display} toman.`,
-    );
-  }, [id, amount, reason, onDone]);
+  }
 
   return (
-    <section className="admin-panel admin-give">
-      <h2>Give coins by Telegram id</h2>
-      <div className="admin-give-row">
-        <input
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          inputMode="numeric"
-          placeholder="Telegram id"
-          dir="ltr"
-        />
-        <input
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          inputMode="numeric"
-          placeholder="Toman (− takes)"
-          dir="ltr"
-        />
-        <input
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Reason (goes on the ledger)"
-        />
-        <button type="button" disabled={busy} onClick={() => void give()}>
-          {busy ? "Posting…" : "Give"}
+    <form onSubmit={submit} className="card space-y-3 p-4">
+      <h2 className="font-bold">{t.adminAdjustTitle(player.player_code)}</h2>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor={amountId} className="label">{t.adminAdjustAmount}</label>
+          <input
+            id={amountId}
+            className="field tabular-nums"
+            inputMode="numeric"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor={reasonId} className="label">{t.adminAdjustReason}</label>
+          <input
+            id={reasonId}
+            className="field"
+            maxLength={200}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </div>
+      </div>
+      {error ? <p role="alert" className="notice notice-error">{error}</p> : null}
+      <div className="flex gap-2">
+        <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !amount || !reason.trim()}>
+          {busy ? t.saving : t.adminAdjustPost}
+        </button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+          {t.cancel}
         </button>
       </div>
-      {problem ? <p className="admin-muted">{problem}</p> : null}
-    </section>
+    </form>
   );
 }

@@ -1,251 +1,189 @@
 "use client";
 
-
 import { useCallback, useEffect, useState } from "react";
 
-import { AdminNav } from "@/components/AdminNav";
-import { StatusBanner } from "@/components/StatusBanner";
-import { TelegramGate } from "@/components/TelegramGate";
 import { getInbox, replyToMessage, resolveMessage } from "@/lib/api";
-import type { InboxItem } from "@/lib/types";
+import { errorMessage, t } from "@/lib/copy";
+import { points, timeAgo } from "@/lib/format";
+import type { Inbox, InboxItem } from "@/lib/types";
 
-const FILTERS = [
-  { key: "NEW", label: "New" },
-  { key: "SEEN", label: "Seen" },
-  { key: "ANSWERED", label: "Answered" },
-  { key: "", label: "All" },
-] as const;
+const FILTERS: { label: string; status?: string }[] = [
+  { label: t.adminFilterAll },
+  { label: t.adminFilterNew, status: "NEW" },
+  { label: t.adminFilterSeen, status: "SEEN" },
+  { label: t.adminFilterAnswered, status: "ANSWERED" },
+];
 
-export default function MessagesPage() {
+type Flash = { ok: boolean; text: string } | null;
+
+export default function AdminInboxPage() {
+  const [filter, setFilter] = useState<string | undefined>(undefined);
+  const [inbox, setInbox] = useState<Inbox | null>(null);
+  const [flash, setFlash] = useState<Flash>(null);
+
+  const load = useCallback(async () => {
+    const result = await getInbox(filter);
+    if (result.ok) setInbox(result.data);
+    else setFlash({ ok: false, text: result.status === 404 ? t.adminDenied : errorMessage(result.code) });
+  }, [filter]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   return (
-    <TelegramGate>
-      <Inbox />
-    </TelegramGate>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-black tracking-tight">
+          {t.adminInbox}
+          {inbox && inbox.unread > 0 ? (
+            <span className="chip ms-3 align-middle">{t.adminInboxUnread(inbox.unread)}</span>
+          ) : null}
+        </h1>
+        <div className="flex gap-1" role="group">
+          {FILTERS.map((entry) => (
+            <button
+              key={entry.label}
+              type="button"
+              aria-pressed={filter === entry.status}
+              className={`btn btn-sm ${filter === entry.status ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setFilter(entry.status)}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {flash ? (
+        <p role={flash.ok ? "status" : "alert"} className={`notice ${flash.ok ? "notice-ok" : "notice-error"}`}>
+          {flash.text}
+        </p>
+      ) : null}
+
+      {inbox === null ? (
+        <p className="text-muted">{t.loading}</p>
+      ) : inbox.messages.length === 0 ? (
+        <p className="text-muted">{t.adminInboxEmpty}</p>
+      ) : (
+        <ul className="space-y-3">
+          {inbox.messages.map((message) => (
+            <li key={message.id}>
+              <MessageCard
+                message={message}
+                onChanged={(next) => {
+                  setFlash(next);
+                  void load();
+                }}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
-function Inbox() {
-  const [filter, setFilter] = useState<string>("NEW");
-  const [items, setItems] = useState<InboxItem[] | null>(null);
-  const [unread, setUnread] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+function MessageCard({
+  message,
+  onChanged,
+}: {
+  message: InboxItem;
+  onChanged: (flash: Flash) => void;
+}) {
+  const [reply, setReply] = useState("");
+  const [note, setNote] = useState(message.admin_note ?? "");
+  const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async (status: string) => {
-    const result = await getInbox(status || undefined);
-    if (result.ok) {
-      setItems(result.data.messages);
-      setUnread(result.data.unread);
-      setError(null);
-    } else {
-      setError(
-        result.status === 404
-          ? "This page is not available for your account."
-          : result.detail,
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    void load(filter);
-  }, [filter, load]);
-
-  const triage = useCallback(
-    async (item: InboxItem, status: string) => {
-      let note: string | undefined;
-      if (status === "ANSWERED") {
-        const typed = window.prompt(
-          `Mark ${item.player_code}'s message answered.\n\n` +
-            "Optional note for yourself — the player never sees this.",
-        );
-        if (typed === null) return;
-        note = typed.trim() || undefined;
-      }
-
-      setBusy(item.id);
-      const result = await resolveMessage(item.id, status, note);
-      setBusy(null);
-      if (result.ok) await load(filter);
-      else setError(result.detail);
-    },
-    [filter, load],
-  );
-
-  if (error) {
-    return (
-      <main className="admin-shell">
-        <AdminNav />
-        <p className="admin-empty">{error}</p>
-      </main>
+  async function run(action: () => Promise<{ ok: boolean; code?: string }>, done: string) {
+    setBusy(true);
+    const result = await action();
+    setBusy(false);
+    onChanged(
+      result.ok ? { ok: true, text: done } : { ok: false, text: errorMessage(result.code ?? "") },
     );
   }
 
   return (
-    <main className="admin-shell">
-      <AdminNav />
-
-      <header className="admin-head">
-        <div>
-          <h1 className="admin-title">Messages</h1>
-          <p className="admin-sub">{unread} unread</p>
-        </div>
-        <div className="admin-segmented" role="group" aria-label="Filter">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key || "all"}
-              type="button"
-              aria-pressed={filter === f.key}
-              className={filter === f.key ? "is-on" : ""}
-              onClick={() => setFilter(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+    <article className="card space-y-3 p-4">
+      <header className="flex flex-wrap items-start justify-between gap-2 text-sm">
+        <p>
+          <span className="font-mono font-bold tracking-widest">{message.player_code}</span>{" "}
+          <span>{message.display_name}</span>{" "}
+          {message.is_guest ? <span className="chip">{t.adminGuestTag}</span> : null}
+          <span className="block text-xs text-muted tabular-nums">
+            {points(message.balance.minor)} {t.pts} · {message.player_status} ·{" "}
+            {timeAgo(message.created_at)}
+          </span>
+        </p>
+        <span className="flex gap-1">
+          {message.kind === "PRIZE_CLAIM" ? <span className="chip">{t.adminPrizeClaim}</span> : null}
+          <span className="chip">{message.status}</span>
+        </span>
       </header>
 
-      <StatusBanner />
+      <p className="whitespace-pre-wrap">{message.body}</p>
 
-      {items === null ? (
-        <p className="admin-empty">Loading…</p>
-      ) : items.length === 0 ? (
-        <p className="admin-empty">Nothing here.</p>
+      {message.reply_body ? (
+        <div className="border-s-2 border-accent ps-3 text-sm">
+          <p className="text-xs font-semibold text-accent">{t.adminYourReply}</p>
+          <p className="whitespace-pre-wrap">{message.reply_body}</p>
+        </div>
       ) : (
-        <div className="admin-messages">
-          {items.map((m) => (
-            <article key={m.id} className="admin-panel admin-message">
-              <div className="admin-message-head">
-                <div>
-                  <span className="admin-code">{m.player_code}</span>
-                  <span className="sub">
-                    {m.display_name}
-                    {m.username ? ` · @${m.username}` : ""} ·{" "}
-                    {m.balance.display} toman
-                    {m.player_status !== "ACTIVE"
-                      ? ` · ${m.player_status}`
-                      : ""}
-                  </span>
-                </div>
-                <span
-                  className={`admin-chip${m.kind === "PRIZE_CLAIM" ? " is-claim" : ""}`}
-                >
-                  {m.kind === "PRIZE_CLAIM" ? "prize claim" : "message"}
-                </span>
-              </div>
-
-              <p className="admin-message-body" dir="auto">
-                {m.body}
-              </p>
-
-              {m.reply_body ? (
-                <div className="admin-reply">
-                  <p dir="auto">{m.reply_body}</p>
-                  <span className="admin-muted">
-                    {m.reply_delivered
-                      ? "Sent by the bot"
-                      : "Saved — Telegram would not deliver it. They will read it in the app."}
-                  </span>
-                </div>
-              ) : (
-                <ReplyBox
-                  item={m}
-                  onSent={() => void load(filter)}
-                  onError={(detail) => setError(detail)}
-                />
-              )}
-
-              {m.admin_note ? (
-                <p className="admin-note">Note: {m.admin_note}</p>
-              ) : null}
-
-              <div className="admin-message-foot">
-                <span className="admin-muted">
-                  {new Date(m.created_at).toLocaleString()} · {m.status}
-                </span>
-                <div className="admin-actions">
-                  {m.status === "NEW" ? (
-                    <button
-                      type="button"
-                      disabled={busy === m.id}
-                      onClick={() => void triage(m, "SEEN")}
-                    >
-                      Seen
-                    </button>
-                  ) : null}
-                  {m.status !== "ANSWERED" ? (
-                    <button
-                      type="button"
-                      disabled={busy === m.id}
-                      onClick={() => void triage(m, "ANSWERED")}
-                    >
-                      Answered
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </article>
-          ))}
+        <div className="space-y-2">
+          <textarea
+            className="field min-h-20"
+            maxLength={2000}
+            placeholder={t.adminReplyPlaceholder}
+            aria-label={t.adminYourReply}
+            value={reply}
+            onChange={(event) => setReply(event.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={busy || !reply.trim()}
+            onClick={() => void run(() => replyToMessage(message.id, reply), t.adminReplySent)}
+          >
+            {t.adminReplySend}
+          </button>
         </div>
       )}
-    </main>
-  );
-}
 
-function ReplyBox({
-  item,
-  onSent,
-  onError,
-}: {
-  item: InboxItem;
-  onSent: () => void;
-  onError: (detail: string) => void;
-}) {
-  const [body, setBody] = useState("");
-  const [sending, setSending] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  const send = useCallback(async () => {
-    const text = body.trim();
-    if (!text || sending) return;
-    setSending(true);
-    const result = await replyToMessage(item.id, text);
-    setSending(false);
-
-    if (!result.ok) {
-      onError(result.detail);
-      return;
-    }
-    if (!result.data.delivered) {
-      setNotice(
-        result.data.delivery_detail ??
-          "Saved, but Telegram would not deliver it.",
-      );
-      return;
-    }
-    setBody("");
-    onSent();
-  }, [body, sending, item.id, onSent, onError]);
-
-  return (
-    <div className="admin-replybox">
-      <textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        rows={3}
-        maxLength={2000}
-        dir="auto"
-        placeholder={`Reply to ${item.player_code} — sent by the bot, not from your account`}
-      />
-      <div className="admin-actions">
-        {notice ? <span className="admin-muted">{notice}</span> : null}
+      <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
+        <label className="min-w-0 flex-1">
+          <span className="label">{t.adminNote}</span>
+          <input
+            className="field"
+            maxLength={2000}
+            placeholder={t.adminNotePlaceholder}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
         <button
           type="button"
-          disabled={sending || !body.trim()}
-          onClick={() => void send()}
+          className="btn btn-secondary btn-sm"
+          disabled={busy}
+          onClick={() =>
+            void run(() => resolveMessage(message.id, message.status, note), t.adminNoteSave)
+          }
         >
-          {sending ? "Sending…" : "Send reply"}
+          {t.adminNoteSave}
         </button>
+        {message.status === "NEW" ? (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={busy}
+            onClick={() =>
+              void run(() => resolveMessage(message.id, "SEEN", note), t.adminMarkSeen)
+            }
+          >
+            {t.adminMarkSeen}
+          </button>
+        ) : null}
       </div>
-    </div>
+    </article>
   );
 }
