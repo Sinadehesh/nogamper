@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from typing import Annotated
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -231,11 +232,16 @@ class Settings(BaseSettings):
 
     min_prob: float = 0.01
     max_prob: float = 0.99
-    """Probabilities are clamped into this band before a price is made.
+    """The band of probabilities a question can be forecast at.
 
-    The band is what bounds the odds: at 1% the fair price is 100 to one, and
-    nothing here pays more than that on a single question. It also keeps the
-    arithmetic away from a division by something indistinguishable from zero.
+    Outside it a question is closed to forecasts rather than priced at the
+    edge. Clamping is the obvious thing to do and it is an exploit: a market
+    at 99.9% clamped to 99% pays 1.0101 on something all but certain, which
+    is free points for whoever notices. Refusing costs nothing — a question
+    that close to settled is not a forecast.
+
+    The band is also what bounds the odds: at 1% the fair price is 100 to one,
+    and nothing here pays more than that on a single question.
     """
 
     max_legs: int = 5
@@ -357,6 +363,28 @@ class Settings(BaseSettings):
         if not 0 < value < 0.5:
             raise ValueError("reference_margin must be between 0 and 0.5")
         return value
+
+    @field_validator("economy_timezone", mode="before")
+    @classmethod
+    def _known_timezone(cls, value: object) -> object:
+        """Blank means UTC; anything else has to be a zone this machine knows.
+
+        A deployment form that prompts for this and is left empty sets the
+        variable to "", and a zone name is easy to misspell. Unchecked, either
+        one surfaces at the first request that needs a date — a 500 on the
+        profile page — instead of here, at startup, where the cause is named.
+        """
+        if not isinstance(value, str):
+            return value
+        zone = value.strip() or "UTC"
+        try:
+            ZoneInfo(zone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"economy_timezone {zone!r} is not a known IANA time zone "
+                "(expected a name like 'UTC' or 'Europe/London')"
+            ) from exc
+        return zone
 
     @property
     def is_production(self) -> bool:

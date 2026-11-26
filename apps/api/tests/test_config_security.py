@@ -65,3 +65,27 @@ def test_inconsistent_stake_limits_are_refused():
     better to hear that at boot than from the first player."""
     with pytest.raises(RuntimeError, match="Stake limits"):
         _settings(min_stake_minor=5_000, max_stake_minor=1_000).require_secrets()
+
+
+def test_a_blank_timezone_means_utc():
+    """A deployment form that prompts for the zone and is left empty sets the
+    variable to the empty string, which is not a zone and must not become a
+    500 on the first request that needs to know what day it is."""
+    assert Settings(jwt_secret="y", economy_timezone="").economy_timezone == "UTC"
+    assert Settings(jwt_secret="y", economy_timezone="   ").economy_timezone == "UTC"
+
+
+def test_a_real_timezone_is_kept_as_typed():
+    assert (
+        Settings(jwt_secret="y", economy_timezone=" Europe/London ").economy_timezone
+        == "Europe/London"
+    )
+
+
+@pytest.mark.parametrize("zone", ["Europe/Londn", "Mars/Olympus_Mons", "../etc/passwd"])
+def test_an_unknown_timezone_fails_at_startup_and_names_itself(zone):
+    """At startup rather than at first use, and with the offending value in
+    the message, because the alternative is a stack trace from zoneinfo in a
+    request handler that never mentions configuration."""
+    with pytest.raises(ValueError, match="not a known IANA time zone"):
+        Settings(jwt_secret="y", economy_timezone=zone)

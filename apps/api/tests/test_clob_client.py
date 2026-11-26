@@ -14,7 +14,7 @@ from backend.config import Settings
 
 
 def settings(**overrides) -> Settings:
-    return Settings(telegram_bot_token="x", jwt_secret="y", **overrides)
+    return Settings(jwt_secret="y", **overrides)
 
 
 def responder(payload: dict, status: int = 200):

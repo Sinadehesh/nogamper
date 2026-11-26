@@ -20,7 +20,6 @@ from backend.config import Settings
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
-        telegram_bot_token="x",
         jwt_secret="y",
     )
 
@@ -122,7 +121,6 @@ def test_category_is_resolved_from_tags(stats, tags, expected):
     under a settings object that wants it, regardless of whether the app's
     own default does."""
     settings = Settings(
-        telegram_bot_token="x",
         jwt_secret="y",
         discovery_categories="Macro,Crypto,Politics",
     )
@@ -323,7 +321,7 @@ def test_a_deployment_can_drop_a_category(stats):
     Not a UI filter: an event whose only category is excluded is never
     ingested, so it cannot be reached by a player editing a query string.
     """
-    narrowed = Settings(telegram_bot_token="x", jwt_secret="y", discovery_categories="Macro,Crypto")
+    narrowed = Settings(jwt_secret="y", discovery_categories="Macro,Crypto")
     assert narrowed.discovery_categories == ["Macro", "Crypto"]
 
     political = fx.event("p2", tags=[{"label": "Politics", "slug": "politics"}])

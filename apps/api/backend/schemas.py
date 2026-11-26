@@ -182,6 +182,9 @@ class MarketPage(BaseModel):
 
     markets: list[MarketSummary]
     next_cursor: str | None = None
+    categories: list[str] = Field(default_factory=list)
+    """Every category with something open in it — not just those on this
+    page — so a filter built from it does not lose options as you page."""
     max_legs: int
     min_prob: str
     max_prob: str
@@ -189,6 +192,30 @@ class MarketPage(BaseModel):
     min_stake: Money
     max_stake: Money
     payout_cap: Money
+
+
+class GameRules(BaseModel):
+    """The configured rules, for the pages that explain the game.
+
+    `margin` is a constant and is here anyway. It is the one number the whole
+    product is a claim about, and stating it in the same response as the
+    figures that *can* be tuned makes the point that this one cannot.
+    """
+
+    signup_bonus: Money
+    daily_topup: Money
+    min_stake: Money
+    max_stake: Money
+    payout_cap: Money
+    max_legs: int
+    max_combined_odds: str
+    min_prob: str
+    max_prob: str
+    margin: Literal["0"] = "0"
+    reference_margin: str
+    limit_loosen_delay_hours: int
+    break_options_hours: list[int]
+    password_min_length: int
 
 
 # ----- forecasts ------------------------------------------------------------

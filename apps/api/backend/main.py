@@ -21,6 +21,7 @@ from .routers import (
     me,
     messages,
     predictions,
+    rules,
 )
 from .workers.scheduler import build_scheduler
 
@@ -97,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(me.router)
     app.include_router(markets.router)
+    app.include_router(rules.router)
     app.include_router(predictions.router)
     app.include_router(economy.router)
     app.include_router(messages.router)

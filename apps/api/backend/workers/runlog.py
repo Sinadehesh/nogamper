@@ -3,7 +3,7 @@
 This exists because of a pattern rather than a bug. Four times now the app has
 gone quiet, and four times the evidence that would have named the cause in one
 look was a line in a worker log — while the person who needed it was holding a
-phone with Telegram open. The diagnostics endpoint could say *which layer* was
+phone, nowhere near a terminal. The diagnostics endpoint could say *which layer* was
 at fault, because it reads live state. It could not say why, because "why" is
 the failure census from the last pass, and that lived only in the log.
 

@@ -2,8 +2,8 @@
 
 `max_instances=1` plus `coalesce=True` means a slow run delays the next tick
 rather than stacking on top of it, and a scheduler that was paused catches up
-with one run instead of a backlog. The advisory lock in `locks.py` covers the
-other direction: several replicas ticking at the same moment.
+with one run instead of a backlog. The lease in `locks.py` covers the other
+direction: several replicas ticking at the same moment.
 """
 
 from __future__ import annotations

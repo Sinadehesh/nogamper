@@ -247,7 +247,10 @@ BEGIN
     EXCEPTION WHEN unique_violation THEN NULL; END;
 END $$;
 
-\echo '12. Stars: one charge id, one credit'
+-- The purchases table is retired: nothing in the application writes to it and
+-- check 16 asserts nothing is on sale. It is still in the schema, with the rows
+-- it already holds, so the rule that kept those rows honest is still checked.
+\echo '12. Retired purchases table: one charge id, one credit'
 INSERT INTO star_purchases (id, user_id, package_code, invoice_payload, stars_amount, coins_amount)
 VALUES ('f0000000-0000-0000-0000-000000000001','11111111-1111-1111-1111-111111111111','TIER_1','nonce-abc123',50,500000);
 

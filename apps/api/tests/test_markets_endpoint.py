@@ -250,3 +250,187 @@ async def test_probabilities_are_strings_not_json_numbers(app_client):
 
     raw = (await app_client.get("/v1/markets", headers=auth)).text
     assert '"yes":"0.6200"' in raw.replace(" ", "")
+
+
+# ----- the public rules -----------------------------------------------------
+
+
+async def test_the_rules_are_public_and_come_from_the_live_configuration(app_client):
+    """The pages that explain the game render from this, so they cannot drift
+    from the game. No session: it is what a visitor reads before signing up."""
+    settings = get_settings()
+
+    response = await app_client.get("/v1/rules")
+    assert response.status_code == 200
+
+    rules = response.json()
+    assert rules["signup_bonus"] == {"minor": 100_000, "display": "1,000"}
+    assert rules["daily_topup"]["minor"] == settings.daily_topup_minor
+    assert rules["max_legs"] == settings.max_legs
+    assert rules["max_combined_odds"] == "1000.0"
+    assert (rules["min_prob"], rules["max_prob"]) == ("0.01", "0.99")
+    assert rules["limit_loosen_delay_hours"] == 24
+    assert rules["break_options_hours"] == [24, 72, 168, 720]
+
+
+async def test_the_rules_state_that_nothing_is_taken(app_client):
+    rules = (await app_client.get("/v1/rules")).json()
+    assert rules["margin"] == "0"
+    assert rules["reference_margin"] == "0.05", "the illustration, labelled as one"
+
+
+async def test_the_rules_follow_a_retune(app_client):
+    get_settings().daily_topup_minor = 50_000
+    assert (await app_client.get("/v1/rules")).json()["daily_topup"]["display"] == "500"
+
+
+# ----- what the feed leaves out, and the orders it can be read in -----------
+
+
+async def set_prices(markets: list[dict], probabilities: list[str]) -> None:
+    async with db.acquire() as conn:
+        for market, probability in zip(markets, probabilities, strict=True):
+            await conn.execute(
+                "UPDATE markets SET raw_yes_prob = $2, price_updated_at = NOW() WHERE id = $1",
+                market["id"],
+                Decimal(probability),
+            )
+
+
+async def test_a_question_that_is_all_but_settled_is_left_off_the_feed(app_client):
+    """Neither side of it can be priced, so a card for it would be two
+    buttons that can never work."""
+    markets = await seed(4)
+    auth = await authorise(app_client)
+    await set_prices(markets, ["0.995", "0.004", "0.99", "0.50"])
+
+    body = (await app_client.get("/v1/markets", headers=auth)).json()
+
+    assert {m["id"] for m in body["markets"]} == {str(markets[2]["id"]), str(markets[3]["id"])}
+
+
+async def test_the_default_order_is_still_soonest_to_close(app_client):
+    markets = await seed(3)
+    auth = await authorise(app_client)
+
+    body = (await app_client.get("/v1/markets", headers=auth)).json()
+    assert [m["id"] for m in body["markets"]] == [str(m["id"]) for m in markets]
+
+
+async def test_closest_calls_come_first_when_asked_for(app_client):
+    """Nearest a coin flip first — the questions with the most to disagree
+    with the crowd about."""
+    markets = await seed(4)
+    auth = await authorise(app_client)
+    await set_prices(markets, ["0.90", "0.52", "0.20", "0.45"])
+
+    body = (await app_client.get("/v1/markets?sort=tossup", headers=auth)).json()
+
+    assert [m["id"] for m in body["markets"]] == [
+        str(markets[1]["id"]),  # 0.52
+        str(markets[3]["id"]),  # 0.45
+        str(markets[2]["id"]),  # 0.20
+        str(markets[0]["id"]),  # 0.90
+    ]
+
+
+async def test_most_traded_come_first_when_asked_for(app_client):
+    markets = await seed(3)
+    auth = await authorise(app_client)
+    async with db.acquire() as conn:
+        for market, volume in zip(markets, [100, 9000, 500], strict=True):
+            await conn.execute(
+                "UPDATE markets SET volume_usd = $2 WHERE id = $1", market["id"], volume
+            )
+
+    body = (await app_client.get("/v1/markets?sort=volume", headers=auth)).json()
+    assert [m["id"] for m in body["markets"]] == [
+        str(markets[1]["id"]),
+        str(markets[2]["id"]),
+        str(markets[0]["id"]),
+    ]
+
+
+async def test_an_ordered_feed_pages_through_every_question_once(app_client):
+    markets = await seed(5)
+    auth = await authorise(app_client)
+    await set_prices(markets, ["0.10", "0.30", "0.50", "0.70", "0.90"])
+
+    seen: list[str] = []
+    cursor = None
+    for _ in range(10):
+        url = f"/v1/markets?sort=tossup&limit=2{f'&cursor={cursor}' if cursor else ''}"
+        page = (await app_client.get(url, headers=auth)).json()
+        seen.extend(m["id"] for m in page["markets"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+
+    assert len(seen) == 5
+    assert set(seen) == {str(m["id"]) for m in markets}
+    assert seen[0] == str(markets[2]["id"]), "0.50 is the closest call"
+
+
+async def test_an_order_the_api_does_not_offer_is_refused(app_client):
+    """The ORDER BY is looked up by name from a fixed table, never built from
+    the request — so a name that is not in the table is simply invalid."""
+    await seed(1)
+    auth = await authorise(app_client)
+
+    for attempt in ("payout", "m.id; DROP TABLE markets", ""):
+        response = await app_client.get("/v1/markets", params={"sort": attempt}, headers=auth)
+        assert response.status_code == 422, attempt
+
+
+async def test_a_cursor_from_one_order_is_not_accepted_by_another(app_client):
+    await seed(3)
+    auth = await authorise(app_client)
+
+    by_closing = (await app_client.get("/v1/markets?limit=1", headers=auth)).json()["next_cursor"]
+    by_tossup = (await app_client.get("/v1/markets?sort=tossup&limit=1", headers=auth)).json()[
+        "next_cursor"
+    ]
+
+    crossed = await app_client.get(f"/v1/markets?sort=tossup&cursor={by_closing}", headers=auth)
+    assert crossed.status_code == 400
+    assert crossed.json()["code"] == "bad_cursor"
+
+    crossed = await app_client.get(f"/v1/markets?cursor={by_tossup}", headers=auth)
+    assert crossed.status_code == 400
+
+
+async def test_an_offset_cursor_cannot_be_made_absurd(app_client):
+    import base64
+    import json
+
+    await seed(1)
+    auth = await authorise(app_client)
+
+    for offset in (-1, 10**9, "5", True):
+        forged = base64.urlsafe_b64encode(json.dumps({"o": offset}).encode()).decode().rstrip("=")
+        response = await app_client.get(f"/v1/markets?sort=tossup&cursor={forged}", headers=auth)
+        assert response.status_code == 400, offset
+
+
+async def test_the_feed_lists_every_category_with_something_open(app_client):
+    """Not only the ones on this page: a filter built from it must not lose
+    options as the reader pages or filters."""
+    await seed(3, categories=["Macro", "Crypto", "Macro"])
+    auth = await authorise(app_client)
+
+    page = (await app_client.get("/v1/markets?limit=1", headers=auth)).json()
+    assert page["categories"] == ["Crypto", "Macro"]
+
+    filtered = (await app_client.get("/v1/markets?category=Crypto", headers=auth)).json()
+    assert filtered["categories"] == ["Crypto", "Macro"]
+    assert {m["category"] for m in filtered["markets"]} == {"Crypto"}
+
+
+async def test_a_category_with_nothing_left_to_forecast_is_not_offered(app_client):
+    markets = await seed(2, categories=["Macro", "Crypto"])
+    auth = await authorise(app_client)
+    crypto = next(m for m in markets if m["category"] == "Crypto")
+    await set_prices([crypto], ["0.999"])
+
+    page = (await app_client.get("/v1/markets", headers=auth)).json()
+    assert page["categories"] == ["Macro"]
