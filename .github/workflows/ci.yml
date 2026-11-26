@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    # Every branch, not just the default one: a branch with no open PR fired
+    # nothing, and the branch is where the signal is worth having — before
+    # review, not after it. A branch that also has a PR open runs twice; that
+    # is the price, and the concurrency group below keeps each of the two from
+    # cancelling the other.
+    branches: ["**"]
+  pull_request:
+  # Usable once this file reaches main. Re-running CI without an empty commit
+  # is worth the two lines.
+  workflow_dispatch:
+
+# A superseded run on the same ref is wasted minutes; cancel it. `main` is
+# exempt so a merge queue never cancels the run that gates a deploy.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "22"
+
+jobs:
+  schema:
+    name: Schema invariants
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          # Must match the database in DB_URL below. It read `mf` while the
+          # step connected to `appdb`, so every run failed on the first
+          # migration with "database does not exist" — the service came up
+          # healthy, which is why the health check never caught it.
+          POSTGRES_DB: appdb
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y postgresql-client
+
+      # Applies every migration in order, then runs db/tests/invariants.sql.
+      # A clean run ends with "ALL INVARIANTS HOLD"; the suite raises on any
+      # failed assertion, so ON_ERROR_STOP is what makes this a gate.
+      - name: Apply migrations and prove the invariants
+        run: make schema-verify
+        env:
+          DB_URL: postgresql://postgres:postgres@localhost:5432/appdb
+
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: appdb_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/pyproject.toml
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y postgresql-client
+
+      - name: Install dependencies
+        working-directory: apps/api
+        run: |
+          uv venv .venv
+          . .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      # The test suite expects the schema to exist; conftest truncates between
+      # tests but never creates tables.
+      - name: Apply migrations
+        run: make migrate
+        env:
+          DB_URL: postgresql://postgres:postgres@localhost:5432/appdb_test
+
+      # Both trees, one ruff.toml at the repository root. scripts/ used to be
+      # linted by nothing at all, and would have fallen back to ruff's default
+      # 88-character limit if it had been.
+      - name: Lint and format check
+        run: |
+          . apps/api/.venv/bin/activate
+          ruff check apps/api scripts
+          ruff format --check apps/api scripts
+
+      - name: Run tests
+        working-directory: apps/api
+        run: |
+          . .venv/bin/activate
+          python -m pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/appdb_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+          # TELEGRAM_BOT_TOKEN, JWT_SECRET and TELEGRAM_WEBHOOK_SECRET used to
+          # be pinned here. They cannot be: conftest signs initData with its own
+          # token, so a different one here is not a stricter config, it is a
+          # broken signature. That is precisely how it failed on the first run.
+
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      # `next build` fetches Vazirmatn from Google Fonts at build time, so this
+      # step needs network. A failure here is usually that, not the code.
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Fail if any English UI string crept back in
+        working-directory: apps/web
+        run: |
+          if grep -rnE '>[A-Z][a-z]{3,}[^<{}]*<' components app --include='*.tsx' \
+             | grep -v 'lib/i18n'; then
+            echo "::error::Untranslated UI text found — add it to lib/i18n.ts"
+            exit 1
+          fi
+          echo "No untranslated JSX text nodes."

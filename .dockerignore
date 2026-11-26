@@ -1,0 +1,40 @@
+# The build context is the repository root, because the image needs both
+# apps/api and scripts/. Without this file that context is ~760 MB, almost all
+# of it directories the image never uses — and every byte is copied to the
+# daemon before the first layer runs.
+
+# Dependency trees. apps/web is not in this image at all; apps/api's venv is
+# rebuilt inside the builder stage from pyproject.toml.
+**/node_modules
+**/.venv
+**/venv
+**/.next
+
+# The frontend is deployed by Vercel, not from this image.
+apps/web
+
+# Nothing in the image reads git history, and .git alone is megabytes.
+.git
+.github
+.gitignore
+
+# Test and lint state, none of which belongs in a runtime image.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+apps/api/tests
+
+# Local-only configuration. Real values arrive as environment variables; an
+# .env copied into a layer would sit in the image forever.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Developer tooling and docs.
+docker-compose.yml
+Makefile
+docs
+README.md
+db/tests
+*.md

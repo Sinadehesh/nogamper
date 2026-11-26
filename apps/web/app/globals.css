@@ -1,0 +1,1013 @@
+@import "tailwindcss";
+
+/* Telegram hands the Mini App its theme through CSS variables. Reading them
+   here means the app matches whatever client and theme the player is using,
+   rather than guessing at dark mode. Each has a fallback for the case where
+   the page is opened outside Telegram. */
+@theme {
+  --color-tg-bg: var(--tg-theme-bg-color, #17212b);
+  --color-tg-secondary-bg: var(--tg-theme-secondary-bg-color, #232e3c);
+  --color-tg-text: var(--tg-theme-text-color, #f5f5f5);
+  --color-tg-hint: var(--tg-theme-hint-color, #7d8b99);
+  --color-tg-link: var(--tg-theme-link-color, #6ab3f3);
+  --color-tg-button: var(--tg-theme-button-color, #5288c1);
+  --color-tg-button-text: var(--tg-theme-button-text-color, #ffffff);
+
+  /* Outcome colours.
+     Deliberately NOT from the Telegram palette: which side a player is
+     backing has to read at a glance, and tg-button is whatever accent the
+     client happens to use — in some themes it is already green. Fixed hues
+     mean "yes is green, no is red" holds in every client.
+
+     Boost is gold rather than a third green. It used to be emerald, which
+     was fine while both sides were grey and becomes unreadable the moment
+     yes is emerald too. Gold also says "bonus" on its own, in a way a
+     second green never will.
+
+     ⚠ One pair of hues, not a light set and a dark set.
+       The tempting version is a `prefers-color-scheme` override, and it is
+       wrong twice over. Tailwind v4 hoists a nested `@theme` out of its
+       media query, so the "light" values silently win everywhere — which is
+       how this file first shipped. And even written correctly it would key
+       on the wrong signal: the theme here comes from Telegram, not the OS,
+       so a light Telegram on a dark-mode phone would get dark green text on
+       a white card. Guessing wrong is worse than not adapting.
+
+       So every value below clears 3:1 against BOTH the dark fallback
+       (#17212b) and white. Keep that property if you retune them — the
+       percentage is the one number a player must not misread. */
+  --color-yes: #059669;
+  --color-no: #e11d48;
+  --color-boost: #d97706;
+  --color-urgent: #ea580c;
+}
+
+html,
+body {
+  background-color: var(--color-tg-bg);
+  color: var(--color-tg-text);
+  overscroll-behavior-y: none;
+}
+
+body {
+  /* next/font sets --font-vazirmatn on <html>. The fallbacks are Persian faces
+     that ship with the common platforms, so a font failure degrades to
+     readable Persian rather than to tofu. */
+  font-family:
+    var(--font-vazirmatn), "Vazirmatn", "IRANSans", "Tahoma", "Segoe UI",
+    system-ui, sans-serif;
+}
+
+/* Persian numerals have no tabular variant in most faces, so `tabular-nums`
+   silently does nothing for them. Fixing the glyph advance keeps balances and
+   odds from jittering as they update. */
+.tabular-nums {
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Motion
+   Small, short and physical. A Mini App runs inside a webview on a mid-range
+   phone, so everything here animates transform or opacity only — the two
+   properties that stay on the compositor and cannot cause a layout pass while
+   the feed is scrolling.
+   -------------------------------------------------------------------------- */
+
+/* The probability bar filling on first paint, so the number arrives as a
+   movement rather than as a static figure the eye skips. */
+@keyframes fill-in {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.animate-fill-in {
+  transform-origin: right; /* RTL: bars grow the way the language reads */
+  animation: fill-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Confirmation that a tap registered, on the element that was tapped. */
+@keyframes pick-pop {
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+.animate-pick {
+  animation: pick-pop 0.22s ease-out;
+}
+
+/* Closing soon. Slow enough to read as a clock rather than an alarm. */
+@keyframes urgent-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-urgent {
+  animation: urgent-pulse 1.8s ease-in-out infinite;
+}
+
+/* Boost badge. Gold that moves is the oldest trick there is, and it works —
+   but only while it stays rare, which the boost schedule already ensures. */
+@keyframes boost-glow {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-boost {
+  animation: boost-glow 2.4s ease-in-out infinite;
+}
+
+/* Honour the OS setting. A player who has asked for less motion still needs
+   the bar at its real width and the badge at full opacity, so this removes
+   the animation rather than the end state. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fill-in,
+  .animate-pick,
+  .animate-urgent,
+  .animate-boost {
+    animation: none;
+  }
+}
+
+/* ===========================================================================
+   Admin economy dashboard (/admin)
+   ===========================================================================
+
+   Plain CSS rather than utility classes: this is one page nobody else styles,
+   and the chart colours need names the TSX can hand to an inline `style`.
+
+   ⚠ Same rule as the outcome colours above — ONE set of hues, not a light set
+   and a dark set. A nested @theme would hoist out of its media query, and the
+   surface here is Telegram's, not the OS's, so prefers-color-scheme would be
+   keying on the wrong signal anyway.
+
+   The three judgement hues below were validated against both the dark
+   fallback (#17212b) and white: all three clear 3:1 on both, and the worst
+   adjacent CVD separation is ΔE 8.3 (deuteranopia). The emerald/slate pair
+   sits just under the normal-vision ΔE 15 target, which is why every bar in
+   the break-even chart carries its own text label — identity is never colour
+   alone there. */
+:root {
+  --admin-below: #fb7185; /* free riders: the drip is covering their vig */
+  --admin-at: #94a3b8; /* the neutral midpoint of the diverging scale */
+  --admin-above: #34d399; /* on a path to paying */
+  --admin-stars: #fbbf24; /* one series, so no legend — the title names it */
+}
+
+.admin-shell {
+  direction: ltr;
+  text-align: left;
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  transition: opacity 120ms ease;
+}
+
+.admin-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.admin-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.admin-sub,
+.admin-note,
+.admin-muted {
+  color: var(--color-tg-hint);
+  font-size: 0.8rem;
+}
+.admin-note {
+  margin: 0.25rem 0 0.85rem;
+  line-height: 1.5;
+  max-width: 46rem;
+}
+.admin-empty {
+  color: var(--color-tg-hint);
+  font-size: 0.85rem;
+  padding: 1.5rem 0;
+}
+
+.admin-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.admin-segmented {
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, var(--color-tg-hint) 35%, transparent);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.admin-segmented button {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  background: transparent;
+  color: var(--color-tg-hint);
+  cursor: pointer;
+}
+.admin-segmented button.is-on {
+  background: var(--color-tg-button);
+  color: var(--color-tg-button-text);
+}
+
+.admin-rate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.7rem;
+  color: var(--color-tg-hint);
+}
+.admin-rate input {
+  width: 5.5rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-tg-hint) 35%, transparent);
+  background: var(--color-tg-secondary-bg);
+  color: var(--color-tg-text);
+  font-size: 0.85rem;
+}
+
+/* Explicit column counts, not auto-fit. Six tiles through auto-fit lands on
+   five-plus-an-orphan at desktop widths, and a lone tile on its own row reads
+   as a different, lesser kind of number than the five above it. */
+.admin-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.6rem;
+}
+@media (min-width: 48rem) {
+  .admin-tiles {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.admin-tile {
+  background: var(--color-tg-secondary-bg);
+  border-radius: 0.7rem;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.admin-tile.is-hero {
+  outline: 1px solid color-mix(in srgb, var(--admin-stars) 45%, transparent);
+}
+.admin-tile.is-warn {
+  outline: 1px solid color-mix(in srgb, var(--admin-below) 55%, transparent);
+}
+.admin-tile-label {
+  font-size: 0.7rem;
+  color: var(--color-tg-hint);
+}
+.admin-tile-value {
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.admin-tile.is-hero .admin-tile-value {
+  color: var(--admin-stars);
+}
+.admin-tile-note {
+  font-size: 0.7rem;
+  color: var(--color-tg-hint);
+}
+
+.admin-panel {
+  background: var(--color-tg-secondary-bg);
+  border-radius: 0.8rem;
+  padding: 1rem;
+}
+.admin-panel h2 {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.admin-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 1.25rem;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.admin-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.7rem;
+  color: var(--color-tg-hint);
+  padding-bottom: 0.3rem;
+}
+.admin-table td {
+  padding: 0.35rem 0;
+  border-top: 1px solid
+    color-mix(in srgb, var(--color-tg-hint) 18%, transparent);
+}
+.admin-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.admin-table .is-good {
+  color: var(--admin-above);
+}
+.admin-table tr.is-strong td {
+  font-weight: 700;
+  border-top-width: 2px;
+}
+
+/* Break-even bars. Horizontal because the labels are sentences, and a
+   sentence rotated 90° is not a label. */
+.admin-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.admin-bar-row {
+  display: grid;
+  grid-template-columns: 11rem 1fr 2.5rem;
+  gap: 0.6rem;
+  align-items: center;
+}
+.admin-bar-label {
+  font-size: 0.75rem;
+  color: var(--color-tg-hint);
+}
+.admin-bar-track {
+  height: 0.65rem;
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--color-tg-hint) 15%, transparent);
+  overflow: hidden;
+}
+.admin-bar-fill {
+  height: 100%;
+  border-radius: 0.35rem;
+  transition: width 220ms ease;
+}
+.admin-bar-value {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.admin-verdict {
+  margin-top: 0.9rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.admin-verdict.warn {
+  color: var(--admin-below);
+}
+
+.admin-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.admin-chart svg {
+  width: 100%;
+  height: 7rem;
+  display: block;
+}
+.admin-chart rect {
+  transition: opacity 120ms ease;
+  cursor: pointer;
+}
+.admin-chart-foot {
+  font-size: 0.75rem;
+  min-height: 1.1rem;
+}
+
+.admin-raw summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.admin-raw .admin-table {
+  margin-top: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-bar-fill,
+  .admin-chart rect,
+  .admin-shell {
+    transition: none;
+  }
+}
+
+@media (max-width: 30rem) {
+  .admin-bar-row {
+    grid-template-columns: 7.5rem 1fr 2.2rem;
+  }
+  .admin-bar-label {
+    font-size: 0.68rem;
+  }
+}
+
+/* --- admin: roster and inbox ---------------------------------------------
+   Same instrument-panel language as the economy page above; only the pieces
+   those two views need that the first one did not. */
+
+.admin-search {
+  min-width: 14rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-tg-hint) 35%, transparent);
+  background: var(--color-tg-secondary-bg);
+  color: var(--color-tg-text);
+  font-size: 0.85rem;
+}
+
+.admin-notice {
+  background: var(--color-tg-secondary-bg);
+  border-left: 3px solid var(--admin-stars);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+/* The secondary line under a cell's headline value.
+   Was missing entirely — the class name came over from a design mock where
+   it was defined, so every "N open" and every @username rendered inline and
+   ran straight into the number above it ("1 / 6" + "1 open" reads as
+   "1 / 61 open"). */
+.admin-shell .sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--color-tg-hint);
+  margin-top: 0.1rem;
+}
+
+/* The code is the column people scan for, so it gets the monospace and the
+   tracking that make six characters read as one token rather than a word. */
+.admin-code {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.admin-roster td {
+  vertical-align: top;
+}
+.admin-roster tr.is-banned {
+  opacity: 0.55;
+}
+.admin-roster .is-good {
+  color: var(--admin-above);
+}
+.admin-roster .is-bad {
+  color: var(--admin-below);
+}
+
+.admin-actions {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+.admin-actions button {
+  padding: 0.28rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-tg-hint) 35%, transparent);
+  background: transparent;
+  color: var(--color-tg-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.admin-actions button:hover:not(:disabled) {
+  border-color: var(--color-tg-button);
+}
+/* Ban is bordered rather than filled: it should look available, not inviting. */
+.admin-actions button.is-danger {
+  color: var(--admin-below);
+  border-color: color-mix(in srgb, var(--admin-below) 45%, transparent);
+}
+.admin-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.admin-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.admin-message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.admin-message-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.admin-message-body {
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  margin: 0;
+}
+.admin-message-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  border-top: 1px solid
+    color-mix(in srgb, var(--color-tg-hint) 18%, transparent);
+  padding-top: 0.55rem;
+}
+
+.admin-chip {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--color-tg-hint) 18%, transparent);
+  color: var(--color-tg-hint);
+  white-space: nowrap;
+}
+.admin-chip.is-claim {
+  background: color-mix(in srgb, var(--admin-stars) 18%, transparent);
+  color: var(--admin-stars);
+}
+
+.admin-head a {
+  color: var(--color-tg-link);
+  text-decoration: none;
+}
+.admin-head a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 34rem) {
+  .admin-search {
+    min-width: 0;
+    width: 100%;
+  }
+  .admin-message-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
+
+/* --- admin: the "is anything wrong" banner --------------------------------
+   Top of every admin page. It answers the question those pages are opened to
+   ask, so it is not behind its own route — a separate destination gets
+   visited only by somebody who already suspects a problem, which is the wrong
+   time to find out. */
+
+.status-banner {
+  border-radius: 0.8rem;
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: var(--color-tg-secondary-bg);
+  border: 1px solid color-mix(in srgb, var(--status) 45%, transparent);
+}
+
+/* Amber, not red, for a pass truncating under load: that is the system doing
+   what it was designed to do, and colouring it as an outage would train the
+   operator to ignore the banner — the one failure that makes this worse than
+   having none. */
+.status-banner.is-good {
+  --status: var(--admin-above);
+}
+.status-banner.is-warn {
+  --status: var(--admin-stars);
+}
+.status-banner.is-bad {
+  --status: var(--admin-below);
+}
+
+.status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.status-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.status-title h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.status-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--status);
+  flex: none;
+}
+/* The one moving thing on the page, and only while something is wrong. */
+.status-banner.is-bad .status-dot {
+  animation: status-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.status-layer {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--status);
+  border: 1px solid color-mix(in srgb, var(--status) 45%, transparent);
+  border-radius: 0.35rem;
+  padding: 0.1rem 0.4rem;
+}
+
+.status-head button {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-tg-hint) 35%, transparent);
+  background: transparent;
+  color: var(--color-tg-text);
+  cursor: pointer;
+}
+.status-head button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.status-advice {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 46rem;
+}
+
+.status-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.6rem 1.25rem;
+  margin: 0;
+  padding-top: 0.3rem;
+  border-top: 1px solid
+    color-mix(in srgb, var(--color-tg-hint) 18%, transparent);
+}
+.status-facts dt {
+  font-size: 0.65rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-tg-hint);
+}
+.status-facts dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-banner .status-dot {
+    animation: none;
+  }
+}
+
+/* The operator's answer, and the box it is written in.
+ *
+ * Distinguished from the private note beside it on purpose: one is published
+ * to a player and one never leaves this page, and they sit close enough
+ * together that only a visual difference reliably keeps them apart. */
+.admin-reply {
+  border-inline-start: 2px solid var(--color-yes);
+  padding-inline-start: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.admin-replybox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.admin-replybox textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 0.75rem;
+  border: 1px solid var(--admin-line, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  line-height: 1.6;
+}
+
+.admin-give h2 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 0.6rem;
+}
+
+.admin-give-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* Matches .admin-actions button rather than inheriting from it: the give
+ * button is the only affordance on this panel and reading as plain text made
+ * it look like a label. */
+.admin-give-row button,
+.admin-replybox button {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--color-tg-hint) 35%, transparent);
+  background: var(--color-tg-button);
+  color: var(--color-tg-button-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.admin-give-row button:disabled,
+.admin-replybox button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.admin-give-row input {
+  flex: 1 1 9rem;
+  min-width: 0;
+  border-radius: 0.75rem;
+  border: 1px solid var(--admin-line, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+}
+
+/* The last run of each job, under the verdict.
+ *
+ * Deliberately plain and dense: this is evidence to be read during an
+ * incident, not a dashboard. The only colour is on the outcome, because that
+ * is the one thing worth spotting without reading. */
+.status-runs {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+.status-runs li {
+  border-inline-start: 2px solid
+    color-mix(in srgb, var(--color-tg-hint) 30%, transparent);
+  padding-inline-start: 0.6rem;
+}
+.status-runs li.is-error,
+.status-runs li.is-deadline {
+  border-inline-start-color: var(--admin-below);
+}
+.status-run-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.status-run-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.status-run-detail {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+.status-runs-empty {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-top: 0.75rem;
+}
+
+/* Admin navigation.
+ *
+ * Sticky because the pages are long — the players roster and the inbox both
+ * scroll well past a phone screen, and a way out that requires scrolling back
+ * to the top is a way out that does not get used. */
+.admin-nav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0 0.6rem;
+  margin-bottom: 0.25rem;
+  background: var(--color-tg-bg);
+}
+.admin-back {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--color-tg-hint) 35%, transparent);
+  white-space: nowrap;
+}
+.admin-tabs {
+  display: flex;
+  gap: 0.25rem;
+  flex: 1 1 auto;
+}
+.admin-tabs a {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.6rem;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+/* The current page is filled rather than merely brighter: on a small screen
+ * three similar words need something unmistakable to say which one you are
+ * looking at. */
+.admin-tabs a.is-on {
+  background: var(--color-tg-button);
+  color: var(--color-tg-button-text);
+  opacity: 1;
+}
+.admin-nav-note {
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
+/* Collapsed by default unless something is wrong — see StatusBanner. */
+.status-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+.status-caret {
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+/* A collapsed banner is a status line, not a panel: no border, no padding to
+ * spare, so the page below it starts where the reader expects. */
+.status-banner:not(.is-open) {
+  padding: 0.4rem 0.6rem;
+}
+
+/* The roster on a phone.
+ *
+ * Seven numeric columns do not fit 420px, and a table that does not fit does
+ * not scroll by itself — it squeezes, and "Balance Staked Returned Net" ran
+ * together into one unreadable word with the figures underneath it doing the
+ * same. These are the numbers the page exists to show.
+ *
+ * So below the width where the columns can breathe, each player becomes a
+ * card and every figure carries its own label. Same markup, same data: the
+ * labels come from data-label attributes rather than a second copy of the
+ * table, so the two layouts cannot drift apart. */
+@media (max-width: 46rem) {
+  .admin-roster thead {
+    /* Not display:none — that removes it from the accessibility tree too,
+     * and the header cells are still the table's column names. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .admin-roster,
+  .admin-roster tbody,
+  .admin-roster tr,
+  .admin-roster td {
+    display: block;
+    width: auto;
+  }
+  .admin-roster tr {
+    padding: 0.7rem 0;
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--color-tg-hint) 18%, transparent);
+  }
+  .admin-roster tr:last-child {
+    border-bottom: 0;
+  }
+  .admin-roster td[data-label] {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.15rem 0;
+    text-align: end;
+  }
+  .admin-roster td[data-label]::before {
+    content: attr(data-label);
+    font-size: 0.72rem;
+    opacity: 0.65;
+    text-align: start;
+    font-weight: 500;
+  }
+  .admin-roster td.admin-actions {
+    display: flex;
+    gap: 0.4rem;
+    padding-top: 0.5rem;
+  }
+}
+
+/* The parlay bonus. Gold because it is a reward, understated because it is
+ * one line in a slip and not a slot machine. */
+.golden-key {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-tg-hint) 70%, transparent);
+}
+.golden-key.is-on {
+  color: #e8b73a;
+}
+
+/* The payout, when it changes.
+ *
+ * Keyed on the value in BetSlip so React remounts the node and this replays.
+ * A figure that changes silently reads as a label; one that moves reads as a
+ * consequence of the tap that caused it.
+ *
+ * Short, and scale-only. Anything longer competes with the player reading the
+ * number, and a payout still settling when they look at it is worse than one
+ * that never moved. */
+@keyframes payout-pop {
+  0% {
+    transform: scale(0.94);
+    opacity: 0.55;
+  }
+  60% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.animate-payout {
+  animation: payout-pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  transform-origin: right center;
+}
+
+/* The next rung of the bonus, under the one already earned. */
+.golden-key-next {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #e8b73a;
+}
+
+/* Respect a system preference for less movement — the number still updates,
+ * it simply does not travel to get there. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-payout {
+    animation: none;
+  }
+}

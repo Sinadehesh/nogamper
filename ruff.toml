@@ -1,0 +1,38 @@
+# One lint configuration for every Python file in the repository.
+#
+# This used to live in apps/api/pyproject.toml, which meant ruff found it only
+# when linting under apps/api. Files in scripts/ silently fell back to ruff's
+# defaults — an 88-character line limit and a different rule set than the rest
+# of the codebase — and CI never looked at them at all.
+#
+# Ruff resolves configuration by walking up from each file, so a single file
+# here governs apps/api and scripts/ alike, whether you run ruff from the
+# repository root or from inside apps/api.
+
+line-length = 100
+target-version = "py311"
+
+# Import roots. isort resolves first-party packages relative to these, and they
+# default to the directory holding the config — which was apps/api before this
+# file existed. Without them, `backend`, `conftest` and `fixtures` all
+# read as third-party from the repository root and every test file's import
+# block is reported as mis-sorted.
+# Deliberately NOT apps/api/tests: `conftest` and `fixtures` are imported by
+# tests as top-level modules but are not first-party packages, and listing that
+# directory regroups every test file's imports.
+src = ["apps/api", "scripts"]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = ["S101"]  # assert is fine in tests
+
+[lint.per-file-ignores]
+# S105/S106 flag any identifier containing "token". In tests those are
+# Polymarket CLOB token ids and fixture bot tokens, not credentials.
+"apps/api/tests/**" = [
+    "S105",
+    "S106",
+    # Seeded RNG is how a boost test becomes deterministic; nothing here is
+    # generating a secret.
+    "S311",
+]
