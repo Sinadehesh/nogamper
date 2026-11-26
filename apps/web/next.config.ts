@@ -6,6 +6,15 @@ const config: NextConfig = {
   // set — a stack fingerprint with no benefit to a visitor, and one more
   // fact an outside prober does not need.
   poweredByHeader: false,
+  env: {
+    // Whether this build knows where the game's API is. A production build
+    // with no API_BASE_URL has nothing behind its "Start playing" button, so
+    // the site says the game is not open yet instead of offering buttons that
+    // can only fail. Development always counts as open: there the default
+    // address, this machine, is the right one.
+    NEXT_PUBLIC_GAME_OPEN:
+      process.env.API_BASE_URL || process.env.NODE_ENV !== "production" ? "1" : "",
+  },
   // The site's own articles are Markdown files read from disk. Pages built
   // ahead of time read them during the build; pages rendered on demand — a
   // reader's article, the listing when it refreshes — read them on the

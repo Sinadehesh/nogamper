@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useSyncExternalStore } from "react";
 
 import { GuestButton } from "@/components/GuestButton";
+import { NotOpenYet } from "@/components/NotOpenYet";
 import { landing } from "@/lib/content";
 import { t } from "@/lib/copy";
 import { SIGNED_IN_COOKIE } from "@/lib/session-marker";
+import { GAME_OPEN } from "@/lib/site";
 
 /**
  * The few places a public page changes for somebody who is signed in.
@@ -36,6 +38,7 @@ export function useSignedIn(): boolean {
 export function AccountLinks() {
   const signedIn = useSignedIn();
 
+  if (!GAME_OPEN) return null;
   if (signedIn) {
     return (
       <Link href="/play" className="btn btn-primary btn-sm">
@@ -59,6 +62,7 @@ export function AccountLinks() {
 export function StartActions({ secondary = true }: { secondary?: boolean }) {
   const signedIn = useSignedIn();
 
+  if (!GAME_OPEN) return <NotOpenYet />;
   if (signedIn) {
     return (
       <Link href="/play" className="btn btn-primary">
@@ -81,6 +85,11 @@ export function StartActions({ secondary = true }: { secondary?: boolean }) {
 /** Shown only to somebody who is not signed in. */
 export function WhenSignedOut({ children }: { children: React.ReactNode }) {
   return useSignedIn() ? null : <>{children}</>;
+}
+
+/** Shown only when there is a game to play. */
+export function WhenGameOpen({ children }: { children: React.ReactNode }) {
+  return GAME_OPEN ? <>{children}</> : null;
 }
 
 /** Shown only to somebody who is signed in. */

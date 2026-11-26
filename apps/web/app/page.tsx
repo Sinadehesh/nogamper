@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { JsonLd } from "@/components/JsonLd";
-import { StartActions, WhenSignedOut } from "@/components/SignedIn";
+import { StartActions, WhenGameOpen, WhenSignedOut } from "@/components/SignedIn";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { landing } from "@/lib/content";
 import { t } from "@/lib/copy";
@@ -46,9 +46,11 @@ export default async function LandingPage() {
           <div className="mt-8 flex flex-wrap items-start gap-3">
             <StartActions />
           </div>
-          <p className="mt-4 text-sm text-muted">
-            {landing.ctaNote} <WhenSignedOut>{t.adultsConfirm}</WhenSignedOut>
-          </p>
+          <WhenGameOpen>
+            <p className="mt-4 text-sm text-muted">
+              {landing.ctaNote} <WhenSignedOut>{t.adultsConfirm}</WhenSignedOut>
+            </p>
+          </WhenGameOpen>
         </section>
 
         <section className="border-y border-line bg-surface">

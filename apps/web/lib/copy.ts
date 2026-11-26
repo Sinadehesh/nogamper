@@ -25,6 +25,13 @@ export const t = {
   navArticles: "Articles",
   navPrivacy: "Privacy",
   navSupport: "Support the site",
+
+  notOpenTitle: "The game is not open yet",
+  notOpenBody:
+    "The forecasting game is still being set up and will open here soon. Everything else is " +
+    "ready now: the guides, the mission, and the help page.",
+  notOpenShort: "The game opens here soon. The guides are ready now.",
+  notOpenLink: "Read the guides",
   navAbout: "How it works",
   navHelp: "Worried about gambling?",
   navSignIn: "Sign in",

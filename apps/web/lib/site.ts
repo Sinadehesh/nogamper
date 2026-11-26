@@ -23,6 +23,14 @@ function resolve(): string {
 
 export const SITE_URL = resolve().replace(/\/+$/, "");
 
+/**
+ * False when the site was built without an API to talk to: the guides, the
+ * mission and the help page are all there, and the game is not. Decided at
+ * build time in next.config.ts, so it reads the same on the server and in the
+ * browser.
+ */
+export const GAME_OPEN = process.env.NEXT_PUBLIC_GAME_OPEN === "1";
+
 /** A site path as a full address. */
 export function absolute(path: string): string {
   return `${SITE_URL}${path.startsWith("/") ? path : `/${path}`}`;
