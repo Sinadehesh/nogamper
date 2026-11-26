@@ -133,14 +133,12 @@ async def _discover(
     stats = gamma.DiscoveryStats()
 
     try:
-        raw_events = await gamma.fetch_events(client, settings)
+        considered = await gamma.fetch_normalized_events(client, settings, stats)
     except Exception as exc:
-        logger.exception("discovery could not reach Gamma")
+        logger.exception("discovery could not read Gamma's event feed")
         return DiscoveryReport(
             ran=True, duration_seconds=time.monotonic() - started, error=str(exc)
         )
-
-    considered = list(gamma.normalize_events(raw_events, settings=settings, stats=stats))
     normalized = _within_budget(
         considered,
         settings.price_sync_max_markets,

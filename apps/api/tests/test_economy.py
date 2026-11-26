@@ -379,6 +379,70 @@ async def test_a_finished_season_stops_being_recomputed(resources):
     assert any(s["is_finalized"] for s in seasons)
 
 
+async def test_a_season_is_counted_once_more_before_it_closes(resources):
+    """Whatever settled between the last count and the end of the season
+    belongs to that season. The run that closes it is the last chance to say
+    so — an hour's worth on a server that never stops, and everything since
+    it last had a visitor on one that sleeps between them."""
+    await settled_slip(7210, staked=500_000, returned=900_000, won=True)
+    async with db.transaction() as conn:
+        await economy.roll_up_leaderboard(conn, resources)
+
+    late = await settled_slip(7211, staked=300_000, returned=600_000, won=True)
+    await settled_slip(7210, staked=100_000, returned=0, won=False)
+
+    async with db.transaction() as conn:
+        await conn.execute("UPDATE leaderboard_seasons SET ends_at = NOW()")
+    async with db.transaction() as conn:
+        report = await economy.roll_up_leaderboard(conn, resources)
+
+    assert report.seasons_finalized == 1
+    async with db.acquire() as conn:
+        season = await conn.fetchrow("SELECT id, is_finalized FROM leaderboard_seasons")
+        entries = {
+            r["user_id"]: r
+            for r in await conn.fetch(
+                "SELECT user_id, slips_settled, total_staked, rank FROM leaderboard_entries"
+                " WHERE season_id = $1",
+                season["id"],
+            )
+        }
+    assert season["is_finalized"] is True
+    assert len(entries) == 2
+    assert entries[late]["slips_settled"] == 1
+    assert entries[late]["rank"] is not None
+    first = next(row for user, row in entries.items() if user != late)
+    assert first["slips_settled"] == 2
+    assert first["total_staked"] == 600_000
+
+
+async def test_a_closed_season_is_left_exactly_as_it_closed(resources):
+    """The last count happens once. A slip that somehow lands inside a closed
+    season afterwards does not reopen it."""
+    await settled_slip(7212, staked=500_000, returned=900_000, won=True)
+    async with db.transaction() as conn:
+        await conn.execute("UPDATE leaderboard_seasons SET ends_at = NOW()")
+    async with db.transaction() as conn:
+        await economy.roll_up_leaderboard(conn, resources)
+        await conn.execute("UPDATE leaderboard_seasons SET ends_at = NOW()")
+    async with db.transaction() as conn:
+        await economy.roll_up_leaderboard(conn, resources)
+    async with db.acquire() as conn:
+        before = await conn.fetch("SELECT * FROM leaderboard_entries ORDER BY user_id")
+
+    await settled_slip(7213, staked=500_000, returned=900_000, won=True)
+    async with db.transaction() as conn:
+        await conn.execute(
+            "UPDATE predictions SET settled_at = (SELECT starts_at FROM leaderboard_seasons)"
+        )
+        report = await economy.roll_up_leaderboard(conn, resources)
+
+    assert report.seasons_finalized == 0
+    async with db.acquire() as conn:
+        after = await conn.fetch("SELECT * FROM leaderboard_entries ORDER BY user_id")
+    assert [dict(r) for r in after] == [dict(r) for r in before]
+
+
 async def test_the_leaderboard_endpoint_shows_the_player_their_standing(app_client):
     auth = await authorise(app_client, 5000)
     me = await user_id_for(5000)
@@ -517,7 +581,9 @@ async def test_nothing_is_scheduled_that_exists_to_bring_people_back():
     short-lived better prices and a payments sweeper used to be on it."""
     from backend.workers.scheduler import build_scheduler
 
-    settings = Settings(jwt_secret="y" * 40, run_discovery_on_startup=False)
+    settings = Settings(
+        jwt_secret="y" * 40, run_discovery_on_startup=False, catch_up_on_startup=False
+    )
     async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
         scheduler = build_scheduler(client, settings)
         scheduler.start(paused=True)
@@ -531,4 +597,28 @@ async def test_nothing_is_scheduled_that_exists_to_bring_people_back():
         "polymarket_discovery",
         "polymarket_price_sync",
         "polymarket_resolution",
+    ]
+
+
+async def test_the_runs_at_startup_are_the_same_jobs_and_nothing_else():
+    """Starting up adds one early run of work already on the schedule. It is
+    not a place for a new kind of job to arrive unannounced."""
+    from backend.workers.scheduler import build_scheduler
+
+    settings = Settings(jwt_secret="y" * 40)
+    async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
+        scheduler = build_scheduler(client, settings)
+        scheduler.start(paused=True)
+        try:
+            jobs = sorted(job.id for job in scheduler.get_jobs())
+        finally:
+            scheduler.shutdown(wait=False)
+
+    assert jobs == [
+        "leaderboard_rollup",
+        "polymarket_discovery",
+        "polymarket_discovery_startup",
+        "polymarket_price_sync",
+        "polymarket_resolution",
+        "startup_catch_up",
     ]

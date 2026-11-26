@@ -177,6 +177,19 @@ class Settings(BaseSettings):
     workers_enabled: bool = False
     run_discovery_on_startup: bool = True
 
+    catch_up_on_startup: bool = True
+    """Run the price sync, settlement and the standings once, in that order,
+    as the process starts — instead of leaving each to its first tick.
+
+    A process that has been running all along gains nothing from this. One
+    that has not — a host that puts an idle server to sleep and wakes it for
+    the next visitor, or a restart after an outage — would otherwise show
+    prices older than the staleness window for its first minute, hold finished
+    forecasts unsettled for five, and leave the standings alone until the hour
+    next turns. On a host that sleeps, the hour may never turn while the
+    process is awake to see it.
+    """
+
     discovery_interval_minutes: int = 60
     discovery_categories: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["Politics", "Macro", "Crypto"]

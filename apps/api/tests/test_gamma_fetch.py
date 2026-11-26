@@ -208,3 +208,159 @@ async def test_the_priority_pass_can_be_turned_off():
         )
 
     assert tagged(handler) == []
+
+
+# ----- the same feed, a page at a time ---------------------------------------
+#
+# Discovery does not call fetch_events. Twenty pages of Gamma's own JSON held
+# at once measured over half a gigabyte, which is more than the server this
+# runs on has. fetch_normalized_events reduces each page to our own records
+# before it asks for the next — and it has to give exactly the answer the
+# simple way gives.
+
+
+def mixed_pages() -> list[list[dict]]:
+    """Three pages: wanted and unwanted events, one with no usable market, and
+    one that the priority pass will have returned already."""
+    return [
+        [
+            fx.event("1", tags=fx.IRAN_TAGS),
+            fx.event("2"),
+            fx.event("3", tags=[{"id": "9", "label": "Sports", "slug": "sports"}]),
+            fx.event("4"),
+            fx.event("5", markets=[]),
+        ],
+        [fx.event(str(n)) for n in range(6, 11)],
+        [fx.event("11"), fx.event("2")],
+    ]
+
+
+async def test_a_page_at_a_time_gives_the_same_events_in_the_same_order():
+    config = settings(discovery_page_size=5)
+    # Built once: the fixture dates its events from the moment it is called.
+    pages = mixed_pages()
+
+    simple_stats = gamma.DiscoveryStats()
+    async with mock_http_client(pager(pages)) as client:
+        raw = await gamma.fetch_events(client, config)
+    simple = list(gamma.normalize_events(raw, settings=config, stats=simple_stats))
+
+    paged_stats = gamma.DiscoveryStats()
+    async with mock_http_client(pager(pages)) as client:
+        paged = await gamma.fetch_normalized_events(client, config, paged_stats)
+
+    assert len(simple) > 5, "the fixture kept almost nothing; it would prove nothing"
+    assert simple_stats.skips, "nothing was skipped; the unwanted events are not unwanted"
+    # Records are compared whole: every field of every market of every event.
+    assert paged == simple
+    assert paged_stats.as_dict() == simple_stats.as_dict()
+    # The overlapping event is counted once, where the priority pass put it.
+    assert [e.polymarket_event_id for e in paged][0] == "1"
+    assert [e.polymarket_event_id for e in paged].count("2") == 1
+
+
+async def test_a_priority_tag_that_fails_halfway_does_not_take_its_events_with_it():
+    """The first page of the tag arrives, the second does not. Those five
+    events are also in the ordinary feed, and that is where they must come
+    from — a reader that had already ticked them off as seen would return
+    them from neither pass."""
+    events = full_page(5)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        offset = int(request.url.params.get("offset", 0))
+        if "tag_slug" in request.url.params:
+            if offset == 0:
+                return httpx.Response(200, json=events)
+            return httpx.Response(404, json={"error": "gone"})
+        return httpx.Response(200, json=events if offset == 0 else [])
+
+    config = settings(discovery_page_size=5)
+    stats = gamma.DiscoveryStats()
+    async with mock_http_client(handler) as client:
+        kept = await gamma.fetch_normalized_events(client, config, stats)
+        raw = await gamma.fetch_events(client, config)
+
+    assert [e.polymarket_event_id for e in kept] == ["0", "1", "2", "3", "4"]
+    assert [e["id"] for e in raw] == ["0", "1", "2", "3", "4"]
+    # Each was read once, not once per pass.
+    assert stats.events_seen == 5
+
+
+async def test_each_page_is_reduced_before_the_next_is_asked_for(monkeypatch):
+    """The point of the exercise. If every page were fetched first and reduced
+    afterwards, the order below would be all the requests, then all the events."""
+    order: list[str] = []
+    pages = [full_page(5), full_page(5, 100), [fx.event("200")]]
+    serve = pager(pages)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        order.append(f"page at {request.url.params['offset']}")
+        return serve(request)
+
+    normalize = gamma.normalize_event
+
+    def watching(raw, **kwargs):
+        order.append("event")
+        return normalize(raw, **kwargs)
+
+    monkeypatch.setattr(gamma, "normalize_event", watching)
+
+    async with mock_http_client(handler) as client:
+        events = await gamma.fetch_normalized_events(
+            client,
+            # The ordinary feed alone: the priority pass pages too, and would
+            # put its own events ahead of the first request counted here.
+            settings(discovery_page_size=5, discovery_priority_tag_slugs=""),
+            gamma.DiscoveryStats(),
+        )
+
+    assert len(events) == 11
+    assert order == (
+        ["page at 0"] + ["event"] * 5 + ["page at 5"] + ["event"] * 5 + ["page at 10", "event"]
+    )
+
+
+async def test_nothing_of_a_page_is_kept_but_the_records_made_from_it(monkeypatch):
+    """What comes back holds no reference into Gamma's JSON — not to an event
+    and not to a market inside one — so a page can be let go as soon as it has
+    been read. A record that kept its source "for debugging" would quietly
+    bring the half-gigabyte back."""
+    import gc
+    import weakref
+
+    class Tracked(dict):
+        """A dict that can be watched: a plain one cannot be weakly referenced."""
+
+    watched: list[weakref.ref] = []
+
+    def track(item: dict) -> Tracked:
+        tracked = Tracked(item)
+        watched.append(weakref.ref(tracked))
+        return tracked
+
+    real = gamma.get_json
+
+    async def tracking(*args, **kwargs):
+        payload = await real(*args, **kwargs)
+        return [
+            track({**event, "markets": [track(market) for market in event["markets"]]})
+            for event in payload
+        ]
+
+    monkeypatch.setattr(gamma, "get_json", tracking)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        offset = int(request.url.params.get("offset", 0))
+        return httpx.Response(200, json=full_page(5) if offset == 0 else [])
+
+    async with mock_http_client(handler) as client:
+        events = await gamma.fetch_normalized_events(
+            client,
+            settings(discovery_page_size=5, discovery_priority_tag_slugs=""),
+            gamma.DiscoveryStats(),
+        )
+
+    gc.collect()
+    assert len(events) == 5
+    assert len(watched) == 10, "five events and the one market in each"
+    assert [ref() for ref in watched] == [None] * 10

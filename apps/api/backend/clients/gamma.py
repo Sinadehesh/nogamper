@@ -15,10 +15,11 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import TypeVar
 
 import httpx
 
@@ -26,6 +27,8 @@ from ..config import Settings
 from .http import get_json
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 _CATEGORY_ALIASES: dict[str, str] = {
     "iran": "Iran",
@@ -473,9 +476,19 @@ async def _page_through(
     params: dict[str, object],
     max_pages: int,
     warn_on_ceiling: bool,
-) -> list[dict]:
-    """Read one ordered query until it runs out, its ceiling, or a short page."""
-    collected: list[dict] = []
+    convert: Callable[[list[dict]], list[_T]],
+) -> list[_T]:
+    """Read one ordered query until it runs out, its ceiling, or a short page.
+
+    Each page is handed to `convert` as it arrives, and only what that returns
+    is kept. That is what bounds the memory this takes. Gamma's own JSON for
+    an event is enormous beside what we keep of it — every market carries
+    scores of fields nothing here reads — and the events at the top of a
+    volume ordering are the largest of all. Holding twenty pages of it at once
+    measured over half a gigabyte, which is more than a small server has; held
+    a page at a time, the same pass needs a fraction of that.
+    """
+    collected: list[_T] = []
     url = f"{settings.gamma_api_url}/events"
     base_params = dict(params)
 
@@ -514,7 +527,7 @@ async def _page_through(
         if not isinstance(batch, list) or not batch:
             break
 
-        collected.extend(item for item in batch if isinstance(item, dict))
+        collected.extend(convert([item for item in batch if isinstance(item, dict)]))
         if len(batch) < settings.discovery_page_size:
             break
     else:
@@ -527,9 +540,16 @@ async def _page_through(
     return collected
 
 
+def _as_it_came(batch: list[dict]) -> list[dict]:
+    return batch
+
+
 async def _fetch_priority_events(
-    client: httpx.AsyncClient, settings: Settings, base_params: dict[str, object]
-) -> list[dict]:
+    client: httpx.AsyncClient,
+    settings: Settings,
+    base_params: dict[str, object],
+    convert: Callable[[list[dict]], list[_T]],
+) -> list[_T]:
     """Read the priority tags directly, before anything is ranked by volume.
 
     Everything downstream of this function sorts by trading volume — Gamma's
@@ -547,15 +567,22 @@ async def _fetch_priority_events(
     if not slugs:
         return []
 
-    collected: list[dict] = []
+    collected: list[_T] = []
     for slug in slugs:
         try:
+            # Read whole before anything is converted. A tag is a few pages at
+            # most, so this is small — and `convert` remembers which events it
+            # has been shown, so a tag that failed on its second page must not
+            # have had its first page shown to it: those events would then be
+            # dropped as repeats when the ordinary feed returned them, and be
+            # in neither list.
             batch = await _page_through(
                 client,
                 settings,
                 params={**base_params, "tag_slug": slug},
                 max_pages=_PRIORITY_MAX_PAGES,
                 warn_on_ceiling=False,
+                convert=_as_it_came,
             )
         except Exception:
             logger.warning(
@@ -567,12 +594,16 @@ async def _fetch_priority_events(
             )
             continue
         logger.info("priority tag %r returned %d event(s)", slug, len(batch))
-        collected.extend(batch)
+        collected.extend(convert(batch))
 
     return collected
 
 
-async def fetch_events(client: httpx.AsyncClient, settings: Settings) -> list[dict]:
+async def _read_feed(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    convert: Callable[[list[dict]], list[_T]],
+) -> list[_T]:
     """Page through active, open events — priority tags first, then most-traded.
 
     The sort key is the whole game. Gamma holds tens of thousands of open
@@ -606,23 +637,68 @@ async def fetch_events(client: httpx.AsyncClient, settings: Settings) -> list[di
         "ascending": "true" if settings.discovery_order_ascending else "false",
     }
 
-    priority = await _fetch_priority_events(client, settings, base_params)
+    priority = await _fetch_priority_events(client, settings, base_params, convert)
     ordinary = await _page_through(
         client,
         settings,
         params=base_params,
         max_pages=settings.discovery_max_pages,
         warn_on_ceiling=True,
+        convert=convert,
     )
+    return [*priority, *ordinary]
 
-    collected: list[dict] = []
-    seen: set[str] = set()
-    for item in (*priority, *ordinary):
-        event_id = _as_text(item.get("id"))
-        if event_id is not None:
-            if event_id in seen:
-                continue
-            seen.add(event_id)
-        collected.append(item)
 
-    return collected
+def _first_sighting(seen: set[str]) -> Callable[[list[dict]], list[dict]]:
+    """A page filter that drops events an earlier page or pass already returned.
+
+    The priority pass and the ordinary pass overlap by design, and an event is
+    kept once, where it was first seen — which is its priority position.
+    """
+
+    def unique(batch: list[dict]) -> list[dict]:
+        fresh: list[dict] = []
+        for item in batch:
+            event_id = _as_text(item.get("id"))
+            if event_id is not None:
+                if event_id in seen:
+                    continue
+                seen.add(event_id)
+            fresh.append(item)
+        return fresh
+
+    return unique
+
+
+async def fetch_events(client: httpx.AsyncClient, settings: Settings) -> list[dict]:
+    """The feed as Gamma sent it: every event, whole, each one once.
+
+    This holds all of it in memory at the same time, which for a full pass is
+    several hundred megabytes. It is for tests and for looking at the feed by
+    hand. Discovery itself uses `fetch_normalized_events`.
+    """
+    return await _read_feed(client, settings, _first_sighting(set()))
+
+
+async def fetch_normalized_events(
+    client: httpx.AsyncClient, settings: Settings, stats: DiscoveryStats
+) -> list[NormalizedEvent]:
+    """The same feed, in the same order, reduced to our own records as it arrives.
+
+    Equivalent to `normalize_events(await fetch_events(...))`, and tested to
+    be. The difference is what is in memory while it runs: one page of
+    Gamma's JSON and the compact records kept so far, instead of all of
+    Gamma's JSON at once.
+    """
+    unique = _first_sighting(set())
+    now = datetime.now(UTC)
+
+    def compact(batch: list[dict]) -> list[NormalizedEvent]:
+        kept: list[NormalizedEvent] = []
+        for raw in unique(batch):
+            event = normalize_event(raw, settings=settings, stats=stats, now=now)
+            if event is not None:
+                kept.append(event)
+        return kept
+
+    return await _read_feed(client, settings, compact)

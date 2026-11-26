@@ -13,10 +13,12 @@ from fixtures import gamma_events as fx
 
 from backend import db
 from backend.config import get_settings
+from backend.workers import economy as economy_jobs
 from backend.workers import polymarket_discovery as discovery
 from backend.workers import polymarket_sync as sync
+from backend.workers import resolution
 from backend.workers.locks import lock_key
-from backend.workers.scheduler import build_scheduler
+from backend.workers.scheduler import CATCH_UP_JOB_ID, build_scheduler, catch_up
 
 
 @asynccontextmanager
@@ -67,6 +69,90 @@ async def test_a_startup_run_is_scheduled_so_a_fresh_replica_is_not_empty():
     settings.run_discovery_on_startup = True
     async with started_scheduler(settings) as scheduler:
         assert f"{discovery.JOB_NAME}_startup" in {job.id for job in scheduler.get_jobs()}
+
+
+async def test_a_start_also_schedules_one_catch_up_unless_it_is_switched_off():
+    settings = get_settings()
+    settings.catch_up_on_startup = True
+    async with started_scheduler(settings) as scheduler:
+        job = scheduler.get_job(CATCH_UP_JOB_ID)
+        assert job is not None
+        # No trigger of its own: it runs once, as soon as the scheduler does.
+        assert not isinstance(job.trigger, IntervalTrigger)
+
+    settings.catch_up_on_startup = False
+    async with started_scheduler(settings) as scheduler:
+        assert scheduler.get_job(CATCH_UP_JOB_ID) is None
+    settings.catch_up_on_startup = True
+
+
+def _stand_ins(monkeypatch, ran: list[str], *, failing: str | None = None):
+    """Replace the three jobs with ones that only say they were called."""
+
+    def stand_in(name: str):
+        async def job(*args, **kwargs):
+            ran.append(name)
+            if name == failing:
+                raise RuntimeError(f"{name} fell over")
+            return {"ran": True}
+
+        return job
+
+    monkeypatch.setattr(sync, "run_price_sync", stand_in("prices"))
+    monkeypatch.setattr(resolution, "run_resolution", stand_in("settlement"))
+    monkeypatch.setattr(economy_jobs, "run_leaderboard_rollup", stand_in("standings"))
+
+
+async def test_catching_up_runs_prices_then_settlement_then_standings(resources, monkeypatch):
+    """Each feeds the next. Standings counted before settlement has run would
+    be the standings from before the server went to sleep."""
+    ran: list[str] = []
+    _stand_ins(monkeypatch, ran)
+
+    async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
+        await catch_up(client, resources)
+
+    assert ran == ["prices", "settlement", "standings"]
+    async with db.acquire() as conn:
+        recorded = await conn.fetch("SELECT job_name, outcome FROM job_runs ORDER BY job_name")
+    assert {(r["job_name"], r["outcome"]) for r in recorded} == {
+        (economy_jobs.JOB_NAME, "ok"),
+        (sync.JOB_NAME, "ok"),
+        (resolution.JOB_NAME, "ok"),
+    }
+
+
+async def test_one_step_failing_does_not_cost_the_steps_after_it(resources, monkeypatch):
+    ran: list[str] = []
+    _stand_ins(monkeypatch, ran, failing="prices")
+
+    async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
+        await catch_up(client, resources)
+
+    assert ran == ["prices", "settlement", "standings"]
+    async with db.acquire() as conn:
+        outcome = await conn.fetchval(
+            "SELECT outcome FROM job_runs WHERE job_name = $1", sync.JOB_NAME
+        )
+    assert outcome == "error"
+
+
+async def test_catching_up_on_an_empty_database_does_nothing_and_does_not_fail(resources):
+    """The first start of a new deployment: no questions yet, nothing to
+    settle, nobody to rank. The real jobs, against a source that has nothing."""
+    async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
+        await catch_up(client, resources)
+
+    async with db.acquire() as conn:
+        outcomes = {
+            r["job_name"]: r["outcome"]
+            for r in await conn.fetch("SELECT job_name, outcome FROM job_runs")
+        }
+    assert outcomes == {
+        economy_jobs.JOB_NAME: "ok",
+        sync.JOB_NAME: "ok",
+        resolution.JOB_NAME: "ok",
+    }
 
 
 def test_lock_keys_are_stable_distinct_and_fit_in_a_bigint():
