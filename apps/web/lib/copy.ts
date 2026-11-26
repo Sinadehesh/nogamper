@@ -9,7 +9,7 @@
  * Longer prose for the landing, help and about pages lives in ./content.ts.
  */
 
-export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "NoGamper";
+export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "Called It";
 
 export const t = {
   appName: APP_NAME,

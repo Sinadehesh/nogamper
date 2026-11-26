@@ -1,4 +1,4 @@
-# NoGamper
+# Called It
 
 **Prediction markets without the gambling.** A free forecasting game: real
 questions about the news, live odds taken from real markets, and points that
