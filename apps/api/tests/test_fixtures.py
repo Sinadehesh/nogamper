@@ -88,22 +88,22 @@ async def test_the_seed_comes_from_the_migration(resources):
     assert "ledger_entries" not in combined
 
 
-async def test_the_suite_signs_with_the_token_the_app_verifies_with(app_client):
-    """One assertion instead of 135 confusing 401s.
+async def test_the_suite_signs_with_the_secret_the_app_verifies_with(app_client):
+    """One assertion instead of a hundred confusing 401s.
 
-    CI supplied its own TELEGRAM_BOT_TOKEN, `setdefault` let it through, and
-    every test that authenticates failed with `401 Unauthorized` — which reads
-    like an auth bug rather than what it was, a fixture signing with a key the
-    app had never heard of. The next environment to try it fails here, once,
+    CI once supplied its own secret, `setdefault` let it through, and every
+    test that authenticates failed with `401 Unauthorized` — which reads like
+    an auth bug rather than what it was, a fixture signing with a key the app
+    had never heard of. The next environment to try it fails here, once,
     saying what is actually wrong.
     """
     from backend.config import get_settings
 
     settings = get_settings()
-    assert settings.telegram_bot_token == conftest.TEST_BOT_TOKEN
-    assert settings.telegram_webhook_secret == conftest.TEST_WEBHOOK_SECRET
+    assert settings.jwt_secret == conftest.TEST_JWT_SECRET
+    assert settings.admin_player_codes == [conftest.TEST_ADMIN_CODE]
+    assert settings.internal_api_key == "", "the suite runs with the web-tier gate open"
 
-    response = await app_client.post(
-        "/v1/auth/session", json={"initData": conftest.make_init_data(telegram_id=9911)}
-    )
+    headers = await conftest.authorise(app_client, 9911)
+    response = await app_client.get("/v1/me", headers=headers)
     assert response.status_code == 200, response.text

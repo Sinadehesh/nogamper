@@ -26,7 +26,6 @@ class TokenError(Exception):
 @dataclass(frozen=True, slots=True)
 class SessionClaims:
     user_id: uuid.UUID
-    telegram_id: int
     session_id: uuid.UUID
     expires_at: datetime
 
@@ -34,7 +33,6 @@ class SessionClaims:
 def mint_session_token(
     *,
     user_id: uuid.UUID,
-    telegram_id: int,
     session_id: uuid.UUID,
     secret: str,
     algorithm: str,
@@ -45,7 +43,6 @@ def mint_session_token(
     now = now or datetime.now(UTC)
     payload = {
         "sub": str(user_id),
-        "tg": telegram_id,
         "jti": str(session_id),
         "iat": int(now.timestamp()),
         "exp": int(expires_at.timestamp()),
@@ -69,7 +66,6 @@ def decode_session_token(token: str, *, secret: str, algorithm: str) -> SessionC
     try:
         return SessionClaims(
             user_id=uuid.UUID(payload["sub"]),
-            telegram_id=int(payload["tg"]),
             session_id=uuid.UUID(payload["jti"]),
             expires_at=datetime.fromtimestamp(payload["exp"], tz=UTC),
         )

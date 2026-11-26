@@ -1,10 +1,10 @@
-"""The shared HTTP helpers — specifically, the timeouts that were not there.
+"""The shared HTTP helper — specifically, the timeout that was not there.
 
 `httpx` reads `timeout=None` as *disable the timeout entirely*, not as "use
-the client default"; the sentinel for the latter is `USE_CLIENT_DEFAULT`. Both
-helpers here take an optional `timeout` that defaults to None and pass it
+the client default"; the sentinel for the latter is `USE_CLIENT_DEFAULT`. The
+helper takes an optional `timeout` that defaults to None and used to pass it
 straight through, so every caller that did not name a timeout was silently
-opting out of having one — including every Telegram send.
+opting out of having one.
 
 An unbounded request inside a scheduled job is the same failure as the price
 sync outage in a different coat: one parked connection and the job never
@@ -19,7 +19,7 @@ import httpx
 import pytest
 from conftest import mock_http_client
 
-from backend.clients.http import UpstreamUnavailable, _timeout, get_json, post_json
+from backend.clients.http import UpstreamUnavailable, _timeout, get_json
 
 
 def test_no_override_means_the_client_default_not_no_timeout():
@@ -58,35 +58,6 @@ async def test_a_get_without_an_override_keeps_the_client_timeout():
 async def test_a_get_override_reaches_the_request():
     seen = await _capture_timeout(lambda c: get_json(c, "http://mock/thing", timeout=3.0))
     assert seen["read"] == 3.0
-
-
-async def test_a_post_without_an_override_keeps_the_client_timeout():
-    """post_json has had the optional-timeout signature all along, so every
-    caller that omitted it — the Telegram sends among them — was posting with
-    no timeout."""
-    seen = await _capture_timeout(lambda c: post_json(c, "http://mock/thing", {"a": 1}))
-    assert seen is not None, "the request went out with no timeout at all"
-    assert seen["read"] is not None
-
-
-async def test_an_exhausted_post_names_the_reason_it_gave_up():
-    """The failure that read as "the provider is unreachable" with no way to
-    tell a 429 from a timeout from a dropped connection apart.
-
-    The retry loop already knew which one it was — it is `last_error` — but
-    the exception raised once retries ran out threw that away and reported
-    only a count. Against a provider with a hard concurrency limit, "failed
-    after 3 attempts" and "failed after 3 attempts: HTTP 429" are two
-    different bugs with two different fixes, and only one of those strings
-    says which.
-    """
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(429, json={})
-
-    async with mock_http_client(handler) as client:
-        with pytest.raises(UpstreamUnavailable, match="HTTP 429"):
-            await post_json(client, "http://mock/thing", {"a": 1}, max_retries=1)
 
 
 async def test_a_single_attempt_never_sleeps_on_retry_after():

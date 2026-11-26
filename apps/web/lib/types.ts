@@ -1,36 +1,37 @@
+/** Wire types. Mirrors apps/api/backend/schemas.py — change them together. */
 
 export type Money = {
   minor: number;
   display: string;
 };
 
-export type ApiError = {
-  code: string;
-  detail: string;
-  market_id?: string;
+export type Limits = {
+  daily_limit: Money | null;
+  daily_spent: Money;
+  daily_limit_loosen_at: string | null;
+  break_until: string | null;
+  break_options_hours: number[];
 };
-
 
 export type UserProfile = {
   id: string;
-  telegram_id: number;
   player_code: string;
-  first_name: string;
-  last_name: string | null;
-  username: string | null;
-  photo_url: string | null;
+  display_name: string;
+  email: string | null;
+  is_guest: boolean;
   balance: Money;
-  streak_count: number;
   lifetime_staked: Money;
   lifetime_returned: Money;
   can_claim_daily: boolean;
-  is_admin?: boolean;
+  daily_topup: Money;
+  next_claim_at: string | null;
   member_since: string;
-  invite_link: string | null;
-  referred_count: number;
-  referral_earned: Money;
+  is_admin: boolean;
+  limits: Limits;
+  session_expires_at: string;
 };
 
+export type Side = "YES" | "NO";
 
 export type Probability = {
   yes: string;
@@ -38,15 +39,6 @@ export type Probability = {
   source: string;
   age_seconds: number;
   stale: boolean;
-};
-
-export type MarketBoost = {
-  id: string;
-  side: Side;
-  multiplier: string;
-  ends_at: string;
-  remaining_stake: Money;
-  max_stake_per_user: Money;
 };
 
 export type MarketSummary = {
@@ -61,23 +53,88 @@ export type MarketSummary = {
   volume_usd: string;
   lock_at: string;
   end_date: string;
-  boosts: MarketBoost[];
 };
 
-export type MarketPage = {
+export type MarketRules = {
+  max_legs: number;
+  min_prob: string;
+  max_prob: string;
+  max_combined_odds: string;
+  min_stake: Money;
+  max_stake: Money;
+  payout_cap: Money;
+};
+
+/** GET /v1/rules — public, and what the explainer pages are rendered from. */
+export type GameRules = {
+  signup_bonus: Money;
+  daily_topup: Money;
+  min_stake: Money;
+  max_stake: Money;
+  payout_cap: Money;
+  max_legs: number;
+  max_combined_odds: string;
+  min_prob: string;
+  max_prob: string;
+  margin: "0";
+  reference_margin: string;
+  limit_loosen_delay_hours: number;
+  break_options_hours: number[];
+  password_min_length: number;
+  shop: ShopTerms;
+};
+
+export type ShopPack = { points: Money; price_cents: number };
+
+/** What is for sale and on what terms. `open: false` means nothing is. */
+export type ShopTerms = {
+  open: boolean;
+  currency: string;
+  price_per_thousand_cents: number;
+  packs: ShopPack[];
+  monthly_cap_cents: number;
+  min_age: number;
+};
+
+export type ShopBlock =
+  | "shop_closed"
+  | "account_required"
+  | "account_restricted"
+  | "on_break"
+  | "shop_closed_by_you"
+  | "spend_limit_reached";
+
+export type ShopPurchase = {
+  id: string;
+  points: Money;
+  amount_cents: number;
+  currency: string;
+  status: "PAID" | "REFUNDED";
+  at: string;
+};
+
+export type ShopStanding = {
+  spent_month_cents: number;
+  pending_cents: number;
+  spent_all_cents: number;
+  limit_cents: number | null;
+  limit_loosen_at: string | null;
+  remaining_cents: number;
+  resets_at: string;
+  blocked: ShopBlock | null;
+  blocked_until: string | null;
+  purchases: ShopPurchase[];
+};
+
+export type Shop = ShopTerms & { mine: ShopStanding | null };
+
+export type MarketSort = "tossup" | "closing" | "volume";
+
+export type MarketPage = MarketRules & {
   markets: MarketSummary[];
   next_cursor: string | null;
-  min_legs: number;
-  max_legs: number;
-  vig_rate: string;
-  parlay_bonus_by_legs: string[];
-  example_stake: Money;
-  signup_bonus: Money;
-  referral_bonus: Money;
+  categories: string[];
 };
-
-export type Side = "YES" | "NO";
-
 
 export type QuotedLeg = {
   market_id: string;
@@ -85,35 +142,19 @@ export type QuotedLeg = {
   category: string;
   side: Side;
   probability: string;
-  fair_odds: string;
   locked_odds: string;
-  boosted: boolean;
-  boost_multiplier: string;
   lock_at: string;
-};
-
-export type InsuranceOffer = {
-  available: boolean;
-  selected: boolean;
-  rate: string;
-  premium: Money;
-  covers_failed_legs: number;
-  min_legs: number;
-  unavailable_reason: string | null;
 };
 
 export type SlipQuote = {
   legs: QuotedLeg[];
   stake: Money;
   combined_odds: string;
+  win_probability: string;
   potential_payout: Money;
   gross_potential_payout: Money;
   payout_cap: Money;
   capped: boolean;
-  uncapped: boolean;
-  parlay_bonus: string;
-  insurance: InsuranceOffer;
-  total_cost: Money;
 };
 
 export type SlipStatus = "PENDING" | "WON" | "LOST" | "INSURED" | "VOID";
@@ -139,11 +180,8 @@ export type Slip = {
   combined_odds: string;
   potential_payout: Money;
   capped: boolean;
-  has_insurance: boolean;
-  insurance_premium: Money;
   total_cost: Money;
   settled_payout: Money;
-  settlement_note: string | null;
   placed_at: string;
   settled_at: string | null;
 };
@@ -153,35 +191,7 @@ export type SlipPage = {
   next_cursor: string | null;
 };
 
-
-export type ActivityEntry = {
-  id: string;
-  player: string;
-  status: SlipStatus;
-  leg_count: number;
-  stake: Money;
-  payout: Money;
-  combined_odds: string;
-  settled_at: string;
-};
-
-export type CoinPackage = {
-  code: string;
-  title: string;
-  description: string;
-  stars: number;
-  coins: Money;
-  bonus_coins: Money;
-};
-
-export type InvoiceIssued = {
-  purchase_id: string;
-  invoice_link: string;
-  stars: number;
-  coins: Money;
-};
-
-
+/** A pick held in the page before it is sent anywhere. */
 export type SlipSelection = {
   marketId: string;
   side: Side;
@@ -191,60 +201,197 @@ export type SlipSelection = {
   lockAt: string;
 };
 
-
-export type RewardBlockedReason =
-  | "reward_exhausted"
-  | "already_claimed"
-  | "not_enough_play"
-  | "insufficient_funds";
-
-export type RewardItem = {
-  code: string;
-  title: string;
-  description: string;
-  kind: string;
-  image_url: string | null;
-  cost: Money;
-  min_lifetime_staked: Money;
-  remaining: number | null;
-  held_by_user: number;
-  claimable: boolean;
-  blocked_reason: RewardBlockedReason | null;
-};
-
-export type RewardCatalogue = {
-  rewards: RewardItem[];
+export type ClaimResult = {
+  claim_date: string;
+  amount: Money;
   balance: Money;
+  next_claim_at: string;
 };
 
-export type RewardClaimStatus =
-  | "RESERVED"
-  | "FULFILLED"
-  | "FAILED"
-  | "REFUNDED";
+export type LeaderboardRow = {
+  rank: number | null;
+  player: string;
+  slips_settled: number;
+  slips_won: number;
+  total_staked: Money;
+  net_profit: Money;
+  best_odds: string | null;
+  is_me: boolean;
+};
 
-export type RewardClaim = {
+export type Leaderboard = {
+  season: string;
+  ends_at: string;
+  min_volume_to_rank: Money;
+  rows: LeaderboardRow[];
+  my_rank: number | null;
+  my_net_profit: Money;
+  my_total_staked: Money;
+};
+
+export type CalibrationBucket = {
+  low: string;
+  high: string;
+  picks: number;
+  correct: number;
+  expected: string | null;
+};
+
+export type RealityCheck = {
+  member_since: string;
+  slips_placed: number;
+  slips_open: number;
+  slips_settled: number;
+  slips_won: number;
+  slips_lost: number;
+  picks_settled: number;
+  picks_correct: number;
+  staked: Money;
+  returned: Money;
+  net: Money;
+  reference_margin: string;
+  margin_cost: Money;
+  net_with_margin: Money;
+  active_days_30d: number;
+  slips_30d: number;
+  calibration: CalibrationBucket[];
+};
+
+export type PlayerMessage = {
   id: string;
-  reward_code: string;
-  title: string;
   kind: string;
-  image_url: string | null;
-  cost: Money;
-  status: RewardClaimStatus;
+  status: "NEW" | "SEEN" | "ANSWERED";
+  body: string;
   created_at: string;
-  fulfilled_at: string | null;
-  fulfilment: Record<string, unknown>;
+  answered_at: string | null;
+  reply_body: string | null;
+  replied_at: string | null;
 };
 
-export type RedeemResult = {
-  claim_id: string;
-  reward_code: string;
+// ----- articles -------------------------------------------------------------
+
+/** A reader's published article, as a listing shows it. */
+export type PublishedArticleSummary = {
+  slug: string;
   title: string;
-  cost: Money;
-  balance: Money;
-  status: "RESERVED";
+  summary: string;
+  author: string;
+  published_at: string;
+  edited_at: string;
+  reading_minutes: number;
 };
 
+export type PublishedArticle = PublishedArticleSummary & { body: string };
+
+export type PublishedArticlePage = { articles: PublishedArticleSummary[]; total: number };
+
+export type ArticleStatus = "DRAFT" | "SUBMITTED" | "PUBLISHED" | "REJECTED" | "REMOVED";
+
+/** An author's own article, in whatever state it is in. */
+export type MyArticle = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  body: string;
+  status: ArticleStatus;
+  review_note: string | null;
+  reading_minutes: number;
+  created_at: string;
+  edited_at: string;
+  submitted_at: string | null;
+  published_at: string | null;
+};
+
+export type ArticleLimits = {
+  title_min: number;
+  title_max: number;
+  summary_min: number;
+  summary_max: number;
+  body_min: number;
+  body_max: number;
+  max_open: number;
+};
+
+export type MyArticles = {
+  articles: MyArticle[];
+  limits: ArticleLimits;
+  can_write: boolean;
+  publishes_directly: boolean;
+};
+
+export type ArticleDraft = { title: string; summary: string; body: string };
+
+export type QueuedArticle = MyArticle & { author: string; author_code: string };
+
+export type ArticleQueue = { articles: QueuedArticle[]; waiting: number; live: number };
+
+export type ReviewDecision = "publish" | "reject" | "remove";
+
+// ----- operator -------------------------------------------------------------
+
+export type LedgerFlow = {
+  entry_type: string;
+  net: Money;
+  entries: number;
+  players: number;
+};
+
+export type Overview = {
+  window_days: number;
+  since: string;
+  generated_at: string;
+  players: {
+    total: number;
+    registered: number;
+    guests: number;
+    new_in_window: number;
+    forecast_in_window: number;
+    claimed_in_window: number;
+  };
+  forecasts: { placed: number; settled: number; won: number; lost: number; open: number };
+  points: { granted: Money;
+    bought: Money; staked: Money; returned: Money; adjusted: Money; net_change: Money };
+  safer_play: { with_daily_limit: number; on_break: number; erased: number };
+  daily: { day: string; new_players: number; forecasts: number; forecasters: number }[];
+  ledger: LedgerFlow[];
+};
+
+export type PlayerRow = {
+  id: string;
+  player_code: string;
+  display_name: string;
+  email: string | null;
+  is_guest: boolean;
+  status: "ACTIVE" | "RESTRICTED" | "SELF_EXCLUDED" | "BANNED";
+  balance: Money;
+  staked: Money;
+  returned: Money;
+  net: Money;
+  granted: Money;
+  adjusted: Money;
+  slips: number;
+  won: number;
+  lost: number;
+  open_slips: number;
+  daily_limit: Money | null;
+  break_until: string | null;
+  created_at: string;
+  last_seen_at: string;
+};
+
+export type PlayerList = { players: PlayerRow[]; total: number };
+
+export type InboxItem = PlayerMessage & {
+  admin_note: string | null;
+  player_code: string;
+  display_name: string;
+  is_guest: boolean;
+  balance: Money;
+  player_status: string;
+};
+
+export type Inbox = { messages: InboxItem[]; unread: number; total: number };
 
 export type JobLease = {
   job_name: string;
@@ -263,14 +410,7 @@ export type JobRun = {
 };
 
 export type Diagnostics = {
-  layer:
-    | "healthy"
-    | "degraded"
-    | "discovery"
-    | "worker"
-    | "upstream"
-    | "cache"
-    | "capacity";
+  layer: "healthy" | "degraded" | "discovery" | "worker" | "upstream" | "cache" | "capacity";
   advice: string;
   staleness_threshold_seconds: number;
   markets_budget: number;
@@ -288,139 +428,4 @@ export type Diagnostics = {
   leases: JobLease[];
   runs: JobRun[];
   generated_at: string;
-};
-
-export type PlayerMessage = {
-  id: string;
-  kind: "MESSAGE" | "PRIZE_CLAIM";
-  status: "NEW" | "SEEN" | "ANSWERED";
-  body: string;
-  created_at: string;
-  answered_at: string | null;
-  reply_body: string | null;
-  replied_at: string | null;
-};
-
-export type PlayerRow = {
-  id: string;
-  player_code: string;
-  telegram_id: number;
-  username: string | null;
-  display_name: string;
-  status: "ACTIVE" | "RESTRICTED" | "SELF_EXCLUDED" | "BANNED";
-  balance: Money;
-  lifetime_stars: number;
-  staked: Money;
-  returned: Money;
-  net: Money;
-  bought: Money;
-  granted: Money;
-  adjusted: Money;
-  slips: number;
-  won: number;
-  lost: number;
-  open_slips: number;
-  created_at: string;
-  last_seen_at: string;
-};
-
-export type PlayerList = { players: PlayerRow[]; total: number };
-
-export type InboxItem = PlayerMessage & {
-  admin_note: string | null;
-  reply_delivered: boolean;
-  player_code: string;
-  username: string | null;
-  display_name: string;
-  telegram_id: number;
-  balance: Money;
-  player_status: string;
-};
-
-export type Inbox = { messages: InboxItem[]; unread: number; total: number };
-
-export type ReplyResult = {
-  id: string;
-  status: string;
-  reply_body: string;
-  replied_at: string;
-  delivered: boolean;
-  delivery_detail: string | null;
-};
-
-export type RevenueBlock = {
-  stars_gross: number;
-  stars_refunded: number;
-  stars_net: number;
-  purchases: number;
-  refunds: number;
-  paying_players: number;
-  coins_sold: Money;
-};
-
-export type RevenueDay = {
-  day: string;
-  stars: number;
-  stars_refunded: number;
-  purchases: number;
-  payers: number;
-};
-
-export type PackageSales = {
-  code: string;
-  title: string;
-  stars_price: number;
-  coins: Money;
-  coins_per_star: number;
-  purchases: number;
-  stars: number;
-  share_of_stars: number;
-};
-
-export type LedgerFlow = {
-  entry_type: string;
-  net: Money;
-  entries: number;
-  players: number;
-};
-
-export type EconomyBalance = {
-  minted_free: Money;
-  minted_purchased: Money;
-  house_edge: Money;
-  decayed: Money;
-  burned_on_rewards: Money;
-  net_change: Money;
-};
-
-export type BreakEvenBucket = {
-  bucket: "far_below" | "below" | "at" | "above" | "far_above";
-  players: number;
-  daily_stake: Money;
-};
-
-export type PlayerBlock = {
-  total: number;
-  new_in_window: number;
-  staked_in_window: number;
-  claimed_in_window: number;
-  conversion_rate: number;
-};
-
-export type EconomyReport = {
-  window_days: number;
-  since: string;
-  generated_at: string;
-  revenue: RevenueBlock;
-  lifetime: RevenueBlock;
-  stars_per_day: number;
-  stars_per_paying_player: number;
-  daily: RevenueDay[];
-  packages: PackageSales[];
-  players: PlayerBlock;
-  ledger: LedgerFlow[];
-  balance: EconomyBalance;
-  break_even_daily_stake: Money;
-  break_even_buckets: BreakEvenBucket[];
-  free_players_share: number;
 };

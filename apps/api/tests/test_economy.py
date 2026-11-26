@@ -1,37 +1,28 @@
-"""The engagement economy: drip, decay, boosts, leaderboard."""
+"""The free economy: the daily top-up and the leaderboard."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-import random
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
-import pytest
-from conftest import authorise, mock_http_client
-from fixtures import gamma_events as fx
+from conftest import (
+    OVERLAP_SECONDS,
+    authorise,
+    balance_of,
+    email_for,
+    mock_http_client,
+    user_id_for,
+)
 
 from backend import db
 from backend.config import Settings, get_settings
 from backend.services import economy
 from backend.workers import economy as economy_jobs
-from backend.workers import polymarket_discovery as discovery
-
-
-async def user_id_for(telegram_id: int = 5000) -> uuid.UUID:
-    async with db.acquire() as conn:
-        return await conn.fetchval("SELECT id FROM users WHERE telegram_id = $1", telegram_id)
-
-
-async def balance(telegram_id: int = 5000) -> int:
-    async with db.acquire() as conn:
-        return await conn.fetchval(
-            "SELECT coin_balance FROM users WHERE telegram_id = $1", telegram_id
-        )
 
 
 async def drift() -> int:
@@ -71,119 +62,120 @@ def test_the_next_claim_opens_at_local_midnight(monkeypatch):
         get_settings.cache_clear()
 
 
-@pytest.mark.parametrize(
-    ("streak", "expected"), [(1, 0), (2, 5_000), (3, 10_000), (11, 50_000), (40, 50_000)]
-)
-def test_the_streak_bonus_grows_then_caps(streak, expected):
-    assert economy.streak_bonus_for(streak, get_settings()) == expected
+def test_a_day_starts_at_local_midnight(monkeypatch):
+    """What a daily limit is measured from — the same boundary as the top-up,
+    so a player sees one "day" and not two that disagree."""
+    monkeypatch.setenv("ECONOMY_TIMEZONE", _TEST_TZ)
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        late_evening_utc = datetime(2026, 8, 3, 21, 0, tzinfo=UTC)  # already the 4th locally
+
+        start = economy.day_start(settings, late_evening_utc)
+        assert start == datetime(2026, 8, 4, 0, 0, tzinfo=ZoneInfo(_TEST_TZ))
+        assert start <= late_evening_utc < start + timedelta(days=1)
+    finally:
+        get_settings.cache_clear()
 
 
-async def test_the_first_claim_credits_the_base_drip(app_client):
+# ----- the daily top-up -----------------------------------------------------
+
+
+async def test_the_top_up_credits_a_flat_amount(app_client):
     auth = await authorise(app_client)
-    response = await app_client.post("/v1/economy/claim", headers=auth)
 
+    response = await app_client.post("/v1/economy/claim", headers=auth)
     assert response.status_code == 200
+
     body = response.json()
-    assert body["base"]["minor"] == 25_000
-    assert body["streak_bonus"]["minor"] == 0
-    assert body["streak"] == 1
-    assert body["total"]["minor"] == 25_000
-    assert await balance() == 100_000 + 25_000
+    assert body["amount"] == {"minor": 25_000, "display": "250"}
+    assert body["balance"]["minor"] == 125_000
+    assert await balance_of() == 125_000
     assert await drift() == 0
 
 
 async def test_a_second_claim_the_same_day_is_refused(app_client):
     auth = await authorise(app_client)
-    assert (await app_client.post("/v1/economy/claim", headers=auth)).status_code == 200
+    await app_client.post("/v1/economy/claim", headers=auth)
 
-    second = await app_client.post("/v1/economy/claim", headers=auth)
-    assert second.status_code == 409
-    assert second.json()["code"] == "already_claimed"
-    assert await balance() == 125_000
+    again = await app_client.post("/v1/economy/claim", headers=auth)
+    assert again.status_code == 409
+    assert again.json()["code"] == "already_claimed"
+    assert await balance_of() == 125_000
 
 
 async def test_concurrent_claims_credit_once(app_client):
-    """A double-tapped button on flaky mobile data is the normal case."""
     auth = await authorise(app_client)
+
     results = await asyncio.gather(
-        *(app_client.post("/v1/economy/claim", headers=auth) for _ in range(4))
+        *(app_client.post("/v1/economy/claim", headers=auth) for _ in range(5))
     )
 
-    assert sorted(r.status_code for r in results) == [200, 409, 409, 409]
-    assert await balance() == 125_000
+    assert sorted(r.status_code for r in results) == [200, 409, 409, 409, 409]
+    assert await balance_of() == 125_000
+
+
+async def test_the_top_up_is_the_same_on_every_day_however_many_in_a_row(app_client):
+    """There is no streak. Ten consecutive days pay exactly what one does, and
+    a missed day costs nothing — which is the difference between a top-up and
+    a reason to come back."""
+    await authorise(app_client)
+    me = await user_id_for()
+    settings = get_settings()
+    start = date(2026, 3, 1)
+
+    amounts = []
+    async with db.transaction() as conn:
+        for offset in (0, 1, 2, 3, 4, 9, 10):  # five in a row, a gap, two more
+            result = await economy.claim_daily_topup(
+                conn, user_id=me, settings=settings, today=start + timedelta(days=offset)
+            )
+            amounts.append(result.amount_minor)
+
+    assert amounts == [25_000] * 7
 
     async with db.acquire() as conn:
-        claims = await conn.fetchval("SELECT count(*) FROM daily_claims")
-        credits = await conn.fetchval(
-            "SELECT count(*) FROM ledger_entries WHERE entry_type = 'DAILY_DRIP_CREDIT'"
+        bonuses = await conn.fetchval(
+            "SELECT count(*) FROM ledger_entries WHERE entry_type = 'STREAK_BONUS_CREDIT'"
         )
-    assert claims == 1
-    assert credits == 1
+        rows = await conn.fetch("SELECT DISTINCT streak_bonus, streak_after FROM daily_claims")
+    assert bonuses == 0
+    assert [(r["streak_bonus"], r["streak_after"]) for r in rows] == [(0, 1)]
 
 
-async def test_claiming_on_consecutive_days_builds_a_streak(app_client):
+async def test_the_profile_says_when_the_next_top_up_opens(app_client):
     auth = await authorise(app_client)
-    settings = get_settings()
-    user_id = await user_id_for()
-    today = economy.economy_date(settings)
 
-    async with db.transaction() as conn:
-        first = await economy.claim_daily_drip(
-            conn, user_id=user_id, settings=settings, today=today - timedelta(days=1)
-        )
-    assert first.streak == 1
-    assert first.streak_bonus_minor == 0
+    before = (await app_client.get("/v1/me", headers=auth)).json()
+    assert before["can_claim_daily"] is True
+    assert before["next_claim_at"] is None
+    assert before["daily_topup"]["minor"] == 25_000
 
-    response = await app_client.post("/v1/economy/claim", headers=auth)
-    body = response.json()
-    assert body["streak"] == 2
-    assert body["streak_bonus"]["minor"] == 5_000
-    assert body["total"]["minor"] == 30_000
+    claimed = (await app_client.post("/v1/economy/claim", headers=auth)).json()
+    after = (await app_client.get("/v1/me", headers=auth)).json()
 
-    async with db.acquire() as conn:
-        kinds = await conn.fetch(
-            "SELECT entry_type, amount FROM ledger_entries"
-            " WHERE entry_type IN ('DAILY_DRIP_CREDIT','STREAK_BONUS_CREDIT') ORDER BY id"
-        )
-    assert [(k["entry_type"], k["amount"]) for k in kinds] == [
-        ("DAILY_DRIP_CREDIT", 25_000),
-        ("DAILY_DRIP_CREDIT", 25_000),
-        ("STREAK_BONUS_CREDIT", 5_000),
-    ]
+    assert after["can_claim_daily"] is False
+    assert after["next_claim_at"] is not None
+    assert datetime.fromisoformat(after["next_claim_at"]) == datetime.fromisoformat(
+        claimed["next_claim_at"]
+    )
 
 
-async def test_a_missed_day_resets_the_streak(app_client):
-    auth = await authorise(app_client)
-    settings = get_settings()
-    user_id = await user_id_for()
-    today = economy.economy_date(settings)
-
-    async with db.transaction() as conn:
-        await economy.claim_daily_drip(
-            conn, user_id=user_id, settings=settings, today=today - timedelta(days=3)
-        )
-        await conn.execute("UPDATE users SET streak_count = 7 WHERE id = $1", user_id)
-
-    assert (await app_client.post("/v1/economy/claim", headers=auth)).json()["streak"] == 1
-
-
-async def test_the_ledger_carries_a_code_and_farsi_prose(app_client):
-    """The code keeps the history machine-readable; the note keeps it readable
-    to the people whose money it is."""
+async def test_the_ledger_entry_is_keyed_by_day_and_written_in_english(app_client):
     auth = await authorise(app_client)
     await app_client.post("/v1/economy/claim", headers=auth)
 
     async with db.acquire() as conn:
-        entry = await conn.fetchrow(
-            "SELECT metadata, idempotency_key FROM ledger_entries"
+        row = await conn.fetchrow(
+            "SELECT idempotency_key, metadata FROM ledger_entries "
             " WHERE entry_type = 'DAILY_DRIP_CREDIT'"
         )
 
-    metadata = json.loads(entry["metadata"])
-    assert metadata["reason"] == "daily_drip"
-    assert metadata["note"] == "هدیهٔ روزانه"
-    assert entry["idempotency_key"].startswith("drip:")
-    assert economy.economy_date(get_settings()).isoformat() in entry["idempotency_key"]
+    assert row["idempotency_key"].startswith("drip:")
+    assert row["idempotency_key"].endswith(economy.economy_date(get_settings()).isoformat())
+    metadata = json.loads(row["metadata"])
+    assert metadata == {"reason": "daily_topup"}
+    assert row["metadata"].isascii()
 
 
 async def test_a_restricted_account_cannot_claim(app_client):
@@ -200,254 +192,38 @@ async def test_claiming_requires_authentication(app_client):
     assert (await app_client.post("/v1/economy/claim")).status_code == 401
 
 
-async def make_dormant(telegram_id: int, *, balance_minor: int, days: int) -> uuid.UUID:
+async def test_points_never_expire_however_long_an_account_sits(app_client):
+    """There used to be a charge on accounts that had gone quiet. Nothing in
+    the schedule touches a dormant balance now."""
+    await authorise(app_client)
+    async with db.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET created_at = NOW() - INTERVAL '400 days',"
+            "                 last_seen_at = NOW() - INTERVAL '400 days'"
+        )
+
+    await economy_jobs.run_leaderboard_rollup(get_settings())
+
+    assert await balance_of() == 100_000
+    async with db.acquire() as conn:
+        assert await conn.fetchval("SELECT count(*) FROM decay_events") == 0
+        debits = await conn.fetchval(
+            "SELECT count(*) FROM ledger_entries WHERE entry_type = 'INACTIVITY_DECAY_DEBIT'"
+        )
+    assert debits == 0
+
+
+# ----- the leaderboard ------------------------------------------------------
+
+
+async def settled_slip(player: int, *, staked: int, returned: int, won: bool):
     async with db.transaction() as conn:
         user_id = await conn.fetchval(
-            "INSERT INTO users (telegram_id, first_name, last_prediction_at)"
-            " VALUES ($1, 'Dormant', NOW() - make_interval(days => $2)) RETURNING id",
-            telegram_id,
-            days,
-        )
-        await conn.execute(
-            "INSERT INTO ledger_entries (user_id, entry_type, amount, idempotency_key)"
-            " VALUES ($1, 'SIGNUP_BONUS_CREDIT', $2, $3)",
-            user_id,
-            balance_minor,
-            f"seed:{telegram_id}",
-        )
-    return user_id
-
-
-@pytest.mark.parametrize(
-    ("balance_minor", "expected"),
-    [
-        (1_000_000, 50_000),
-        (60_000, 3_000),
-        (52_000, 2_000),
-        (50_000, 0),
-        (10_000, 0),
-    ],
-)
-def test_decay_never_digs_below_the_floor(balance_minor, expected):
-    assert economy.decay_amount(balance_minor, get_settings()) == expected
-
-
-async def test_a_dormant_player_is_charged_once_a_day(resources):
-    await make_dormant(7101, balance_minor=1_000_000, days=5)
-
-    async with db.transaction() as conn:
-        first = await economy.run_inactivity_decay(conn, resources)
-    assert first.users_charged == 1
-    assert first.total_decayed_minor == 50_000
-    assert await balance(7101) == 950_000
-
-    async with db.transaction() as conn:
-        second = await economy.run_inactivity_decay(conn, resources)
-    assert second.users_charged == 0
-    assert await balance(7101) == 950_000
-    assert await drift() == 0
-
-
-async def test_an_active_player_is_left_alone(resources):
-    await make_dormant(7102, balance_minor=1_000_000, days=1)
-    async with db.transaction() as conn:
-        report = await economy.run_inactivity_decay(conn, resources)
-    assert report.users_charged == 0
-    assert await balance(7102) == 1_000_000
-
-
-async def test_a_player_with_coins_on_the_table_is_not_charged(resources, app_client):
-    """Decay exists to push dormant players back. Someone with an open slip is
-    already engaged; charging them punishes the behaviour it wants."""
-    markets = await seed_markets(1)
-    auth = await authorise(app_client, telegram_id=7103)
-
-    response = await app_client.post(
-        "/v1/predictions",
-        json={
-            "legs": [{"market_id": str(markets[0]["id"]), "side": "YES"}],
-            "stake": 10_000,
-            "insurance": False,
-        },
-        headers={**auth, "Idempotency-Key": str(uuid.uuid4())},
-    )
-    assert response.status_code == 201
-
-    async with db.transaction() as conn:
-        await conn.execute(
-            "UPDATE users SET last_prediction_at = NOW() - INTERVAL '10 days'"
-            " WHERE telegram_id = 7103"
-        )
-        report = await economy.run_inactivity_decay(conn, get_settings())
-
-    assert report.users_charged == 0
-    assert await balance(7103) == 90_000
-
-
-async def test_a_player_who_never_predicted_gets_the_same_grace_period(resources):
-    """A brand-new account that has not started yet should not be charged for
-    not having started."""
-    async with db.transaction() as conn:
-        user_id = await conn.fetchval(
-            "INSERT INTO users (telegram_id, first_name) VALUES (7104, 'New') RETURNING id"
-        )
-        await conn.execute(
-            "INSERT INTO ledger_entries (user_id, entry_type, amount, idempotency_key)"
-            " VALUES ($1, 'SIGNUP_BONUS_CREDIT', 1000000, 'seed:7104')",
-            user_id,
-        )
-        fresh = await economy.run_inactivity_decay(conn, resources)
-    assert fresh.users_charged == 0
-
-    async with db.transaction() as conn:
-        await conn.execute(
-            "UPDATE users SET created_at = NOW() - INTERVAL '10 days' WHERE telegram_id = 7104"
-        )
-        aged = await economy.run_inactivity_decay(conn, resources)
-    assert aged.users_charged == 1
-
-
-async def test_a_restricted_account_is_not_decayed(resources):
-    await make_dormant(7105, balance_minor=1_000_000, days=10)
-    async with db.transaction() as conn:
-        await conn.execute("UPDATE users SET status = 'SELF_EXCLUDED' WHERE telegram_id = 7105")
-        report = await economy.run_inactivity_decay(conn, resources)
-    assert report.users_charged == 0
-
-
-async def test_the_decay_ledger_entry_is_keyed_by_day(resources):
-    user_id = await make_dormant(7106, balance_minor=1_000_000, days=10)
-    async with db.transaction() as conn:
-        await economy.run_inactivity_decay(conn, resources)
-
-    async with db.acquire() as conn:
-        entry = await conn.fetchrow(
-            "SELECT amount, metadata, idempotency_key FROM ledger_entries"
-            " WHERE entry_type = 'INACTIVITY_DECAY_DEBIT'"
-        )
-    assert entry["amount"] == -50_000
-    assert json.loads(entry["metadata"])["note"] == "کسر به دلیل بی‌فعالیتی"
-    assert entry["idempotency_key"] == (
-        f"decay:{user_id}:{economy.economy_date(resources).isoformat()}"
-    )
-
-
-async def seed_markets(count: int = 3, probability: str = "0.50", volume: float = 220000.5):
-    events = [
-        fx.event(
-            str(i),
-            markets=[fx.binary_market(f"9{i:04d}", prices=[probability, "0.5"], volumeNum=volume)],
-        )
-        for i in range(count)
-    ]
-
-    def gamma(request: httpx.Request) -> httpx.Response:
-        offset = int(request.url.params.get("offset", 0))
-        return httpx.Response(200, json=events if offset == 0 else [])
-
-    async with mock_http_client(gamma) as client:
-        await discovery.run_discovery(client, get_settings())
-
-    async with db.acquire() as conn:
-        return [dict(r) for r in await conn.fetch("SELECT * FROM markets ORDER BY lock_at")]
-
-
-@pytest.mark.parametrize(
-    ("yes_prob", "expected"),
-    [("0.05", "YES"), ("0.95", "NO"), ("0.10", "YES"), ("0.50", None), ("0.30", None)],
-)
-def test_only_a_genuine_longshot_side_is_boostable(yes_prob, expected):
-    """A randomly chosen side would be inert half the time: the quoting layer
-    refuses to apply a boost whose side is likelier than max_raw_prob."""
-    assert economy.longshot_side(Decimal(yes_prob), Decimal("0.10")) == expected
-
-
-async def test_boosts_are_created_on_longshot_sides(resources):
-    await seed_markets(3, probability="0.05")
-
-    async with db.transaction() as conn:
-        report = await economy.generate_boosts(conn, resources, rng=random.Random(7))
-
-    assert report.created == resources.boosts_per_run
-
-    async with db.acquire() as conn:
-        boosts = await conn.fetch("SELECT * FROM odds_boosts")
-    assert len(boosts) == resources.boosts_per_run
-    for boost in boosts:
-        assert boost["side"] == "YES"
-        assert Decimal("1.10") <= boost["boost_multiplier"] <= Decimal("1.50")
-        assert boost["max_total_stake"] == resources.boost_max_total_stake_minor
-        assert boost["is_active"] is True
-
-
-async def test_a_coin_flip_market_is_never_boosted(resources):
-    await seed_markets(3, probability="0.50")
-    async with db.transaction() as conn:
-        report = await economy.generate_boosts(conn, resources, rng=random.Random(7))
-
-    assert report.created == 0
-    assert report.no_longshot_side == 3
-
-
-async def test_a_quiet_market_is_not_boosted(resources):
-    """A boost on a market nobody watches buys no engagement."""
-    await seed_markets(2, probability="0.05", volume=100.0)
-    async with db.transaction() as conn:
-        report = await economy.generate_boosts(conn, resources, rng=random.Random(7))
-    assert report.candidates == 0
-    assert report.created == 0
-
-
-async def test_a_market_that_already_has_a_boost_is_skipped(resources):
-    markets = await seed_markets(1, probability="0.05")
-    async with db.transaction() as conn:
-        first = await economy.generate_boosts(conn, resources, rng=random.Random(1))
-    assert first.created == 1
-
-    async with db.transaction() as conn:
-        second = await economy.generate_boosts(conn, resources, rng=random.Random(2))
-    assert second.created == 0
-
-    async with db.acquire() as conn:
-        assert (
-            await conn.fetchval(
-                "SELECT count(*) FROM odds_boosts WHERE market_id = $1", markets[0]["id"]
-            )
-            == 1
-        )
-
-
-async def test_a_generated_boost_actually_applies_when_quoting(app_client):
-    """The end the generator exists for: a boost that the odds engine picks up."""
-    markets = await seed_markets(1, probability="0.05")
-    async with db.transaction() as conn:
-        await economy.generate_boosts(conn, get_settings(), rng=random.Random(3))
-
-    auth = await authorise(app_client)
-    quote = (
-        await app_client.post(
-            "/v1/predictions/quote",
-            json={
-                "legs": [{"market_id": str(markets[0]["id"]), "side": "YES"}],
-                "stake": 10_000,
-                "insurance": False,
-            },
-            headers=auth,
-        )
-    ).json()
-
-    assert quote["legs"][0]["boosted"] is True
-    assert Decimal(quote["legs"][0]["boost_multiplier"]) > 1
-
-
-async def settled_slip(telegram_id: int, *, staked: int, returned: int, won: bool):
-    async with db.transaction() as conn:
-        user_id = await conn.fetchval(
-            "INSERT INTO users (telegram_id, first_name, username)"
-            " VALUES ($1, 'P', $2) ON CONFLICT (telegram_id) DO UPDATE SET first_name='P'"
+            "INSERT INTO users (email, password_hash, first_name)"
+            " VALUES ($1, '$argon2id$stub', 'Pat')"
+            " ON CONFLICT (email) WHERE email IS NOT NULL DO UPDATE SET first_name = 'Pat'"
             " RETURNING id",
-            telegram_id,
-            f"player{telegram_id}",
+            email_for(player),
         )
         await conn.execute(
             """
@@ -458,7 +234,7 @@ async def settled_slip(telegram_id: int, *, staked: int, returned: int, won: boo
                     $5::slip_status, $6, NOW())
             """,
             user_id,
-            f"lb-{telegram_id}-{uuid.uuid4()}",
+            f"lb-{player}-{uuid.uuid4()}",
             staked,
             max(returned, 1),
             "WON" if won else "LOST",
@@ -482,20 +258,19 @@ async def test_the_rollup_aggregates_a_season(resources):
 
     async with db.acquire() as conn:
         rows = {
-            r["telegram_id"]: dict(r)
+            r["email"]: dict(r)
             for r in await conn.fetch(
-                "SELECT u.telegram_id, e.* FROM leaderboard_entries e"
-                " JOIN users u ON u.id = e.user_id"
+                "SELECT u.email, e.* FROM leaderboard_entries e JOIN users u ON u.id = e.user_id"
             )
         }
 
-    winner = rows[7201]
+    winner = rows[email_for(7201)]
     assert winner["slips_settled"] == 2
     assert winner["slips_won"] == 1
     assert winner["total_staked"] == 1_000_000
     assert winner["total_returned"] == 900_000
     assert winner["net_profit"] == -100_000
-    assert rows[7202]["net_profit"] == -100_000
+    assert rows[email_for(7202)]["net_profit"] == -100_000
 
 
 async def test_roi_is_damped_by_volume_so_a_thin_hot_streak_cannot_top_the_board(resources):
@@ -513,14 +288,14 @@ async def test_roi_is_damped_by_volume_so_a_thin_hot_streak_cannot_top_the_board
 
     async with db.acquire() as conn:
         rows = {
-            r["telegram_id"]: dict(r)
+            r["email"]: dict(r)
             for r in await conn.fetch(
-                "SELECT u.telegram_id, e.rank, e.score, e.net_profit, e.total_staked"
+                "SELECT u.email, e.rank, e.score, e.net_profit, e.total_staked"
                 "  FROM leaderboard_entries e JOIN users u ON u.id = e.user_id"
             )
         }
 
-    thin, grinder = rows[7203], rows[7204]
+    thin, grinder = rows[email_for(7203)], rows[email_for(7204)]
     assert grinder["rank"] == 1
     assert thin["rank"] == 2
 
@@ -543,15 +318,15 @@ async def test_below_the_volume_floor_a_player_is_unranked_but_still_listed(reso
 
     async with db.acquire() as conn:
         rows = {
-            r["telegram_id"]: dict(r)
+            r["email"]: dict(r)
             for r in await conn.fetch(
-                "SELECT u.telegram_id, e.rank, e.net_profit FROM leaderboard_entries e"
+                "SELECT u.email, e.rank, e.net_profit FROM leaderboard_entries e"
                 " JOIN users u ON u.id = e.user_id"
             )
         }
-    assert rows[7205]["rank"] is None
-    assert rows[7205]["net_profit"] == 49_000
-    assert rows[7206]["rank"] == 1
+    assert rows[email_for(7205)]["rank"] is None
+    assert rows[email_for(7205)]["net_profit"] == 49_000
+    assert rows[email_for(7206)]["rank"] == 1
 
 
 async def test_the_rollup_is_idempotent(resources):
@@ -574,7 +349,8 @@ async def test_the_rollup_is_idempotent(resources):
 async def test_pending_slips_are_not_counted(resources):
     async with db.transaction() as conn:
         user_id = await conn.fetchval(
-            "INSERT INTO users (telegram_id, first_name) VALUES (7208, 'P') RETURNING id"
+            "INSERT INTO users (email, password_hash, first_name)"
+            " VALUES ('player7208@example.test', '$argon2id$stub', 'P') RETURNING id"
         )
         await conn.execute(
             """
@@ -604,7 +380,7 @@ async def test_a_finished_season_stops_being_recomputed(resources):
 
 
 async def test_the_leaderboard_endpoint_shows_the_player_their_standing(app_client):
-    auth = await authorise(app_client, telegram_id=5000)
+    auth = await authorise(app_client, 5000)
     me = await user_id_for(5000)
     async with db.transaction() as conn:
         await conn.execute(
@@ -632,85 +408,127 @@ async def test_the_leaderboard_endpoint_shows_the_player_their_standing(app_clie
     assert sum(1 for r in body["rows"] if r["is_me"]) == 1
 
 
-async def test_a_players_telegram_username_never_reaches_the_leaderboard(app_client):
-    """Rank 1 is the most-viewed row on this page. Showing the real Telegram
-    handle there used to make the top of the leaderboard the single most
-    exposed spot in the app for whoever happened to have a username set."""
-    auth = await authorise(app_client, telegram_id=5000)
+async def test_nothing_a_player_typed_reaches_the_leaderboard(app_client):
+    """Rank 1 is the most-viewed row on the page, and a display name is free
+    text a stranger chose. Only an initial is shown — never the name, and
+    never the address."""
+    auth = await authorise(app_client, 5000)
     await settled_slip(7211, staked=900_000, returned=2_000_000, won=True)
+    async with db.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET first_name = 'Totally Not Appropriate' WHERE email = $1",
+            email_for(7211),
+        )
 
     async with db.transaction() as conn:
         await economy.roll_up_leaderboard(conn, get_settings())
 
     response = await app_client.get("/v1/economy/leaderboard", headers=auth)
 
+    assert "Appropriate" not in response.text
+    assert email_for(7211) not in response.text
     assert "player7211" not in response.text
-    assert response.json()["rows"][0]["player"] == "P."
+    assert response.json()["rows"][0]["player"] == "T."
 
 
-async def test_the_daily_job_runs_decay_and_the_rollup(resources):
-    await make_dormant(7301, balance_minor=1_000_000, days=10)
+async def test_an_erased_player_leaves_the_standings(app_client):
+    auth = await authorise(app_client, 5000)
+    gone = await settled_slip(7212, staked=900_000, returned=2_000_000, won=True)
+    async with db.transaction() as conn:
+        await economy.roll_up_leaderboard(conn, get_settings())
+
+    from backend.repositories import auth as auth_repo
+
+    async with db.transaction() as conn:
+        await auth_repo.erase_account(conn, gone)
+
+    body = (await app_client.get("/v1/economy/leaderboard", headers=auth)).json()
+    assert body["rows"] == []
+
+
+# ----- the scheduled job ----------------------------------------------------
+
+
+async def test_the_rollup_job_reports_what_it_did(resources):
     await settled_slip(7302, staked=500_000, returned=900_000, won=True)
 
-    report = await economy_jobs.run_daily_economy(resources)
+    report = await economy_jobs.run_leaderboard_rollup(resources)
 
     assert report.ran is True
-    assert report.errors == []
-    assert report.decay["users_charged"] == 1
+    assert report.error is None
     assert report.leaderboard["entries"] == 1
-    assert await balance(7301) == 950_000
 
 
-async def test_only_one_replica_runs_the_daily_job(resources):
-    await make_dormant(7303, balance_minor=1_000_000, days=10)
+async def test_only_one_replica_runs_the_rollup(resources, monkeypatch):
+    """The lease turns the other two away — provided they arrive while the
+    first is still working, which a roll-up of one slip is too quick to
+    guarantee. It is held open here for the reason `slowed` gives for the
+    workers that talk to an upstream; this one has no upstream to slow."""
+    await settled_slip(7303, staked=500_000, returned=900_000, won=True)
+    roll_up = economy.roll_up_leaderboard
+
+    async def unhurried(*args, **kwargs):
+        await asyncio.sleep(OVERLAP_SECONDS)
+        return await roll_up(*args, **kwargs)
+
+    monkeypatch.setattr(economy, "roll_up_leaderboard", unhurried)
 
     reports = await asyncio.gather(
-        economy_jobs.run_daily_economy(resources),
-        economy_jobs.run_daily_economy(resources),
-        economy_jobs.run_daily_economy(resources),
+        economy_jobs.run_leaderboard_rollup(resources),
+        economy_jobs.run_leaderboard_rollup(resources),
+        economy_jobs.run_leaderboard_rollup(resources),
     )
 
     assert sum(1 for r in reports if r.ran) == 1
-    assert await balance(7303) == 950_000
 
 
-async def test_a_failing_rollup_does_not_roll_back_decay(resources, monkeypatch):
-    await make_dormant(7304, balance_minor=1_000_000, days=10)
+async def test_a_failing_rollup_is_contained_and_reported(resources, monkeypatch):
+    """A job that throws must not take the scheduler with it."""
 
     async def boom(*args, **kwargs):
         raise RuntimeError("rollup exploded")
 
     monkeypatch.setattr(economy, "roll_up_leaderboard", boom)
-    report = await economy_jobs.run_daily_economy(resources)
+    report = await economy_jobs.run_leaderboard_rollup(resources)
 
-    assert report.decay["users_charged"] == 1
-    assert any("leaderboard" in e for e in report.errors)
-    assert await balance(7304) == 950_000
+    assert report.ran is True
+    assert "rollup exploded" in report.error
     assert await drift() == 0
 
 
-async def test_the_boost_job_is_contained_when_it_fails(resources, monkeypatch):
-    async def boom(*args, **kwargs):
-        raise RuntimeError("boosts exploded")
-
-    monkeypatch.setattr(economy, "generate_boosts", boom)
-    report = await economy_jobs.run_boost_generation(resources)
-
-    assert report.ran is True
-    assert report.error is not None
-
-
-async def test_the_daily_job_is_scheduled_in_the_economy_timezone():
-    """Midnight for the player, not midnight for the server."""
+async def test_the_rollup_is_scheduled_on_the_hour_in_the_economy_timezone():
+    """A season closes at local midnight, so the tick that closes it has to
+    land on the player's hour boundary and not the server's."""
     from backend.workers.scheduler import build_scheduler
 
-    settings = Settings(telegram_bot_token="x", jwt_secret="y")
+    settings = Settings(jwt_secret="y" * 40, economy_timezone=_TEST_TZ)
     async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
         scheduler = build_scheduler(client, settings)
         scheduler.start(paused=True)
         try:
-            job = scheduler.get_job(economy_jobs.DAILY_JOB_NAME)
-            assert str(job.trigger.timezone) == settings.economy_timezone
-            assert scheduler.get_job(economy_jobs.BOOST_JOB_NAME) is not None
+            job = scheduler.get_job(economy_jobs.JOB_NAME)
+            assert str(job.trigger.timezone) == _TEST_TZ
         finally:
             scheduler.shutdown(wait=False)
+
+
+async def test_nothing_is_scheduled_that_exists_to_bring_people_back():
+    """The whole schedule, by name. A charge on quiet accounts, a generator of
+    short-lived better prices and a payments sweeper used to be on it."""
+    from backend.workers.scheduler import build_scheduler
+
+    settings = Settings(jwt_secret="y" * 40, run_discovery_on_startup=False)
+    async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
+        scheduler = build_scheduler(client, settings)
+        scheduler.start(paused=True)
+        try:
+            jobs = sorted(job.id for job in scheduler.get_jobs())
+        finally:
+            scheduler.shutdown(wait=False)
+
+    assert jobs == [
+        "leaderboard_rollup",
+        "polymarket_discovery",
+        "polymarket_price_sync",
+        "polymarket_resolution",
+    ]

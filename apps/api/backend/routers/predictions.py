@@ -1,4 +1,4 @@
-"""Quote and place predictions.
+"""Quote and place forecasts.
 
 Two endpoints do the work:
 
@@ -9,8 +9,8 @@ Quoting and placing run the *same* pricing path. The quote is not a promise —
 prices move — so placement re-prices from live state and compares against the
 odds the client says it displayed. If the market has moved against the player
 beyond the tolerance, the placement is refused and a fresh quote returned
-rather than a worse bet being taken on their behalf. Movement in their favour
-is simply given to them.
+rather than a worse price being taken on their behalf. Movement in their
+favour is simply given to them.
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ from ..engine.quoting import LegRequest, QuoteError, SlipQuote
 from ..repositories import predictions as repo
 from ..schemas import (
     ErrorResponse,
-    InsuranceOffer,
     Money,
     QuotedLeg,
     SettledLeg,
@@ -40,21 +39,21 @@ from ..schemas import (
     SlipRequest,
 )
 from ..security.dependencies import CurrentUser
+from ..services import economy
 
 router = APIRouter(prefix="/v1/predictions", tags=["predictions"])
 
 
 def _fingerprint(body: SlipRequest) -> str:
-    """Identify the *bet*, not the request.
+    """Identify the *forecast*, not the request.
 
     `accepted_odds` is deliberately excluded: a client that retries with a
-    refreshed quote is placing the same bet, and should get the same slip back
-    rather than a 409.
+    refreshed quote is placing the same slip, and should get it back rather
+    than a 409.
     """
     payload = {
         "legs": sorted((leg.market_id, leg.side) for leg in body.legs),
         "stake": body.stake,
-        "insurance": body.insurance,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
@@ -71,42 +70,30 @@ def _parse_legs(body: SlipRequest) -> list[LegRequest]:
 
 def _quote_response(quote: SlipQuote) -> SlipQuoteResponse:
     priced = quote.priced
-    insurance = priced.insurance
+
+    def context(leg):
+        return quote.markets[uuid.UUID(leg.market_id)]
 
     return SlipQuoteResponse(
         legs=[
             QuotedLeg(
                 market_id=leg.market_id,
-                question=quote.markets[uuid.UUID(leg.market_id)].question,
-                category=quote.markets[uuid.UUID(leg.market_id)].category,
+                question=context(leg).question,
+                category=context(leg).category,
                 side=leg.side,
                 probability=str(leg.true_prob),
-                fair_odds=str(leg.fair_odds),
                 locked_odds=str(leg.locked_odds),
-                boosted=leg.boost_id is not None,
-                boost_multiplier=str(leg.boost_multiplier),
-                lock_at=quote.markets[uuid.UUID(leg.market_id)].lock_at,
+                lock_at=context(leg).lock_at,
             )
             for leg in priced.legs
         ],
         stake=Money.of(priced.stake_minor),
         combined_odds=str(priced.combined_odds),
+        win_probability=f"{priced.true_probability:.6f}",
         potential_payout=Money.of(priced.potential_payout_minor),
         gross_potential_payout=Money.of(priced.gross_payout_minor),
         payout_cap=Money.of(priced.payout_cap_minor),
-        uncapped=priced.uncapped,
-        parlay_bonus=str(priced.parlay_bonus),
         capped=priced.capped,
-        insurance=InsuranceOffer(
-            available=insurance.available,
-            selected=insurance.premium_minor > 0,
-            rate=str(insurance.rate),
-            premium=Money.of(insurance.premium_minor),
-            covers_failed_legs=insurance.covers_failed_legs,
-            min_legs=insurance.min_legs,
-            unavailable_reason=insurance.unavailable_reason,
-        ),
-        total_cost=Money.of(priced.total_cost_minor),
     )
 
 
@@ -115,13 +102,7 @@ async def _build_quote(body: SlipRequest, settings: Settings, *, conn=None) -> S
 
     async def build(connection) -> SlipQuote:
         contexts = await quoting.load_market_contexts(connection, legs, settings)
-        return quoting.quote_slip(
-            legs,
-            contexts,
-            stake_minor=body.stake,
-            requested_insurance=body.insurance,
-            settings=settings,
-        )
+        return quoting.quote_slip(legs, contexts, stake_minor=body.stake, settings=settings)
 
     if conn is not None:
         return await build(conn)
@@ -133,12 +114,12 @@ def _check_stake(body: SlipRequest, settings: Settings) -> None:
     if body.stake < settings.min_stake_minor:
         raise QuoteError(
             "stake_too_small",
-            f"The minimum stake is {Money.of(settings.min_stake_minor).display} coins.",
+            f"The minimum stake is {Money.of(settings.min_stake_minor).display} points.",
         )
     if body.stake > settings.max_stake_minor:
         raise QuoteError(
             "stake_too_large",
-            f"The maximum stake is {Money.of(settings.max_stake_minor).display} coins.",
+            f"The maximum stake is {Money.of(settings.max_stake_minor).display} points.",
         )
 
 
@@ -203,7 +184,7 @@ async def place(
             quote=fresh,
             idempotency_key=idempotency_key.strip(),
             request_fingerprint=fingerprint,
-            settings=settings,
+            day_start=economy.day_start(settings),
         )
         slip, legs = await repo.get_slip(conn, user["id"], result.prediction_id)
 
@@ -312,11 +293,8 @@ def _slip_response(slip, legs) -> Slip:
         combined_odds=str(slip["combined_odds"]),
         potential_payout=Money.of(slip["potential_payout"]),
         capped=slip["potential_payout"] < slip["gross_potential_payout"],
-        has_insurance=slip["has_insurance"],
-        insurance_premium=Money.of(slip["insurance_premium"]),
         total_cost=Money.of(slip["total_cost"]),
         settled_payout=Money.of(slip["settled_payout"]),
-        settlement_note=slip["settlement_note"],
         placed_at=slip["placed_at"],
         settled_at=slip["settled_at"],
     )

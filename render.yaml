@@ -1,357 +1,193 @@
-# Render Blueprint — the whole backend, in one file.
+# Render Blueprint — everything the API needs, in one file.
 #
-# Why Render and not railway.json: Railway's committed config describes a
-# single service. This stack's defining property is two services built from
-# one image, differing in one variable and sharing a dozen others — and
-# keeping those dozen in sync is exactly the thing that drifts when it lives
-# in two dashboard forms.
+# What this creates, wired together:
 #
-# What this file does NOT create: Postgres and Redis. They are external
-# (Neon / Supabase / Upstash) and their URLs arrive as secrets. See the
-# DATABASE_URL note below before pasting a connection string — the wrong one
-# is the single most expensive mistake available in this deployment.
+#   * `middlemost-api`    the API. It also runs the scheduled jobs: finding
+#                         questions, syncing prices, settling forecasts and
+#                         rolling up the leaderboard.
+#   * `middlemost-db`     a Postgres database.
+#   * `middlemost-cache`  a Key Value (Redis-compatible) cache, used for rate
+#                         limits and for the price cache.
+#
+# Nothing has to be pasted in. Render fills in the database and cache
+# addresses, and generates the two secrets.
+#
+# What this does NOT create: the website. apps/web is a Next.js app deployed
+# separately (Vercel, root directory apps/web). It is the only thing that
+# calls this API; a browser never does.
 #
 # ---------------------------------------------------------------------------
 # FIRST DEPLOY
 # ---------------------------------------------------------------------------
-#   1. Create an empty database and cache; have their URLs to hand.
-#   2. Render → New → Blueprint → point at this repo.
-#   3. Fill in every `sync: false` value when Render prompts. It asks once, at
-#      creation, and never overwrites them on a later sync — which is what
-#      makes declaring them on both services safe rather than a drift risk.
-#   4. Run scripts/set_webhook.py once the API has a public URL.
+#   1. Render → New → Blueprint → this repository → Apply. Render shows what
+#      it will create, and what it costs, before anything is created. At
+#      Render's prices in November 2026 that is about $14.50 a month: $7 for
+#      the API, $6 for the database, $1.50 for its 5 GB of storage, and
+#      nothing for the cache.
+#   2. When `middlemost-api` is live, give the website two values
+#      (Vercel → project → Settings → Environment Variables):
+#        API_BASE_URL      the service's https address, shown at the top of
+#                          its page on Render
+#        INTERNAL_API_KEY  the value Render generated — on the service's
+#                          Environment tab
+#      then redeploy the site. Until the site has both, every door into the
+#      game says "not open yet".
+#   3. Create your own account on the site, copy its player code from the
+#      Account tab, and add ADMIN_PLAYER_CODES=<that code> to the service's
+#      Environment tab. That is what opens /admin, and only to you.
 #
 # Migrations apply themselves: preDeployCommand runs scripts/migrate.py before
-# traffic moves to each release. The exception is a database migrated by hand
-# before this runner existed — see the note on the API service.
+# traffic moves to each release.
+#
+# ---------------------------------------------------------------------------
+# ONE PROCESS, TO START WITH
+# ---------------------------------------------------------------------------
+# The API and the scheduled jobs run in the same process (WORKERS_ENABLED is
+# "true" on the one service). That is the cheapest arrangement that is still
+# correct, and it is plenty for a new site.
+#
+# To grow: set WORKERS_ENABLED to "false" here and raise numInstances, then
+# add a second service of `type: worker` with the same image, the same
+# environment and WORKERS_ENABLED "true". Every job takes a lease in the
+# database before it runs, so more than one copy is safe; the split only
+# keeps a slow job from sharing a process with visitors.
+#
+# The database is Render's own, on the private network, rather than a free
+# serverless one elsewhere. The jobs touch the database every minute, so it
+# never goes idle — and a free plan that is metered by hours awake runs out
+# part-way through the month.
 
 previews:
   generation: "off"
 
-# ---------------------------------------------------------------------------
-# Shared configuration — non-secret values only
-#
-# A Blueprint-defined envVarGroup may carry only `value` and `generateValue`.
-# `sync: false`, `fromDatabase`, `fromService` and `fromGroup` are all invalid
-# inside one, and are *ignored* rather than rejected — which is the dangerous
-# shape: the Blueprint applies, both services boot with no secrets, and both
-# crash-loop in require_secrets() with nothing pointing at the cause.
-#
-# So the group holds exactly what it can hold honestly, and the secrets are
-# declared on each service below.
-# ---------------------------------------------------------------------------
-envVarGroups:
-  - name: shared
+databases:
+  - name: middlemost-db
+    databaseName: middlemost
+    region: frankfurt
+    # The smallest plan that does not expire. A free database stops working
+    # thirty days after it is created, which is not a property a ledger
+    # should have.
+    plan: 0.1c-256mb
+    # Storage is billed by the gigabyte, and a disk can be made larger but
+    # never smaller, so this starts small rather than at Render's default of
+    # 15. The price history the sync job keeps is what grows: by a rough
+    # estimate, a few gigabytes a year. A full disk suspends the database, so
+    # Render is allowed to add space before that happens: at 90% full it
+    # grows the disk by half, rounded up to the next 5 GB.
+    diskSizeGB: 5
+    storageAutoscalingEnabled: true
+    # Reachable from the private network only.
+    ipAllowList: []
+
+services:
+  - type: keyvalue
+    name: middlemost-cache
+    region: frankfurt
+    # Free is enough to start: 25 MB, kept in memory only. Render allows one
+    # free Key Value per workspace — if yours already has one, this Blueprint
+    # is refused, and the fix is `plan: 256mb` on the next line.
+    plan: free
+    # Reachable from the private network only.
+    ipAllowList: []
+    # Nothing kept here is the only copy of anything: rate-limit counters
+    # expire and prices are re-read from Postgres. So when it is full, the
+    # oldest entries may go.
+    maxmemoryPolicy: allkeys-lru
+
+  - type: web
+    name: middlemost-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: frankfurt
+    # The smallest paid plan (half a CPU, 512 MB). Not `free`: a free web
+    # service sleeps when idle, which would stop the scheduled jobs, and it
+    # cannot run a preDeployCommand, which is how the migrations are applied.
+    plan: 0.5c-512mb
+    numInstances: 1
+    healthCheckPath: /health/ready
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - apps/api/**
+        - scripts/**
+        - db/migrations/**
+        - Dockerfile
+        - render.yaml
+    preDeployCommand: python scripts/migrate.py
     envVars:
-      # Hides /docs and /openapi.json, and makes require_secrets() enforce the
-      # secret-length minimums at boot rather than at first request.
       - key: ENVIRONMENT
         value: production
-
-      # Worker run reports are logged at INFO. WARNING hides them, and then
-      # nobody notices price sync has been failing for a day.
       - key: LOG_LEVEL
         value: INFO
 
-
-      # ⚠ This is per *container*, not per service, and the ceiling that
-      #   matters is the provider's total.
-      #
-      #   Peak is not (2 API + 1 worker) * DB_POOL_MAX. A rolling deploy runs
-      #   the old API containers alongside the new ones, so both hold a full
-      #   pool at once, and preDeployCommand's migrate.py takes one more:
-      #
-      #       (2 new API + 2 old API + 1 worker) * DB_POOL_MAX + 1
-      #
-      #   At 10 that peaks near 51. Supabase's free session pooler allows 15
-      #   in total and answers the 16th with
-      #   "(EMAXCONNSESSION) max clients reached in session mode" — which
-      #   crash-loops every container, because the pool is built in the
-      #   lifespan before the app will serve anything.
-      #
-      #   At 2 the peak is 11, which leaves room for a psql session while a
-      #   deploy is going out. Raise it only alongside the provider's cap.
-      - key: DB_POOL_MAX
-        value: "2"
-
-      # Opened eagerly by every container at startup, so this is the floor of
-      # the arithmetic above. One is enough: asyncpg grows the pool on demand.
-      - key: DB_POOL_MIN
-        value: "1"
-
-      # The one secret that belongs here, because generateValue *is* valid in a
-      # group. Render generates a base64 256-bit value once and keeps it across
-      # syncs — 44 characters, over the 32 require_secrets() demands. Declaring
-      # it per-service instead would generate a *different* value for each,
-      # and mean typing a 32-character secret twice to avoid that.
-      #
-      # Only JWT_SECRET. TELEGRAM_WEBHOOK_SECRET cannot use generateValue:
-      # base64 contains `+` and `/`, and Telegram's secret_token accepts only
-      # A-Z a-z 0-9 _ - — setWebhook would reject it.
+      # Signs session tokens. Rotating it signs everybody out.
       - key: JWT_SECRET
         generateValue: true
+      # Shared with the website, which must be given the same value. Only a
+      # request carrying it may open a session or say which visitor it is
+      # acting for; the API refuses to start in production without it.
+      - key: INTERNAL_API_KEY
+        generateValue: true
 
-# ---------------------------------------------------------------------------
-# The secrets, declared identically on both services
-#
-# Duplicated on purpose. Render prompts for a `sync: false` variable once, at
-# creation, and ignores it on every later sync, so the two copies cannot drift
-# from this file — only from each other, and only if someone rotates one and
-# forgets the other. That is the cost; the alternative (a group defined here)
-# silently drops them, and a group created in the dashboard makes the first
-# sync fail until someone has made it by hand.
-#
-# All seven go on both services rather than splitting by who reads them.
-# require_secrets() runs in *both* lifespans and demands TELEGRAM_BOT_TOKEN,
-# JWT_SECRET, and in production a >=16-character TELEGRAM_WEBHOOK_SECRET — so a
-# worker missing any of those crash-loops exactly like the API would. Keeping
-# the two lists identical is what stops "the API came up but the worker did
-# not" from ever being a configuration puzzle.
-# ---------------------------------------------------------------------------
-
-services:
-  # -------------------------------------------------------------------------
-  # API — public, replicated, runs no scheduled jobs
-  # -------------------------------------------------------------------------
-  - type: web
-    name: api
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    # Pick the region closest to the audience, and put Postgres and Redis in
-    # the same one; a cross-region hop is paid on every single request. This
-    # value is a deployment choice — the region a service runs in is visible
-    # to anyone who reads a response header, so choose it deliberately.
-    region: frankfurt
-    # ⚠ Not `free`. Free web services spin down when idle, and Telegram gives
-    #   10 seconds to answer a pre_checkout_query — a cold start will not make
-    #   it, and the player watches the purchase fail. This is the one place
-    #   where the cheap plan costs real money.
-    plan: starter
-    numInstances: 2
-    # Web services only — see the worker, which cannot have one.
-    healthCheckPath: /health/ready
-    autoDeployTrigger: commit
-
-    # Monorepo: a commit that only touches apps/web should not rebuild or
-    # redeploy the backend.
-    buildFilter:
-      paths:
-        - apps/api/**
-        - scripts/**
-        # A commit that only adds a migration must still trigger a deploy —
-        # otherwise preDeployCommand never runs and the schema never moves.
-        - db/migrations/**
-        - Dockerfile
-        - render.yaml
-
-    # Runs after the image is built and before traffic moves to the release, so
-    # a failed migration aborts the deploy instead of serving against a
-    # half-migrated schema. scripts/migrate.py records each file in
-    # schema_migrations inside the same transaction that applies it, so this is
-    # a no-op on every deploy that adds no migrations.
-    #
-    # Only on this service. The worker deploys from the same image, and two
-    # runners racing is a problem the script guards against with an advisory
-    # lock rather than one worth creating.
-    #
-    # First deploy against a database migrated by hand beforehand: run
-    # `python scripts/migrate.py --baseline` once, or the runner will refuse
-    # rather than re-apply 0001 over an existing schema.
-    preDeployCommand: python scripts/migrate.py
-
-    envVars:
-      - fromGroup: shared
-      # The only value that differs between the two services.
-      - key: WORKERS_ENABLED
-        value: "false"
-
-      # ---- secrets: prompted once at creation, never re-synced ----
-      # ⚠ Direct / session-mode connection string ONLY.
-      #   Supabase: port 5432, NOT 6543.  Neon: the plain host, NOT -pooler.
-      #   Append ?sslmode=require.
-      #   Under transaction pooling two things break silently:
-      #   pg_try_advisory_lock is session-scoped, so the worker's single-flight
-      #   guard stops working; and asyncpg's prepared statements are rejected,
-      #   because db.py does not set statement_cache_size=0.
       - key: DATABASE_URL
-        sync: false
-      # rediss:// — Upstash rejects plaintext.
+        fromDatabase:
+          name: middlemost-db
+          property: connectionString
       - key: REDIS_URL
-        sync: false
-      # The root of all authentication here: the initData HMAC is derived from
-      # it, and the sweeper calls getStarTransactions with it. Rotating it also
-      # means re-running scripts/set_webhook.py — the token is in the Bot API URL.
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      # Must equal the secret_token passed to setWebhook. >=16 chars, and only
-      # A-Z a-z 0-9 _ - :
-      #   python -c "import secrets; print(secrets.token_urlsafe(32))"
-      - key: TELEGRAM_WEBHOOK_SECRET
-        sync: false
-      # Your own Telegram user id, so /v1/admin/* answers you and 404s everyone
-      # else. Comma-separated for more than one. Find it by messaging
-      # @userinfobot.
-      #
-      # Leaving it unset is safe: an empty allowlist denies everybody, including
-      # you. It is never a way to open the endpoint up.
-      - key: ADMIN_TELEGRAM_IDS
-        sync: false
-      # Fewest legs a slip may carry. 1 allows singles. 3 makes the app
-      # parlay-only and nearly triples the house edge, because the vig
-      # compounds per leg — 1 - (1 - vig)^n. Three still settles about one
-      # slip in eight as a win, which keeps real winners in the activity
-      # feed; five would be a game nobody ever wins. See config.py.
-      - key: MIN_LEGS
-        sync: false
-      # The most the house will ever be DOWN on one market, in minor units.
-      # 20000000 = 200,000 toman ~ one US dollar at TIER_1 pricing. This is what
-      # lets somebody bet on a market nobody else has touched, which with no
-      # users is every market. Checked NET of money staked against the side,
-      # so a balanced book barely consumes it. Worst case for the whole book
-      # is this times the number of open markets — raise it deliberately.
-      - key: HOUSE_SEED_MINOR
-        sync: false
-      # The Vercel domain, comma-separated. Only the API serves browsers, but
-      # it is listed on both so the two blocks stay identical and diffable.
-      - key: CORS_ORIGINS
-        sync: false
-      # ⚠ LAUNCH BLOCKER. The code default is "null", which passes market text
-      #   through untranslated — right for development, wrong for a Farsi
-      #   audience. Set "openai" or "libretranslate" BEFORE the first discovery
-      #   run, or you will be re-translating rows already stored.
-      - key: TRANSLATION_PROVIDER
-        sync: false
-      # Only needed for a self-hosted endpoint. "openai" falls back to
-      # https://api.openai.com/v1 when this is blank, which is why leaving it
-      # unset used to build the schemeless URL "/chat/completions" and take
-      # the whole discovery run down with a ValueError.
-      - key: TRANSLATION_API_URL
-        sync: false
-      - key: TRANSLATION_API_KEY
-        sync: false
-      # The day boundary for drips, decay and leaderboard seasons. Prompted
-      # for rather than committed: which market this serves is the operator's
-      # business, not something this repository should state.
-      - key: ECONOMY_TIMEZONE
-        sync: false
+        fromService:
+          type: keyvalue
+          name: middlemost-cache
+          property: connectionString
 
-  # -------------------------------------------------------------------------
-  # Worker — background, exactly one instance, owns all six scheduled jobs
-  #
-  # `worker` rather than `pserv`. An earlier version of this file used a
-  # private service on the grounds that it could be health-checked at
-  # /health/ready — that was wrong: healthCheckPath is a web-service field, and
-  # a private service gets no health check either. With that gone, `pserv` was
-  # only buying an internal URL nothing calls, so a background worker is the
-  # honest description: a process that runs and serves nothing.
-  #
-  # It still runs uvicorn, because the scheduler rides the FastAPI lifespan and
-  # so starts after the database pool and stops before it. Render gives a
-  # worker no PORT, and the Dockerfile's ${PORT:-8000} covers that.
-  # -------------------------------------------------------------------------
-  - type: worker
-    name: worker
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    region: frankfurt
-    plan: starter
-    # ⚠ Exactly one. Never add `scaling:` here.
-    #   single_flight() makes extra replicas *safe*, not free: each one still
-    #   wakes, connects and contends for the advisory lock every 60 seconds,
-    #   and the losers burn a round trip to do nothing. The lock stays because
-    #   it is what makes a rolling deploy safe, when old and new containers
-    #   overlap for a few seconds.
-    numInstances: 1
-    autoDeployTrigger: commit
+      # One container holds one pool, shared by visitors and by the jobs.
+      # A rolling deploy briefly runs two containers, and the migration
+      # takes a connection of its own: 2 * 8 + 1, well inside the plan.
+      - key: DB_POOL_MIN
+        value: "1"
+      - key: DB_POOL_MAX
+        value: "8"
 
-    buildFilter:
-      paths:
-        - apps/api/**
-        - scripts/**
-        # A commit that only adds a migration must still trigger a deploy —
-        # otherwise preDeployCommand never runs and the schema never moves.
-        - db/migrations/**
-        - Dockerfile
-        - render.yaml
-
-    envVars:
-      - fromGroup: shared
+      # This process serves visitors and runs the scheduled jobs.
       - key: WORKERS_ENABLED
         value: "true"
-      # A fresh container pulls a market list immediately instead of waiting
-      # out the first hourly tick. Ignored when workers are off, which is why
-      # it does not appear on the API service.
+      # Fetch questions as soon as it starts, rather than at the next tick,
+      # so a new deployment is not an empty page for its first hour.
       - key: RUN_DISCOVERY_ON_STARTUP
         value: "true"
 
-      # ---- secrets: prompted once at creation, never re-synced ----
-      # ⚠ Direct / session-mode connection string ONLY.
-      #   Supabase: port 5432, NOT 6543.  Neon: the plain host, NOT -pooler.
-      #   Append ?sslmode=require.
-      #   Under transaction pooling two things break silently:
-      #   pg_try_advisory_lock is session-scoped, so the worker's single-flight
-      #   guard stops working; and asyncpg's prepared statements are rejected,
-      #   because db.py does not set statement_cache_size=0.
-      - key: DATABASE_URL
-        sync: false
-      # rediss:// — Upstash rejects plaintext.
-      - key: REDIS_URL
-        sync: false
-      # The root of all authentication here: the initData HMAC is derived from
-      # it, and the sweeper calls getStarTransactions with it. Rotating it also
-      # means re-running scripts/set_webhook.py — the token is in the Bot API URL.
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      # Must equal the secret_token passed to setWebhook. >=16 chars, and only
-      # A-Z a-z 0-9 _ - :
-      #   python -c "import secrets; print(secrets.token_urlsafe(32))"
-      - key: TELEGRAM_WEBHOOK_SECRET
-        sync: false
-      # Your own Telegram user id, so /v1/admin/* answers you and 404s everyone
-      # else. Comma-separated for more than one. Find it by messaging
-      # @userinfobot.
-      #
-      # Leaving it unset is safe: an empty allowlist denies everybody, including
-      # you. It is never a way to open the endpoint up.
-      - key: ADMIN_TELEGRAM_IDS
-        sync: false
-      # Fewest legs a slip may carry. 1 allows singles. 3 makes the app
-      # parlay-only and nearly triples the house edge, because the vig
-      # compounds per leg — 1 - (1 - vig)^n. Three still settles about one
-      # slip in eight as a win, which keeps real winners in the activity
-      # feed; five would be a game nobody ever wins. See config.py.
-      - key: MIN_LEGS
-        sync: false
-      # The most the house will ever be DOWN on one market, in minor units.
-      # 20000000 = 200,000 toman ~ one US dollar at TIER_1 pricing. This is what
-      # lets somebody bet on a market nobody else has touched, which with no
-      # users is every market. Checked NET of money staked against the side,
-      # so a balanced book barely consumes it. Worst case for the whole book
-      # is this times the number of open markets — raise it deliberately.
-      - key: HOUSE_SEED_MINOR
-        sync: false
-      # The Vercel domain, comma-separated. Only the API serves browsers, but
-      # it is listed on both so the two blocks stay identical and diffable.
+      # The website's address. CORS_ORIGINS only has to not be the development
+      # default — no browser calls this API, the site's own server does — and
+      # must never be "*": startup refuses it. SITE_URL is where Stripe sends
+      # people back after a checkout, if the shop is ever opened.
       - key: CORS_ORIGINS
-        sync: false
-      # ⚠ LAUNCH BLOCKER. The code default is "null", which passes market text
-      #   through untranslated — right for development, wrong for a Farsi
-      #   audience. Set "openai" or "libretranslate" BEFORE the first discovery
-      #   run, or you will be re-translating rows already stored.
-      - key: TRANSLATION_PROVIDER
-        sync: false
-      # Only needed for a self-hosted endpoint. "openai" falls back to
-      # https://api.openai.com/v1 when this is blank, which is why leaving it
-      # unset used to build the schemeless URL "/chat/completions" and take
-      # the whole discovery run down with a ValueError.
-      - key: TRANSLATION_API_URL
-        sync: false
-      - key: TRANSLATION_API_KEY
-        sync: false
-      # The day boundary for drips, decay and leaderboard seasons. Prompted
-      # for rather than committed: which market this serves is the operator's
-      # business, not something this repository should state.
-      - key: ECONOMY_TIMEZONE
-        sync: false
+        value: https://middlemost.sinadehesh.com
+      - key: SITE_URL
+        value: https://middlemost.sinadehesh.com
+
+      # ----- Set by hand, later, on the Environment tab ----------------------
+      #
+      # ADMIN_PLAYER_CODES   your own six-character player code, once your
+      #                      account exists. Empty means /admin answers 404 to
+      #                      everybody, which is the right state until then.
+      #
+      # ECONOMY_TIMEZONE     the day boundary for the daily top-up, daily
+      #                      limits and leaderboard seasons, as an IANA zone
+      #                      name (Europe/London). Unset means UTC.
+      #
+      # ----- The shop: closed unless you open it -----------------------------
+      # Not declared here, so that creating this Blueprint never asks for a
+      # payment key and never opens a shop by accident. With none set, nothing
+      # is for sale and the site says so. To open it, add these two:
+      #
+      #   STRIPE_SECRET_KEY      a live key: sk_live_… or a restricted rk_live_…
+      #                          with write access to Checkout Sessions only
+      #   STRIPE_WEBHOOK_SECRET  the whsec_… of a webhook endpoint pointed at
+      #                          https://<this service>/v1/payments/stripe/webhook
+      #                          sending checkout.session.completed,
+      #                          checkout.session.expired, charge.refunded and
+      #                          charge.dispute.created
+      #
+      # The service refuses to start with a key and no webhook secret, because
+      # that would take money and never credit it. Prices, pack sizes and the
+      # monthly cap have defaults; see apps/api/.env.example to change them.

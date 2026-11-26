@@ -48,7 +48,6 @@ async def send_message(
             conn,
             user_id=user["id"],
             body=payload.body,
-            kind=payload.kind,
             window_seconds=settings.message_rate_window_seconds,
             max_in_window=settings.message_rate_max,
         )

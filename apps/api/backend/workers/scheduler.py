@@ -2,8 +2,8 @@
 
 `max_instances=1` plus `coalesce=True` means a slow run delays the next tick
 rather than stacking on top of it, and a scheduler that was paused catches up
-with one run instead of a backlog. The advisory lock in `locks.py` covers the
-other direction: several replicas ticking at the same moment.
+with one run instead of a backlog. The lease in `locks.py` covers the other
+direction: several replicas ticking at the same moment.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from ..config import Settings
 from . import economy as economy_jobs
-from . import invoice_sweeper, resolution
 from . import polymarket_discovery as discovery
 from . import polymarket_sync as sync
+from . import resolution
 from .runlog import recorded
 
 logger = logging.getLogger(__name__)
@@ -63,27 +63,15 @@ def build_scheduler(client: httpx.AsyncClient, settings: Settings) -> AsyncIOSch
     )
 
     scheduler.add_job(
-        recorded(invoice_sweeper.JOB_NAME, invoice_sweeper.sweep_invoices),
-        trigger=IntervalTrigger(minutes=settings.invoice_sweep_interval_minutes, jitter=60),
-        args=(client, settings),
-        id=invoice_sweeper.JOB_NAME,
-        name="Reconcile dropped payments and expire invoices",
-    )
-
-    scheduler.add_job(
-        recorded(economy_jobs.DAILY_JOB_NAME, economy_jobs.run_daily_economy),
-        trigger=CronTrigger(hour=0, minute=0, timezone=settings.economy_timezone),
+        recorded(economy_jobs.JOB_NAME, economy_jobs.run_leaderboard_rollup),
+        # Hourly, on the hour in the economy timezone. It was once a day while
+        # it shared a job with a nightly charge; on its own there is no reason
+        # for standings to be up to a day behind the slips they summarise, and
+        # the midnight run is still the one that closes a finished season.
+        trigger=CronTrigger(minute=0, timezone=settings.economy_timezone),
         args=(settings,),
-        id=economy_jobs.DAILY_JOB_NAME,
-        name="Daily economy (decay + leaderboard)",
-    )
-
-    scheduler.add_job(
-        recorded(economy_jobs.BOOST_JOB_NAME, economy_jobs.run_boost_generation),
-        trigger=IntervalTrigger(minutes=settings.boost_generation_interval_minutes, jitter=180),
-        args=(settings,),
-        id=economy_jobs.BOOST_JOB_NAME,
-        name="Odds boost generation",
+        id=economy_jobs.JOB_NAME,
+        name="Leaderboard rollup",
     )
 
     if settings.run_discovery_on_startup:

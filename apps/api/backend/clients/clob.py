@@ -3,25 +3,26 @@
 ## Why the default is the midpoint, not the buy-side price
 
 `/price?token_id=…&side=buy` returns the best ask: what it costs to buy that
-token right now. Storing the ask as `raw_yes_prob` breaks the book in a way
-that only shows up in the P&L:
+token right now. Storing the ask as `raw_yes_prob` skews the game in a way
+that never shows up as an error:
 
     yes_ask = 0.62, yes_bid = 0.58        (a 4c spread, normal for Polymarket)
 
     stored raw_yes_prob = 0.62
     NO priced by the odds engine as 1 - 0.62 = 0.38
-    but the true cost of NO is 1 - yes_bid = 0.42
+    but the market's own price for NO is 1 - yes_bid = 0.42
 
-We would be treating NO as less likely than it is, and decimal odds are
-`(1 - vig) / p` — a smaller `p` means a *bigger* payout. Every NO bet would
-be sold at a discount, and on a wide spread that discount exceeds the entire
-5% vig. The house edge inverts on exactly the markets where the book is
-thinnest.
+We would be treating NO as less likely than the market does, and fair odds
+are `1 / p` — a smaller `p` means a *bigger* payout. Every NO forecast would
+pay more than its chance justifies, and every YES forecast less. Odds that
+are fair in name and tilted in practice are worse than an honest margin,
+because the page says there is none; and the tilt is largest on the markets
+with the widest spreads, which are the thinnest and least reliable ones.
 
 The midpoint has no such asymmetry: `p_yes + p_no = 1` by construction, so
-both sides carry the same vig. That is why `price_source` defaults to
-"midpoint". Setting it to "ask" restores the literal behaviour — the code
-path is kept — but it should be a deliberate choice, not a default.
+both sides are priced from the same estimate. That is why `price_source`
+defaults to "midpoint". Setting it to "ask" restores the literal behaviour —
+the code path is kept — but it should be a deliberate choice, not a default.
 """
 
 from __future__ import annotations

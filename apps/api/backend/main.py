@@ -13,19 +13,18 @@ from .config import get_settings
 from .errors import install_error_handlers
 from .logging_config import configure_logging
 from .routers import (
-    activity,
     admin,
+    articles,
     auth,
     economy,
     health,
     markets,
     me,
     messages,
-    payments,
     predictions,
-    rewards,
+    rules,
+    shop,
 )
-from .services.translation import log_translation_config
 from .workers.scheduler import build_scheduler
 
 logger = logging.getLogger(__name__)
@@ -49,12 +48,23 @@ async def lifespan(app: FastAPI):
     await price_cache.connect(settings)
     app.state.http = build_client(settings)
 
-    if not settings.telegram_webhook_secret:
+    if not settings.internal_api_key:
         logger.warning(
-            "TELEGRAM_WEBHOOK_SECRET is not set: the payments webhook will reject all deliveries"
+            "INTERNAL_API_KEY is not set: sign-up and sign-in are open to any caller and "
+            "throttled by socket address. Fine on one machine; not for a deployment."
         )
-
-    log_translation_config(settings)
+    if settings.shop_open:
+        logger.info(
+            "the shop is open: packs of %s points at %s %s per thousand, capped at %s a month",
+            ", ".join(f"{size:,}" for size in settings.shop_pack_points),
+            settings.shop_price_per_thousand_cents / 100,
+            settings.shop_currency.upper(),
+            settings.shop_monthly_cap_cents / 100,
+        )
+    else:
+        logger.info("STRIPE_SECRET_KEY is not set: the shop is closed and nothing is for sale")
+    if not settings.admin_player_codes:
+        logger.info("ADMIN_PLAYER_CODES is empty: the admin pages answer 404 to everyone")
 
     app.state.scheduler = None
     if settings.workers_enabled:
@@ -81,7 +91,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="API",
-        version="0.2.0",
+        version="1.0.0",
         lifespan=lifespan,
         docs_url=None if settings.is_production else "/docs",
         openapi_url=None if settings.is_production else "/openapi.json",
@@ -91,8 +101,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
     )
 
     install_error_handlers(app)
@@ -100,12 +110,14 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(me.router)
     app.include_router(markets.router)
+    app.include_router(rules.router)
     app.include_router(predictions.router)
-    app.include_router(payments.router)
-    app.include_router(activity.router)
     app.include_router(economy.router)
-    app.include_router(rewards.router)
+    app.include_router(shop.router)
     app.include_router(messages.router)
+    app.include_router(articles.public)
+    app.include_router(articles.desk)
+    app.include_router(articles.review)
     app.include_router(admin.router)
     return app
 

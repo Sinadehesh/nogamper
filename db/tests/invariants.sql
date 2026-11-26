@@ -247,7 +247,12 @@ BEGIN
     EXCEPTION WHEN unique_violation THEN NULL; END;
 END $$;
 
-\echo '12. Stars: one charge id, one credit'
+-- The Telegram Stars purchases table is retired: nothing in the application
+-- writes to it and check 16 asserts none of its packages is on sale. It is
+-- still in the schema, with the rows it already holds, so the rule that kept
+-- those rows honest is still checked. Points bought through the website live
+-- in point_purchases, which check 18 covers.
+\echo '12. Retired purchases table: one charge id, one credit'
 INSERT INTO star_purchases (id, user_id, package_code, invoice_payload, stars_amount, coins_amount)
 VALUES ('f0000000-0000-0000-0000-000000000001','11111111-1111-1111-1111-111111111111','TIER_1','nonce-abc123',50,500000);
 
@@ -287,6 +292,168 @@ BEGIN
 
     SELECT COUNT(*) INTO v_drift FROM v_balance_reconciliation;
     IF v_drift <> 0 THEN RAISE EXCEPTION 'FAIL: % account(s) drifted', v_drift; END IF;
+END $$;
+
+\echo '14. A web account is an email and a password together, or neither'
+DO $$
+BEGIN
+    INSERT INTO users (email, password_hash, first_name)
+    VALUES ('ada@example.com', '$argon2id$stub', 'Ada');
+
+    BEGIN
+        INSERT INTO users (email, first_name) VALUES ('nopass@example.com', 'NoPass');
+        RAISE EXCEPTION 'FAIL: an email without a password was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO users (password_hash, first_name, is_guest) VALUES ('$argon2id$stub', 'NoMail', TRUE);
+        RAISE EXCEPTION 'FAIL: a password without an email was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO users (email, password_hash, first_name)
+        VALUES ('Ada@Example.com', '$argon2id$stub', 'Shouting Ada');
+        RAISE EXCEPTION 'FAIL: an email that is not lower-cased was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO users (email, password_hash, first_name)
+        VALUES ('ada@example.com', '$argon2id$stub', 'Second Ada');
+        RAISE EXCEPTION 'FAIL: the same email registered twice';
+    EXCEPTION WHEN unique_violation THEN NULL; END;
+END $$;
+
+\echo '15. A guest has no credentials, and nobody exists without an identity'
+DO $$
+BEGIN
+    INSERT INTO users (first_name, is_guest) VALUES ('Guest', TRUE);
+    INSERT INTO users (first_name, is_guest) VALUES ('Guest', TRUE);  -- many guests are fine
+
+    BEGIN
+        INSERT INTO users (email, password_hash, first_name, is_guest)
+        VALUES ('both@example.com', '$argon2id$stub', 'Both', TRUE);
+        RAISE EXCEPTION 'FAIL: a guest with credentials was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO users (first_name) VALUES ('Nobody');
+        RAISE EXCEPTION 'FAIL: a user with no identity at all was accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+END $$;
+
+\echo '16. The old store stays closed and nothing is redeemable'
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM coin_packages WHERE is_active) THEN
+        RAISE EXCEPTION 'FAIL: a Telegram Stars package is still on sale';
+    END IF;
+    IF EXISTS (SELECT 1 FROM rewards WHERE is_active) THEN
+        RAISE EXCEPTION 'FAIL: a reward is still redeemable';
+    END IF;
+END $$;
+
+\echo '17. An article is never refused without a reason, published without a date, or given a taken address'
+DO $$
+DECLARE v_id UUID;
+BEGIN
+    INSERT INTO articles (author_id, slug, title, summary, body)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'an-invariant-check-abcde',
+            'An invariant check', repeat('s', 60), repeat('b', 700))
+    RETURNING id INTO v_id;
+
+    BEGIN
+        UPDATE articles SET status = 'REJECTED' WHERE id = v_id;
+        RAISE EXCEPTION 'FAIL: rejected with no reason at all';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE articles SET status = 'REMOVED', review_note = '   ' WHERE id = v_id;
+        RAISE EXCEPTION 'FAIL: removed with a blank reason';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE articles SET status = 'PUBLISHED' WHERE id = v_id;
+        RAISE EXCEPTION 'FAIL: published with no date';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO articles (author_id, slug, title, summary, body)
+        VALUES ('11111111-1111-1111-1111-111111111111', 'an-invariant-check-abcde',
+                'A second article', repeat('s', 60), repeat('b', 700));
+        RAISE EXCEPTION 'FAIL: two articles at one address';
+    EXCEPTION WHEN unique_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE articles SET body = 'too short' WHERE id = v_id;
+        RAISE EXCEPTION 'FAIL: a one-line article accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+END $$;
+
+\echo '18. A purchase is credited once, dated when paid, and refunded no more than it gave'
+DO $$
+DECLARE
+    v_user UUID := '11111111-1111-1111-1111-111111111111';
+    v_id   UUID;
+BEGIN
+    INSERT INTO point_purchases (user_id, points, amount_cents, currency, expires_at)
+    VALUES (v_user, 100000, 200, 'usd', NOW() + INTERVAL '30 minutes')
+    RETURNING id INTO v_id;
+
+    BEGIN
+        UPDATE point_purchases SET status = 'PAID' WHERE id = v_id;
+        RAISE EXCEPTION 'FAIL: marked paid with no date';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE point_purchases SET status = 'REFUNDED', paid_at = NOW() WHERE id = v_id;
+        RAISE EXCEPTION 'FAIL: marked refunded with no refund date';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE point_purchases SET clawed_back = 5 WHERE id = v_id;
+        RAISE EXCEPTION 'FAIL: points taken back from a purchase that was never refunded';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    UPDATE point_purchases SET status = 'PAID', paid_at = NOW(), stripe_session_id = 'cs_inv_1'
+     WHERE id = v_id;
+
+    INSERT INTO ledger_entries (user_id, entry_type, amount, ref_type, ref_id, idempotency_key)
+    VALUES (v_user, 'POINTS_PURCHASE_CREDIT', 100000, 'POINT_PURCHASE', v_id, 'purchase:' || v_id);
+
+    BEGIN
+        INSERT INTO ledger_entries (user_id, entry_type, amount, ref_type, ref_id, idempotency_key)
+        VALUES (v_user, 'POINTS_PURCHASE_CREDIT', 100000, 'POINT_PURCHASE', v_id, 'purchase-again:' || v_id);
+        RAISE EXCEPTION 'FAIL: one purchase credited twice';
+    EXCEPTION WHEN unique_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE point_purchases
+           SET status = 'REFUNDED', refunded_at = NOW(), clawed_back = 100001
+         WHERE id = v_id;
+        RAISE EXCEPTION 'FAIL: a refund took back more points than the purchase gave';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO point_purchases (user_id, points, amount_cents, currency, expires_at, stripe_session_id)
+        VALUES (v_user, 100000, 200, 'usd', NOW() + INTERVAL '30 minutes', 'cs_inv_1');
+        RAISE EXCEPTION 'FAIL: one Stripe session recorded as two purchases';
+    EXCEPTION WHEN unique_violation THEN NULL; END;
+
+    BEGIN
+        INSERT INTO point_purchases (user_id, points, amount_cents, currency, expires_at)
+        VALUES (v_user, 100000, 0, 'usd', NOW() + INTERVAL '30 minutes');
+        RAISE EXCEPTION 'FAIL: a purchase that cost nothing';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE users SET monthly_spend_limit_cents = -1, spend_limit_set_at = NOW() WHERE id = v_user;
+        RAISE EXCEPTION 'FAIL: a negative spending limit';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE users SET monthly_spend_limit_cents = 500 WHERE id = v_user;
+        RAISE EXCEPTION 'FAIL: a spending limit with no record of when it was set';
+    EXCEPTION WHEN check_violation THEN NULL; END;
 END $$;
 
 \echo ''

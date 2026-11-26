@@ -1,24 +1,20 @@
 """Messages from players to the operator.
 
 A player writes; the operator may answer once. Not a chat: no threads, no
-read receipts, no notifications beyond the single reply. The shape is the
-question — "I won something, how do I claim it" needs an answer, not a
-conversation.
+read receipts, no notifications. The shape is the question — "something looks
+wrong with this market" needs an answer, not a conversation.
 
-**The reply is delivered by the bot.** Answering from the operator's own
-Telegram account would hand every player who writes in their personal
-profile, which is a high price for answering a support question. Sent as the
-bot, the operator's id, username and photo never travel with the reply.
-
-**A reply is written down whether or not Telegram takes it.** A bot may not
-open a conversation the person has not opened first, so a player who launched
-the Mini App from a link without pressing Start is unreachable. Storing the
-reply means their answer still reaches them, in the app, rather than
-disappearing while the operator believes they answered.
+**The reply lives in the app.** The player reads it on the page they wrote
+from. Nothing is emailed: addresses here are unverified, and sending an
+operator's words to an address somebody merely typed is how a support box
+becomes a way to message strangers.
 
 `admin_note` stays private and is separate from the reply: somewhere to write
-"this one is lying about winning" is worth keeping, and merging it into the
-reply would publish it.
+"this account looks automated" is worth keeping, and merging it into the reply
+would publish it.
+
+There was once a second kind of message, a prize claim. There are no prizes
+now, so nothing creates one; rows of that kind from before are still listed.
 """
 
 from __future__ import annotations
@@ -31,7 +27,7 @@ import asyncpg
 
 _INSERT = """
 INSERT INTO player_messages (user_id, kind, body)
-VALUES ($1, $2::player_message_kind, $3)
+VALUES ($1, 'MESSAGE', $2)
 RETURNING id, kind::text AS kind, status::text AS status, body, created_at
 """
 
@@ -52,8 +48,8 @@ SELECT id, kind::text AS kind, status::text AS status, body, created_at, answere
 _INBOX = """
 SELECT m.id, m.kind::text AS kind, m.status::text AS status, m.body,
        m.admin_note, m.created_at, m.answered_at,
-       m.reply_body, m.replied_at, m.reply_delivered,
-       u.player_code, u.username, u.first_name, u.telegram_id,
+       m.reply_body, m.replied_at,
+       u.player_code, u.first_name, u.is_guest,
        u.coin_balance, u.status::text AS player_status
   FROM player_messages m
   JOIN users u ON u.id = m.user_id
@@ -101,11 +97,9 @@ class Message:
 @dataclass(frozen=True, slots=True)
 class InboxItem(Message):
     admin_note: str | None = None
-    reply_delivered: bool = False
     player_code: str = ""
-    username: str | None = None
     first_name: str = ""
-    telegram_id: int = 0
+    is_guest: bool = False
     balance: int = 0
     player_status: str = "ACTIVE"
 
@@ -115,7 +109,6 @@ async def send(
     *,
     user_id: uuid.UUID,
     body: str,
-    kind: str = "MESSAGE",
     window_seconds: int,
     max_in_window: int,
 ) -> Message:
@@ -124,8 +117,6 @@ async def send(
         raise MessageError("empty_message", "Write something first.")
     if len(body) > 2000:
         raise MessageError("message_too_long", "Keep it under 2000 characters.")
-    if kind not in {"MESSAGE", "PRIZE_CLAIM"}:
-        raise MessageError("bad_kind", "Unknown message kind.")
 
     recent = await conn.fetchval(_RECENT_COUNT, user_id, float(window_seconds))
     if recent >= max_in_window:
@@ -135,7 +126,7 @@ async def send(
             status=429,
         )
 
-    row = await conn.fetchrow(_INSERT, user_id, kind, body)
+    row = await conn.fetchrow(_INSERT, user_id, body)
     return Message(
         id=row["id"],
         kind=row["kind"],
@@ -178,11 +169,9 @@ async def inbox(
             reply_body=r["reply_body"],
             replied_at=r["replied_at"],
             admin_note=r["admin_note"],
-            reply_delivered=r["reply_delivered"],
             player_code=r["player_code"],
-            username=r["username"],
-            first_name=r["first_name"],
-            telegram_id=r["telegram_id"],
+            first_name=r["first_name"] or "",
+            is_guest=r["is_guest"],
             balance=int(r["coin_balance"]),
             player_status=r["player_status"],
         )
@@ -205,68 +194,27 @@ async def resolve(
     return row["status"]
 
 
-_LOAD_FOR_REPLY = """
-SELECT m.id, m.body, m.reply_body, u.telegram_id, u.status::text AS player_status
-  FROM player_messages m
-  JOIN users u ON u.id = m.user_id
- WHERE m.id = $1
-"""
-
 _RECORD_REPLY = """
 UPDATE player_messages
-   SET reply_body      = $2,
-       replied_at      = NOW(),
-       reply_delivered = $3,
-       status          = 'ANSWERED',
-       answered_at     = COALESCE(answered_at, NOW())
+   SET reply_body  = $2,
+       replied_at  = NOW(),
+       status      = 'ANSWERED',
+       answered_at = COALESCE(answered_at, NOW())
  WHERE id = $1
 RETURNING id, kind::text AS kind, status::text AS status, body, created_at, answered_at,
           reply_body, replied_at
 """
 
 
-@dataclass(frozen=True, slots=True)
-class ReplyTarget:
-    message_id: uuid.UUID
-    telegram_id: int
-    body: str
-    already_replied: bool
-
-
-async def load_for_reply(conn: asyncpg.Connection, message_id: uuid.UUID) -> ReplyTarget:
-    """Who to answer, and whether they have already been answered.
-
-    Read as its own step because the send happens outside the transaction: a
-    reply is a side effect on Telegram's side and cannot be rolled back, so the
-    row must not be locked across a network call to a third party.
-    """
-    row = await conn.fetchrow(_LOAD_FOR_REPLY, message_id)
-    if row is None:
-        raise MessageError("message_not_found", "No such message.", status=404)
-    return ReplyTarget(
-        message_id=row["id"],
-        telegram_id=int(row["telegram_id"]),
-        body=row["body"],
-        already_replied=row["reply_body"] is not None,
-    )
-
-
-async def record_reply(
-    conn: asyncpg.Connection, *, message_id: uuid.UUID, body: str, delivered: bool
-) -> Message:
-    """Write the reply down, whatever Telegram did with it.
-
-    Called after the send, and on the failure path too. A reply Telegram
-    refused is still the operator's answer: the player reads it in the app the
-    next time they open their messages, which is where they wrote it from.
-    """
+async def record_reply(conn: asyncpg.Connection, *, message_id: uuid.UUID, body: str) -> Message:
+    """Write the operator's answer. The player reads it where they wrote."""
     body = body.strip()
     if not body:
         raise MessageError("empty_reply", "Write a reply first.")
     if len(body) > 2000:
         raise MessageError("reply_too_long", "Keep the reply under 2000 characters.")
 
-    row = await conn.fetchrow(_RECORD_REPLY, message_id, body, delivered)
+    row = await conn.fetchrow(_RECORD_REPLY, message_id, body)
     if row is None:
         raise MessageError("message_not_found", "No such message.", status=404)
     return Message(

@@ -222,7 +222,7 @@ async def retire_surplus_markets(
     `priority_category` sorts ahead of that ranking. It is the same exemption
     discovery's budget cut makes, and it has to be made in both places or it
     is made in neither: ingesting a category the trim then parks by volume
-    costs the translation and the writes and still leaves the tab empty. The
+    costs the writes and still leaves the tab empty. The
     priority markets are counted against `keep` rather than added to it, so
     the pricing budget this function exists to defend is unchanged — what
     moves is which markets get to sit inside it.
@@ -269,11 +269,11 @@ async def record_snapshots(
 
 
 async def lock_expired_markets(conn: asyncpg.Connection) -> int:
-    """Close betting on markets that have reached their cutoff.
+    """Close forecasting on markets that have reached their cutoff.
 
     This runs on the sync tick rather than on discovery's hourly one: an hour
-    of accepting bets on a market that has already stopped trading upstream is
-    an hour of taking positions against people who can see the result coming.
+    of accepting forecasts on a market that has already stopped trading
+    upstream is an hour in which the answer can be read off the news.
     """
     result = await conn.execute(
         "UPDATE markets SET status = 'LOCKED' WHERE status = 'ACTIVE' AND lock_at <= NOW()"
@@ -281,38 +281,72 @@ async def lock_expired_markets(conn: asyncpg.Connection) -> int:
     return int(result.rsplit(" ", 1)[-1])
 
 
-_LIST_MARKETS = """
-SELECT m.id, m.question, m.description, m.category, m.image_url,
+_MARKET_COLUMNS = """
+SELECT m.id,
+       -- The *_source columns hold Polymarket's own English. They are read in
+       -- preference to the plain ones so that a row written back when text
+       -- was being translated still comes out in English.
+       COALESCE(m.question_source, m.question)       AS question,
+       COALESCE(m.description_source, m.description) AS description,
+       m.category, m.image_url,
        m.raw_yes_prob, m.price_updated_at, m.liquidity_usd, m.volume_usd,
        m.lock_at, m.end_date,
-       e.id AS event_id, e.title AS event_title, e.slug AS event_slug,
-       COALESCE(b.boosts, '[]'::json) AS boosts
+       e.id AS event_id,
+       COALESCE(e.title_source, e.title) AS event_title,
+       e.slug AS event_slug
   FROM markets m
   JOIN market_events e ON e.id = m.event_id
-  LEFT JOIN LATERAL (
-      SELECT json_agg(
-                 json_build_object(
-                     'id', ob.id,
-                     'side', ob.side,
-                     'multiplier', ob.boost_multiplier::text,
-                     'ends_at', ob.ends_at,
-                     'remaining_stake_minor', ob.max_total_stake - ob.consumed_stake,
-                     'max_stake_per_user_minor', ob.max_stake_per_user
-                 ) ORDER BY ob.side
-             ) AS boosts
-        FROM odds_boosts ob
-       WHERE ob.market_id = m.id
-         AND ob.is_active
-         AND ob.starts_at <= NOW()
-         AND ob.ends_at > NOW()
-         AND ob.consumed_stake < ob.max_total_stake
-  ) b ON TRUE
+"""
+
+# Open, and still a question. A market the crowd has above the band or below
+# it is all but settled: the engine refuses to price either side of it, so
+# listing it would be showing a card whose buttons can never work.
+_OPEN_AND_UNDECIDED = """
  WHERE m.status = 'ACTIVE'
    AND m.lock_at > NOW()
-   AND ($1::text IS NULL OR m.category = $1)
-   AND ($2::timestamptz IS NULL OR (m.lock_at, m.id) > ($2::timestamptz, $3::uuid))
+   AND m.raw_yes_prob BETWEEN $1 AND $2
+   AND ($3::text IS NULL OR m.category = $3)
+"""
+
+_LIST_BY_CLOSING = (
+    _MARKET_COLUMNS
+    + _OPEN_AND_UNDECIDED
+    + """
+   AND ($4::timestamptz IS NULL OR (m.lock_at, m.id) > ($4::timestamptz, $5::uuid))
  ORDER BY m.lock_at, m.id
- LIMIT $4
+ LIMIT $6
+"""
+)
+
+# The orderings a caller may ask for by name, each ending in (lock_at, id) so
+# that ties break the same way every time and a page boundary cannot land in
+# the middle of a run of equals. The name is looked up here, never
+# interpolated from the request, so the ORDER BY is always one of these
+# literal strings.
+MARKET_ORDERINGS: dict[str, str] = {
+    # Nearest to a coin flip first: the questions on which there is most to
+    # disagree with the crowd about. The default view, because a list that
+    # opens on foregone conclusions is not a list of forecasts worth making.
+    "tossup": "abs(m.raw_yes_prob - 0.5), m.lock_at, m.id",
+    "volume": "m.volume_usd DESC, m.lock_at, m.id",
+}
+
+
+def _list_by(ordering: str) -> str:
+    return (
+        _MARKET_COLUMNS
+        + _OPEN_AND_UNDECIDED
+        + f" ORDER BY {MARKET_ORDERINGS[ordering]}\n OFFSET $4 LIMIT $5\n"
+    )
+
+
+_CATEGORIES = """
+SELECT DISTINCT m.category
+  FROM markets m
+ WHERE m.status = 'ACTIVE'
+   AND m.lock_at > NOW()
+   AND m.raw_yes_prob BETWEEN $1 AND $2
+ ORDER BY m.category
 """
 
 
@@ -323,8 +357,48 @@ async def list_active_markets(
     after_lock_at: datetime | None,
     after_id: uuid.UUID | None,
     limit: int,
+    min_prob: Decimal,
+    max_prob: Decimal,
 ) -> list[asyncpg.Record]:
-    return await conn.fetch(_LIST_MARKETS, category, after_lock_at, after_id, limit)
+    """Open questions, soonest to close first, paged by keyset.
+
+    A keyset rather than an offset because this order is stable — a market's
+    cutoff does not move — so "everything after this one" is exact however
+    many are added or closed between two requests.
+    """
+    return await conn.fetch(
+        _LIST_BY_CLOSING, min_prob, max_prob, category, after_lock_at, after_id, limit
+    )
+
+
+async def list_active_markets_ordered(
+    conn: asyncpg.Connection,
+    *,
+    ordering: str,
+    category: str | None,
+    offset: int,
+    limit: int,
+    min_prob: Decimal,
+    max_prob: Decimal,
+) -> list[asyncpg.Record]:
+    """Open questions in one of the named orderings, paged by offset.
+
+    An offset because these orders are *not* stable: they sort on the price,
+    which moves every minute, so there is no fixed "after this one" to key
+    on. A market can therefore appear on two pages or on neither if its price
+    crosses a page boundary between requests. The catalogue is a few hundred
+    rows and the client drops repeats, which is an honest trade for a view
+    that is about the live price in the first place.
+    """
+    return await conn.fetch(_list_by(ordering), min_prob, max_prob, category, offset, limit)
+
+
+async def list_active_categories(
+    conn: asyncpg.Connection, *, min_prob: Decimal, max_prob: Decimal
+) -> list[str]:
+    """The categories that currently have something to forecast in them."""
+    rows = await conn.fetch(_CATEGORIES, min_prob, max_prob)
+    return [row["category"] for row in rows]
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,8 +505,8 @@ async def list_settleable_slips(conn: asyncpg.Connection, *, limit: int) -> list
 async def settle_slip(conn: asyncpg.Connection, prediction_id: uuid.UUID) -> str:
     """Hand settlement to the database.
 
-    All the parlay arithmetic, the void-leg collapse, the insurance edge cases
-    and the payout cap live in fn_settle_prediction. Re-implementing any of it
+    All the multi-pick arithmetic, the void-leg collapse and the payout cap
+    live in fn_settle_prediction. Re-implementing any of it
     here would mean two sources of truth for what a slip pays.
     """
     return await conn.fetchval("SELECT fn_settle_prediction($1)", prediction_id)

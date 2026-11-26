@@ -8,11 +8,11 @@ asks Gamma what happened, grades the open legs, and calls
 
 This module decides **what happened**. Postgres decides **what it pays**.
 
-All the parlay arithmetic — compounding, void legs collapsing to a factor of
-one, the insurance near-miss window, the payout cap, the ledger keys that make
-a payout exactly-once — lives in `fn_settle_prediction`. Re-implementing any of
-it here would create a second source of truth for what a slip is worth, and the
-two would drift. The worker's entire settlement step is one `SELECT`.
+All the multi-pick arithmetic — compounding, void legs collapsing to a factor
+of one, the payout cap, the ledger keys that make a payout exactly-once — lives
+in `fn_settle_prediction`. Re-implementing any of it here would create a second
+source of truth for what a slip is worth, and the two would drift. The worker's
+entire settlement step is one `SELECT`.
 
 ## Failure policy
 

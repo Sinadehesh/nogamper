@@ -32,7 +32,7 @@ def _no_leftover_pool():
 
 
 def settings(**overrides) -> Settings:
-    return Settings(telegram_bot_token="x", jwt_secret="y", **overrides)
+    return Settings(jwt_secret="y", **overrides)
 
 
 def _raising(exc: Exception):

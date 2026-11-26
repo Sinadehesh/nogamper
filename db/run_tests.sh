@@ -18,9 +18,9 @@ pg_ctl -D "$WORK/data" -o "-p $PORT -k $WORK -c listen_addresses=" -l "$WORK/pg.
 
 export PGHOST="$WORK" PGPORT="$PORT" PGUSER=postgres
 
-psql -q -c 'CREATE DATABASE mf;'
+psql -q -c 'CREATE DATABASE appdb;'
 for migration in "$ROOT"/db/migrations/*.sql; do
     echo "  applying $(basename "$migration")"
-    psql -q -d mf -v ON_ERROR_STOP=1 -f "$migration"
+    psql -q -d appdb -v ON_ERROR_STOP=1 -f "$migration"
 done
-psql -q -d mf -v ON_ERROR_STOP=1 -f "$ROOT/db/tests/invariants.sql"
+psql -q -d appdb -v ON_ERROR_STOP=1 -f "$ROOT/db/tests/invariants.sql"

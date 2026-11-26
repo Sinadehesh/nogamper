@@ -1,8 +1,8 @@
 """The roster, adjustments, bans, and the message box.
 
-Two of these operations move a player's money and one removes their access, so
-the gate tests come first: the worst bug here is not a wrong number, it is a
-player who can adjust their own balance.
+Two of these operations change a player's points and one removes their access,
+so the gate tests come first: the worst bug here is not a wrong number, it is
+a player who can adjust their own balance.
 
 The adjustment tests are really ledger tests wearing an admin hat. An operator
 credit is an ordinary `ADMIN_ADJUSTMENT` entry, which means every invariant the
@@ -14,7 +14,15 @@ against the balance column and it would pass a naive test.
 
 from __future__ import annotations
 
-from conftest import TEST_ADMIN_TELEGRAM_ID, authorise
+from conftest import (
+    TEST_ADMIN_PLAYER,
+    TEST_PASSWORD,
+    authorise,
+    balance_of,
+    email_for,
+    make_admin,
+    user_id_for,
+)
 
 from backend import db
 
@@ -25,22 +33,15 @@ INBOX = "/v1/admin/messages"
 MESSAGES = "/v1/messages"
 
 
-async def code_for(telegram_id: int) -> str:
+async def code_for(player: int) -> str:
     async with db.acquire() as conn:
         return await conn.fetchval(
-            "SELECT player_code FROM users WHERE telegram_id = $1", telegram_id
-        )
-
-
-async def balance_of(telegram_id: int) -> int:
-    async with db.acquire() as conn:
-        return await conn.fetchval(
-            "SELECT coin_balance FROM users WHERE telegram_id = $1", telegram_id
+            "SELECT player_code FROM users WHERE email = $1", email_for(player)
         )
 
 
 async def test_every_player_gets_a_code_at_signup(app_client):
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
     profile = (await app_client.get("/v1/me", headers=headers)).json()
 
     assert len(profile["player_code"]) == 6
@@ -53,8 +54,8 @@ async def test_codes_avoid_the_glyphs_people_mishear(app_client):
     The code is read aloud and typed back in, so the alphabet simply does not
     contain them rather than relying on anyone to disambiguate.
     """
-    for telegram_id in range(7000, 7020):
-        await authorise(app_client, telegram_id=telegram_id)
+    for player in range(7000, 7020):
+        await authorise(app_client, player)
 
     async with db.acquire() as conn:
         codes = [r["player_code"] for r in await conn.fetch("SELECT player_code FROM users")]
@@ -65,8 +66,8 @@ async def test_codes_avoid_the_glyphs_people_mishear(app_client):
 
 
 async def test_two_players_never_share_a_code(app_client):
-    for telegram_id in range(7100, 7130):
-        await authorise(app_client, telegram_id=telegram_id)
+    for player in range(7100, 7130):
+        await authorise(app_client, player)
 
     async with db.acquire() as conn:
         codes = [r["player_code"] for r in await conn.fetch("SELECT player_code FROM users")]
@@ -75,13 +76,13 @@ async def test_two_players_never_share_a_code(app_client):
 
 
 async def test_a_player_cannot_read_the_roster(app_client):
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
     assert (await app_client.get(PLAYERS, headers=headers)).status_code == 404
 
 
 async def test_a_player_cannot_adjust_a_balance(app_client):
     """The worst bug this file exists to prevent."""
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
     mine = await code_for(4242)
     before = await balance_of(4242)
 
@@ -101,8 +102,8 @@ async def test_a_player_cannot_adjust_a_balance(app_client):
 
 
 async def test_a_player_cannot_ban_anyone(app_client):
-    headers = await authorise(app_client, telegram_id=4242)
-    await authorise(app_client, telegram_id=4243)
+    headers = await authorise(app_client, 4242)
+    await authorise(app_client, 4243)
     victim = await code_for(4243)
 
     response = await app_client.post(
@@ -111,12 +112,15 @@ async def test_a_player_cannot_ban_anyone(app_client):
     assert response.status_code == 404
 
     async with db.acquire() as conn:
-        assert await conn.fetchval("SELECT status FROM users WHERE telegram_id = 4243") == "ACTIVE"
+        assert (
+            await conn.fetchval("SELECT status FROM users WHERE email = 'player4243@example.test'")
+            == "ACTIVE"
+        )
 
 
 async def test_the_roster_lists_players_with_their_flow(app_client):
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
 
     body = (await app_client.get(PLAYERS, headers=admin)).json()
     wanted = await code_for(4242)
@@ -131,19 +135,16 @@ async def test_the_roster_lists_players_with_their_flow(app_client):
 async def test_net_is_returned_minus_staked(app_client):
     """From the ledger, not from slip statuses.
 
-    A slip can be settled, voided, insured or clawed back, and each is a
-    different ledger row. Counting statuses would miss the refunds and
-    double-count the insured.
+    A slip can be settled or voided, and each is a different ledger row.
+    Counting statuses would miss the refunds.
     """
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    admin = await make_admin(app_client)
 
     async with db.transaction() as conn:
-        user_id = await conn.fetchval(
-            "SELECT id FROM users WHERE telegram_id = $1", TEST_ADMIN_TELEGRAM_ID
-        )
+        user_id = await user_id_for(TEST_ADMIN_PLAYER)
         for entry_type, amount, key in (
-            ("STAR_PURCHASE_CREDIT", 1_000_000, "funds"),
-            ("STAKE_DEBIT", -300_000, "bet"),
+            ("ADMIN_ADJUSTMENT", 1_000_000, "funds"),
+            ("STAKE_DEBIT", -300_000, "stake"),
             ("PAYOUT_CREDIT", 220_000, "won"),
         ):
             await conn.execute(
@@ -164,8 +165,8 @@ async def test_net_is_returned_minus_staked(app_client):
 
 
 async def test_the_roster_can_be_searched_by_code(app_client):
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
     wanted = await code_for(4242)
 
     body = (await app_client.get(PLAYERS, headers=admin, params={"search": wanted})).json()
@@ -180,8 +181,8 @@ async def test_a_credit_goes_through_the_ledger(app_client):
     one bug in this system that compounds silently, which is why
     v_balance_reconciliation exists — and why this test checks it.
     """
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
     code = await code_for(4242)
     before = await balance_of(4242)
 
@@ -215,8 +216,8 @@ async def test_a_credit_goes_through_the_ledger(app_client):
 
 
 async def test_a_debit_reduces_the_balance(app_client):
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
     code = await code_for(4242)
     before = await balance_of(4242)
 
@@ -241,8 +242,8 @@ async def test_a_debit_past_zero_is_refused_not_clamped(app_client):
     with the amount the operator thought they removed. The trigger raises
     PT001 exactly as it would for a player's own bet.
     """
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
     code = await code_for(4242)
     before = await balance_of(4242)
 
@@ -264,8 +265,8 @@ async def test_a_debit_past_zero_is_refused_not_clamped(app_client):
 
 async def test_the_same_reference_cannot_be_posted_twice(app_client):
     """A double-clicked button must not credit a player twice."""
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
     code = await code_for(4242)
     before = await balance_of(4242)
 
@@ -284,7 +285,7 @@ async def test_the_same_reference_cannot_be_posted_twice(app_client):
 
 
 async def test_an_unknown_code_is_a_404(app_client):
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    admin = await make_admin(app_client)
     response = await app_client.post(
         ADJUST,
         headers=admin,
@@ -301,8 +302,8 @@ async def test_banning_locks_the_player_out_immediately(app_client):
     take effect — revoking the live sessions is what makes it immediate and
     unambiguous.
     """
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    victim = await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    victim = await authorise(app_client, 4242)
     code = await code_for(4242)
 
     assert (await app_client.get("/v1/me", headers=victim)).status_code == 200
@@ -318,8 +319,8 @@ async def test_banning_locks_the_player_out_immediately(app_client):
 async def test_a_banned_player_keeps_their_history(app_client):
     """The rows stay. A banned player's ledger is part of the economy's
     history and deleting it would silently rewrite the books."""
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
     code = await code_for(4242)
 
     await app_client.post(STATUS, headers=admin, json={"player_code": code, "status": "BANNED"})
@@ -331,8 +332,8 @@ async def test_a_banned_player_keeps_their_history(app_client):
 
 
 async def test_a_ban_can_be_lifted(app_client):
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await authorise(app_client, telegram_id=4242)
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
     code = await code_for(4242)
 
     await app_client.post(STATUS, headers=admin, json={"player_code": code, "status": "BANNED"})
@@ -341,41 +342,54 @@ async def test_a_ban_can_be_lifted(app_client):
     )
 
     assert response.json()["status"] == "ACTIVE"
-    fresh = await authorise(app_client, telegram_id=4242)
+    fresh = await authorise(app_client, 4242)
     assert (await app_client.get("/v1/me", headers=fresh)).status_code == 200
 
 
 async def test_a_player_can_write_to_the_operator(app_client):
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
 
     response = await app_client.post(
-        MESSAGES, headers=headers, json={"body": "من برنده شدم", "kind": "PRIZE_CLAIM"}
+        MESSAGES, headers=headers, json={"body": "This market looks wrong."}
     )
 
     assert response.status_code == 201
     body = response.json()
-    assert body["kind"] == "PRIZE_CLAIM"
+    assert body["kind"] == "MESSAGE"
     assert body["status"] == "NEW"
+
+
+async def test_there_is_no_such_thing_as_a_prize_claim(app_client):
+    """There are no prizes, so a message cannot be one. A client that still
+    sends the old `kind` gets an ordinary message, not a claim."""
+    headers = await authorise(app_client, 4242)
+
+    response = await app_client.post(
+        MESSAGES, headers=headers, json={"body": "I won, pay me", "kind": "PRIZE_CLAIM"}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["kind"] == "MESSAGE"
 
 
 async def test_a_player_sees_their_own_messages_back(app_client):
     """A box that shows nothing back looks broken."""
-    headers = await authorise(app_client, telegram_id=4242)
-    await app_client.post(MESSAGES, headers=headers, json={"body": "سلام"})
+    headers = await authorise(app_client, 4242)
+    await app_client.post(MESSAGES, headers=headers, json={"body": "hello there"})
 
     body = (await app_client.get(MESSAGES, headers=headers)).json()
-    assert [m["body"] for m in body["messages"]] == ["سلام"]
+    assert [m["body"] for m in body["messages"]] == ["hello there"]
 
 
 async def test_a_player_never_sees_the_operators_note(app_client):
     """The note is a notebook, not a reply.
 
-    Nothing in this app delivers a reply — the operator answers in Telegram —
-    so showing a private note here would look like one the product never
-    promised.
+    A reply is something the operator chose to publish to the player. The
+    note beside it never leaves the admin page, and showing it here would
+    publish something written for one reader to another.
     """
-    player = await authorise(app_client, telegram_id=4242)
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    player = await authorise(app_client, 4242)
+    admin = await make_admin(app_client)
     sent = (await app_client.post(MESSAGES, headers=player, json={"body": "hi"})).json()
 
     await app_client.post(
@@ -397,7 +411,7 @@ async def test_one_player_cannot_flood_the_inbox(app_client):
     """
     from backend.config import get_settings
 
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
     limit = get_settings().message_rate_max
 
     for i in range(limit):
@@ -411,16 +425,16 @@ async def test_one_player_cannot_flood_the_inbox(app_client):
 
 
 async def test_a_player_cannot_read_the_inbox(app_client):
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
     assert (await app_client.get(INBOX, headers=headers)).status_code == 404
 
 
 async def test_the_inbox_carries_the_account_beside_the_message(app_client):
     """The question a message raises is almost always about the account rather
     than the text, so the numbers travel with it."""
-    player = await authorise(app_client, telegram_id=4242)
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    await app_client.post(MESSAGES, headers=player, json={"body": "where is my prize"})
+    player = await authorise(app_client, 4242)
+    admin = await make_admin(app_client)
+    await app_client.post(MESSAGES, headers=player, json={"body": "is this market stuck?"})
 
     body = (await app_client.get(INBOX, headers=admin)).json()
     item = body["messages"][0]
@@ -432,8 +446,8 @@ async def test_the_inbox_carries_the_account_beside_the_message(app_client):
 
 
 async def test_triage_moves_a_message_out_of_new(app_client):
-    player = await authorise(app_client, telegram_id=4242)
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
+    player = await authorise(app_client, 4242)
+    admin = await make_admin(app_client)
     sent = (await app_client.post(MESSAGES, headers=player, json={"body": "hello"})).json()
 
     await app_client.post(f"{INBOX}/{sent['id']}", headers=admin, json={"status": "ANSWERED"})
@@ -452,7 +466,7 @@ async def test_a_message_of_only_whitespace_is_refused(app_client):
     422 because it is the second one that fires — the request was well-formed,
     it just said nothing.
     """
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
     response = await app_client.post(MESSAGES, headers=headers, json={"body": "   "})
 
     assert response.status_code == 400
@@ -460,33 +474,27 @@ async def test_a_message_of_only_whitespace_is_refused(app_client):
 
 
 async def test_a_message_past_the_length_limit_is_refused(app_client):
-    headers = await authorise(app_client, telegram_id=4242)
+    headers = await authorise(app_client, 4242)
     response = await app_client.post(MESSAGES, headers=headers, json={"body": "x" * 2001})
     assert response.status_code == 422
 
 
 async def test_the_profile_says_whether_this_player_is_an_admin(app_client):
-    """The app has no other way to know.
-
-    Inside Telegram there is no address bar, so the gear in the header is the
-    only door into the admin pages. Without this flag the operator cannot
-    reach their own dashboard at all — which is exactly what shipped, and why
-    "just open /v1/admin/diagnostics" was advice that could not be acted on.
-    """
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    player = await authorise(app_client, telegram_id=4242)
+    """So the site knows whether to show the link to the admin pages."""
+    admin = await make_admin(app_client)
+    player = await authorise(app_client, 4242)
 
     assert (await app_client.get("/v1/me", headers=admin)).json()["is_admin"] is True
     assert (await app_client.get("/v1/me", headers=player)).json()["is_admin"] is False
 
 
 async def test_the_flag_is_present_on_the_session_response_too(app_client):
-    """Otherwise the gear appears only after the first profile refresh, which
-    on a cold launch is a page load later."""
-    from conftest import make_init_data
+    """Otherwise the link appears only after the first profile refresh, which
+    on a cold load is a page later."""
+    await make_admin(app_client)
 
     response = await app_client.post(
-        "/v1/auth/session", json={"initData": make_init_data(telegram_id=TEST_ADMIN_TELEGRAM_ID)}
+        "/v1/auth/login", json={"email": email_for(TEST_ADMIN_PLAYER), "password": TEST_PASSWORD}
     )
     assert response.json()["user"]["is_admin"] is True
 
@@ -498,95 +506,127 @@ async def test_the_flag_is_a_hint_and_not_the_gate(app_client):
     is not one — the allowlist is re-checked on every admin route, and this is
     what keeps that true if somebody later reaches for the flag as a shortcut.
     """
-    player = await authorise(app_client, telegram_id=4242)
+    player = await authorise(app_client, 4242)
 
     assert (await app_client.get(PLAYERS, headers=player)).status_code == 404
     assert (await app_client.get("/v1/admin/diagnostics", headers=player)).status_code == 404
 
 
-async def test_coins_can_be_given_by_telegram_id(app_client):
-    """The operator often has the Telegram id and not the player code —
-    somebody messaged them outside the app. Making them translate one into the
-    other by hand is asking for a mistake with money."""
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    player = await authorise(app_client, telegram_id=828282)
-    before = (await app_client.get("/v1/me", headers=player)).json()["balance"]["minor"]
+# ----- the operator's answer ------------------------------------------------
+
+
+async def test_a_reply_is_stored_and_the_player_reads_it_in_the_app(app_client):
+    player = await authorise(app_client, 4242)
+    admin = await make_admin(app_client)
+    sent = (await app_client.post(MESSAGES, headers=player, json={"body": "hello?"})).json()
+
+    reply = await app_client.post(
+        f"{INBOX}/{sent['id']}/reply", headers=admin, json={"body": "  Fixed — thanks.  "}
+    )
+    assert reply.status_code == 200
+    assert reply.json()["status"] == "ANSWERED"
+    assert reply.json()["reply_body"] == "Fixed — thanks."
+
+    mine = (await app_client.get(MESSAGES, headers=player)).json()["messages"][0]
+    assert mine["reply_body"] == "Fixed — thanks."
+    assert mine["replied_at"] is not None
+    assert mine["status"] == "ANSWERED"
+
+
+async def test_a_player_cannot_answer_messages(app_client):
+    player = await authorise(app_client, 4242)
+    sent = (await app_client.post(MESSAGES, headers=player, json={"body": "hello?"})).json()
+
+    refused = await app_client.post(
+        f"{INBOX}/{sent['id']}/reply", headers=player, json={"body": "answering myself"}
+    )
+    assert refused.status_code == 404
+
+
+async def test_replying_to_a_message_that_does_not_exist_is_a_404(app_client):
+    admin = await make_admin(app_client)
 
     response = await app_client.post(
-        "/v1/admin/players/adjust",
-        json={
-            "telegram_id": 828282,
-            "amount_minor": 5_000_000,
-            "reason": "competition prize",
-            "reference": "by-id-1",
-        },
-        headers=admin,
+        f"{INBOX}/00000000-0000-0000-0000-000000000000/reply", headers=admin, json={"body": "hi"}
     )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["player_code"]
-    assert body["balance"]["minor"] == before + 5_000_000
-
-
-async def test_giving_by_id_and_by_code_reach_the_same_account(app_client):
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    player = await authorise(app_client, telegram_id=838383)
-    code = (await app_client.get("/v1/me", headers=player)).json()["player_code"]
-
-    by_id = await app_client.post(
-        "/v1/admin/players/adjust",
-        json={"telegram_id": 838383, "amount_minor": 1000, "reason": "r", "reference": "a"},
-        headers=admin,
-    )
-    by_code = await app_client.post(
-        "/v1/admin/players/adjust",
-        json={"player_code": code, "amount_minor": 1000, "reason": "r", "reference": "b"},
-        headers=admin,
-    )
-
-    assert by_id.json()["player_code"] == code
-    assert by_code.json()["balance"]["minor"] == by_id.json()["balance"]["minor"] + 1000
-
-
-async def test_giving_to_an_unknown_id_says_what_to_do_about_it(app_client):
-    """A player has no account until they open the app once, and "not found"
-    alone would read as a bug in the admin page."""
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-
-    response = await app_client.post(
-        "/v1/admin/players/adjust",
-        json={"telegram_id": 999000111, "amount_minor": 1000, "reason": "r", "reference": "c"},
-        headers=admin,
-    )
-
     assert response.status_code == 404
-    assert "open the app once" in response.json()["detail"]
+    assert response.json()["code"] == "message_not_found"
 
 
-async def test_an_adjustment_must_name_exactly_one_player(app_client):
-    """Both handles, disagreeing, would silently credit whichever the query
-    happened to prefer — and this endpoint moves money."""
-    admin = await authorise(app_client, telegram_id=TEST_ADMIN_TELEGRAM_ID)
-    player = await authorise(app_client, telegram_id=848484)
-    code = (await app_client.get("/v1/me", headers=player)).json()["player_code"]
+async def test_an_empty_reply_is_refused(app_client):
+    player = await authorise(app_client, 4242)
+    admin = await make_admin(app_client)
+    sent = (await app_client.post(MESSAGES, headers=player, json={"body": "hello?"})).json()
 
-    both = await app_client.post(
-        "/v1/admin/players/adjust",
-        json={
-            "player_code": code,
-            "telegram_id": 848484,
-            "amount_minor": 1000,
-            "reason": "r",
-            "reference": "d",
-        },
-        headers=admin,
+    refused = await app_client.post(
+        f"{INBOX}/{sent['id']}/reply", headers=admin, json={"body": "   "}
     )
-    neither = await app_client.post(
-        "/v1/admin/players/adjust",
-        json={"amount_minor": 1000, "reason": "r", "reference": "e"},
-        headers=admin,
-    )
+    assert refused.status_code == 422
 
-    assert both.status_code == 422
-    assert neither.status_code == 422
+
+# ----- what the roster shows ------------------------------------------------
+
+
+async def test_the_roster_shows_who_is_a_guest_and_who_registered(app_client):
+    admin = await make_admin(app_client)
+    await app_client.post("/v1/auth/guest")
+
+    players = (await app_client.get(PLAYERS, headers=admin)).json()["players"]
+    by_guest = {p["is_guest"]: p for p in players}
+
+    assert by_guest[True]["email"] is None
+    assert by_guest[False]["email"] == email_for(TEST_ADMIN_PLAYER)
+
+
+async def test_the_roster_can_be_searched_by_email(app_client):
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
+
+    body = (await app_client.get(PLAYERS, headers=admin, params={"search": "player4242"})).json()
+    assert [p["email"] for p in body["players"]] == [email_for(4242)]
+
+
+async def test_a_percent_sign_in_the_search_is_a_percent_sign(app_client):
+    """Unescaped, `%` is a wildcard and the search returns everybody."""
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
+
+    body = (await app_client.get(PLAYERS, headers=admin, params={"search": "%"})).json()
+    assert body["players"] == []
+    assert body["total"] == 0
+
+
+async def test_the_roster_shows_the_brakes_a_player_has_set(app_client):
+    admin = await make_admin(app_client)
+    player = await authorise(app_client, 4242)
+    await app_client.put("/v1/me/limits", json={"daily_limit_minor": 20_000}, headers=player)
+    await app_client.post("/v1/me/break", json={"hours": 24}, headers=player)
+
+    body = (await app_client.get(PLAYERS, headers=admin, params={"search": "player4242"})).json()
+    row = body["players"][0]
+
+    assert row["daily_limit"]["minor"] == 20_000
+    assert row["break_until"] is not None
+
+
+async def test_an_erased_account_drops_off_the_roster(app_client):
+    admin = await make_admin(app_client)
+    player = await authorise(app_client, 4242)
+    await app_client.post("/v1/me/erase", json={"password": TEST_PASSWORD}, headers=player)
+
+    body = (await app_client.get(PLAYERS, headers=admin)).json()
+    assert body["total"] == 1
+    assert [p["email"] for p in body["players"]] == [email_for(TEST_ADMIN_PLAYER)]
+
+
+async def test_an_adjustment_names_the_player_by_code_and_nothing_else(app_client):
+    admin = await make_admin(app_client)
+    await authorise(app_client, 4242)
+
+    response = await app_client.post(
+        ADJUST,
+        headers=admin,
+        json={"email": email_for(4242), "amount_minor": 5_000, "reason": "x", "reference": "r1"},
+    )
+    assert response.status_code == 422
+    assert await balance_of(4242) == 100_000

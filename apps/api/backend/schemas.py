@@ -1,9 +1,9 @@
 """Wire formats.
 
-Coin amounts cross the wire twice: `*_minor` as an integer (authoritative,
-safe to compute with) and a preformatted display string. A float never
-appears — JSON numbers are IEEE 754 doubles in most clients, which is the
-wrong container for a balance.
+Point amounts cross the wire twice: `minor` as an integer (authoritative, safe
+to compute with) and a preformatted display string. A float never appears —
+JSON numbers are IEEE 754 doubles in most clients, which is the wrong
+container for a balance, even one with no cash value.
 """
 
 from __future__ import annotations
@@ -11,63 +11,106 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import BaseModel, Field, StringConstraints
 
-MINOR_UNITS_PER_COIN = 100
+MINOR_UNITS_PER_POINT = 100
 
 
-def format_coins(minor: int) -> str:
-    """Minor units as whole toman: 12345678 -> "123,456".
-
-    Two decimals were right while the unit was an invented "coin". A toman is
-    not divided in practice, so a trailing ".78" reads as rial — the wrong
-    currency by a factor of ten to the audience this is written for.
+def format_points(minor: int) -> str:
+    """Minor units as whole points: 12345678 -> "123,456".
 
     Floored rather than rounded, and for the same reason the client floors:
-    this renders balances, and showing a player one toman more than they hold
+    this renders balances, and showing a player one point more than they hold
     produces a stake the server then refuses on exact minor-unit arithmetic.
     The minor value travels alongside and stays authoritative; this string is
     only ever for reading.
     """
     sign = "-" if minor < 0 else ""
-    whole = abs(minor) // MINOR_UNITS_PER_COIN
+    whole = abs(minor) // MINOR_UNITS_PER_POINT
     return f"{sign}{whole:,}"
 
 
 class Money(BaseModel):
+    """An amount of points. Named for its shape, not for what it is worth:
+    points cannot be sold, transferred, withdrawn or redeemed for anything."""
+
     minor: int
     display: str
 
     @classmethod
     def of(cls, minor: int) -> Money:
-        return cls(minor=minor, display=format_coins(minor))
+        return cls(minor=minor, display=format_points(minor))
 
 
-class SessionRequest(BaseModel):
-    init_data: str = Field(min_length=1, max_length=8192, alias="initData")
+class ErrorResponse(BaseModel):
+    code: str
+    detail: str
 
-    model_config = {"populate_by_name": True}
+
+# ----- accounts -------------------------------------------------------------
+
+
+class RegisterRequest(BaseModel):
+    """Lengths are bounded here so an oversized body is refused before any
+    work is done on it; what makes a *good* password or name is decided in
+    security/passwords.py and repositories/auth.py, which can say why."""
+
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=1024)
+    display_name: str = Field(min_length=1, max_length=64)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=1, max_length=254)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=1, max_length=1024)
+
+
+class ProfileUpdate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=64)
+
+
+class EraseRequest(BaseModel):
+    """Erasing a registered account asks for the password again. A guest has
+    none, and confirms by having the session at all."""
+
+    password: str | None = Field(default=None, max_length=1024)
+
+
+class Limits(BaseModel):
+    """The player's own brakes, and how much room is left under them."""
+
+    daily_limit: Money | None = None
+    """The most they have chosen to stake in a day, or null for no limit."""
+    daily_spent: Money
+    daily_limit_loosen_at: datetime | None = None
+    """When the limit may next be raised or removed. Null means now — either
+    there is no limit, or it has stood long enough."""
+    break_until: datetime | None = None
+    """Set while a break is running. Forecasting is refused until it passes."""
+    break_options_hours: list[int] = Field(default_factory=list)
 
 
 class UserProfile(BaseModel):
     id: str
-    telegram_id: int
     player_code: str
-    first_name: str
-    last_name: str | None = None
-    username: str | None = None
-    photo_url: str | None = None
+    display_name: str
+    email: str | None = None
+    is_guest: bool
     balance: Money
-    streak_count: int
     lifetime_staked: Money
     lifetime_returned: Money
     can_claim_daily: bool
+    daily_topup: Money
+    next_claim_at: datetime | None = None
     member_since: datetime
     is_admin: bool = False
-
-    invite_link: str | None = None
-    referred_count: int = 0
-    referral_earned: Money = Field(default_factory=lambda: Money.of(0))
+    limits: Limits
+    session_expires_at: datetime
 
 
 class SessionResponse(BaseModel):
@@ -78,18 +121,28 @@ class SessionResponse(BaseModel):
     user: UserProfile
 
 
-class ErrorResponse(BaseModel):
-    code: str
-    detail: str
+class LimitRequest(BaseModel):
+    daily_limit_minor: int | None = Field(
+        default=None,
+        gt=0,
+        description="Most to stake per day, in minor units. Null removes the limit.",
+    )
+
+
+class BreakRequest(BaseModel):
+    hours: int = Field(gt=0, le=24 * 366)
+
+
+# ----- markets --------------------------------------------------------------
 
 
 class Probability(BaseModel):
     """A market's current YES/NO probabilities.
 
     Sent as decimal strings, not floats: these feed payout arithmetic, and a
-    JSON number is a double in most clients. `stale` is the flag the odds
-    engine will refuse to price on in Phase 3 — it means the number is older
-    than the configured tolerance and should be shown, not traded on.
+    JSON number is a double in most clients. `stale` means the number is older
+    than the configured tolerance — it should be shown, and the server will
+    refuse to make a price from it.
     """
 
     yes: str
@@ -97,15 +150,6 @@ class Probability(BaseModel):
     source: str
     age_seconds: float
     stale: bool
-
-
-class MarketBoost(BaseModel):
-    id: str
-    side: str
-    multiplier: str
-    ends_at: datetime
-    remaining_stake: Money
-    max_stake_per_user: Money
 
 
 class MarketEventSummary(BaseModel):
@@ -126,19 +170,128 @@ class MarketSummary(BaseModel):
     volume_usd: str
     lock_at: datetime
     end_date: datetime
-    boosts: list[MarketBoost] = Field(default_factory=list)
 
 
 class MarketPage(BaseModel):
+    """The feed, and the rules a slip built from it has to satisfy.
+
+    The rules ride along so the client can say "this one is all but settled"
+    before a round trip rather than after one. They are advisory there: the
+    server re-checks every one of them at quote and at placement.
+    """
+
     markets: list[MarketSummary]
     next_cursor: str | None = None
-    min_legs: int = 1
-    max_legs: int = 5
-    vig_rate: str = "0.05"
-    parlay_bonus_by_legs: list[str] = Field(default_factory=list)
-    example_stake: Money
+    categories: list[str] = Field(default_factory=list)
+    """Every category with something open in it — not just those on this
+    page — so a filter built from it does not lose options as you page."""
+    max_legs: int
+    min_prob: str
+    max_prob: str
+    max_combined_odds: str
+    min_stake: Money
+    max_stake: Money
+    payout_cap: Money
+
+
+class ShopPack(BaseModel):
+    points: Money
+    price_cents: int
+
+
+class ShopTerms(BaseModel):
+    """What is for sale and on what terms. Public: it is the price list.
+
+    `open` is false when no payment key is configured, and then nothing is
+    for sale and `packs` is empty. Pages that describe the site read this
+    rather than assuming, so they cannot claim a shop that is not there or
+    deny one that is.
+    """
+
+    open: bool
+    currency: str
+    price_per_thousand_cents: int
+    packs: list[ShopPack]
+    monthly_cap_cents: int
+    min_age: int
+
+
+class GameRules(BaseModel):
+    """The configured rules, for the pages that explain the game.
+
+    `margin` is a constant and is here anyway. It is the one number the whole
+    product is a claim about, and stating it in the same response as the
+    figures that *can* be tuned makes the point that this one cannot.
+    """
+
     signup_bonus: Money
-    referral_bonus: Money
+    daily_topup: Money
+    min_stake: Money
+    max_stake: Money
+    payout_cap: Money
+    max_legs: int
+    max_combined_odds: str
+    min_prob: str
+    max_prob: str
+    margin: Literal["0"] = "0"
+    reference_margin: str
+    limit_loosen_delay_hours: int
+    break_options_hours: list[int]
+    password_min_length: int
+    shop: ShopTerms
+
+
+class ShopPurchase(BaseModel):
+    id: str
+    points: Money
+    amount_cents: int
+    currency: str
+    status: Literal["PAID", "REFUNDED"]
+    at: datetime
+
+
+class ShopStanding(BaseModel):
+    """One player's position against the spending limits, in cents."""
+
+    spent_month_cents: int
+    pending_cents: int
+    """Checkouts started and not yet finished. Counted as spent until they
+    lapse, so the cap cannot be stepped over by opening several."""
+    spent_all_cents: int
+    limit_cents: int | None = None
+    """Their own monthly limit, or null when only the site's cap applies."""
+    limit_loosen_at: datetime | None = None
+    remaining_cents: int
+    resets_at: datetime
+    blocked: str | None = None
+    """Why nothing can be bought right now: a code, or null."""
+    blocked_until: datetime | None = None
+    purchases: list[ShopPurchase] = Field(default_factory=list)
+
+
+class ShopOut(ShopTerms):
+    mine: ShopStanding | None = None
+    """Null for a visitor who is not signed in."""
+
+
+class SpendLimitRequest(BaseModel):
+    limit_cents: int | None = Field(default=None, ge=0, le=10_000_000)
+    """Null removes the player's own limit, leaving the site's cap."""
+
+
+class CheckoutRequest(BaseModel):
+    points: int = Field(gt=0, le=10_000_000)
+    """The pack, in whole points. Must be one of the sizes on sale."""
+    adult: bool = False
+    """The buyer's own statement that they are old enough. Must be true."""
+
+
+class CheckoutOut(BaseModel):
+    url: str
+    """Stripe's payment page for this purchase."""
+
+
+# ----- forecasts ------------------------------------------------------------
 
 
 class LegRequestBody(BaseModel):
@@ -148,8 +301,7 @@ class LegRequestBody(BaseModel):
 
 class SlipRequest(BaseModel):
     legs: list[LegRequestBody] = Field(min_length=1, max_length=5)
-    stake: int = Field(gt=0, description="Stake in minor units (100 = 1 coin).")
-    insurance: bool = False
+    stake: int = Field(gt=0, description="Stake in minor units (100 = 1 point).")
     accepted_odds: str | None = Field(
         default=None,
         description=(
@@ -166,35 +318,22 @@ class QuotedLeg(BaseModel):
     category: str
     side: str
     probability: str
-    fair_odds: str
     locked_odds: str
-    boosted: bool
-    boost_multiplier: str
     lock_at: datetime
-
-
-class InsuranceOffer(BaseModel):
-    available: bool
-    selected: bool
-    rate: str
-    premium: Money
-    covers_failed_legs: int
-    min_legs: int
-    unavailable_reason: str | None = None
 
 
 class SlipQuoteResponse(BaseModel):
     legs: list[QuotedLeg]
     stake: Money
     combined_odds: str
+    win_probability: str
+    """The chance every pick comes in, as the market prices it. Shown beside
+    the payout on purpose: a big number and how unlikely it is belong in the
+    same glance."""
     potential_payout: Money
     gross_potential_payout: Money
     payout_cap: Money
     capped: bool
-    uncapped: bool = False
-    parlay_bonus: str = "1.0"
-    insurance: InsuranceOffer
-    total_cost: Money
 
 
 class SettledLeg(BaseModel):
@@ -217,11 +356,10 @@ class Slip(BaseModel):
     combined_odds: str
     potential_payout: Money
     capped: bool
-    has_insurance: bool
-    insurance_premium: Money
     total_cost: Money
+    """What actually left the balance. Equal to `stake` for anything placed on
+    the website; slips from before it may include a premium on top."""
     settled_payout: Money
-    settlement_note: str | None = None
     placed_at: datetime
     settled_at: datetime | None = None
 
@@ -231,52 +369,12 @@ class SlipPage(BaseModel):
     next_cursor: str | None = None
 
 
-class InvoiceRequest(BaseModel):
-    package_code: str = Field(min_length=1, max_length=64)
-
-
-class InvoiceResponse(BaseModel):
-    purchase_id: str
-    invoice_link: str
-    """A t.me/$... link. The client passes it to WebApp.openInvoice()."""
-    stars: int
-    coins: Money
-
-
-class CoinPackage(BaseModel):
-    code: str
-    title: str
-    description: str
-    stars: int
-    coins: Money
-    bonus_coins: Money
-
-
-class ActivityEntry(BaseModel):
-    id: str
-    player: str
-    status: str
-    leg_count: int
-    stake: Money
-    payout: Money
-    combined_odds: str
-    settled_at: datetime
-
-
-class ActivityFeed(BaseModel):
-    entries: list[ActivityEntry] = Field(default_factory=list)
-
-
-class PackageList(BaseModel):
-    packages: list[CoinPackage] = Field(default_factory=list)
+# ----- economy --------------------------------------------------------------
 
 
 class ClaimResponse(BaseModel):
     claim_date: str
-    base: Money
-    streak_bonus: Money
-    total: Money
-    streak: int
+    amount: Money
     balance: Money
     next_claim_at: datetime
 
@@ -302,167 +400,63 @@ class LeaderboardPage(BaseModel):
     my_total_staked: Money
 
 
-class RewardItem(BaseModel):
-    """One catalogue entry, already told whether *this* player can take it.
+# ----- reality check --------------------------------------------------------
 
-    `claimable` and `blocked_reason` are computed server-side rather than left
-    to the client. The rules that gate a redemption — balance, lifetime volume,
-    remaining supply, per-player limit — are enforced in the redeem
-    transaction, and a client re-deriving them from raw fields would drift out
-    of agreement with the server the first time one of them changed.
+
+class CalibrationBucket(BaseModel):
+    """How often picks in one probability band actually came in.
+
+    A well-calibrated forecaster is right about 70% of the time on things
+    priced at 70%. `expected` is the average price paid in the band, so the
+    two can be compared without the client redoing the arithmetic.
     """
 
-    code: str
-    title: str
-    description: str
-    kind: str
-    image_url: str | None = None
-    cost: Money
-    min_lifetime_staked: Money
-    remaining: int | None = None
-    """Units left, or null when the reward is unlimited."""
-    held_by_user: int = 0
-    claimable: bool = False
-    blocked_reason: str | None = None
-    """A stable code — insufficient_funds, not_enough_play, already_claimed,
-    reward_exhausted — not prose. The client owns the wording."""
+    low: str
+    high: str
+    picks: int
+    correct: int
+    expected: str | None = None
 
 
-class RewardCatalogue(BaseModel):
-    rewards: list[RewardItem] = Field(default_factory=list)
-    balance: Money
+class RealityCheck(BaseModel):
+    """A player's own record, stated plainly — and what it would have cost.
 
+    The first half is theirs: how often they were right, and where the points
+    went. The second half is the reason this product exists. It reprices the
+    same winning slips at a bookmaker's margin and shows the difference, so
+    the cost of that margin is a number about *their* forecasts rather than a
+    warning about gambling in general.
+    """
 
-class RewardClaimItem(BaseModel):
-    id: str
-    reward_code: str
-    title: str
-    kind: str
-    image_url: str | None = None
-    cost: Money
-    status: Literal["RESERVED", "FULFILLED", "FAILED", "REFUNDED"]
-    created_at: datetime
-    fulfilled_at: datetime | None = None
-    fulfilment: dict = Field(default_factory=dict)
+    member_since: datetime
+    slips_placed: int
+    slips_open: int
+    slips_settled: int
+    slips_won: int
+    slips_lost: int
+    picks_settled: int
+    picks_correct: int
 
-
-class RewardClaimList(BaseModel):
-    claims: list[RewardClaimItem] = Field(default_factory=list)
-
-
-class RedeemRequest(BaseModel):
-    reward_code: str = Field(min_length=1, max_length=64)
-
-
-class RedeemResponse(BaseModel):
-    claim_id: str
-    reward_code: str
-    title: str
-    cost: Money
-    balance: Money
-    status: Literal["RESERVED"]
-
-
-class RevenueBlock(BaseModel):
-    stars_gross: int
-    stars_refunded: int
-    stars_net: int
-    purchases: int
-    refunds: int
-    paying_players: int
-    coins_sold: Money
-
-
-class RevenueDay(BaseModel):
-    day: date
-    stars: int
-    stars_refunded: int
-    purchases: int
-    payers: int
-
-
-class PackageSalesOut(BaseModel):
-    code: str
-    title: str
-    stars_price: int
-    coins: Money
-    coins_per_star: float
-    purchases: int
-    stars: int
-    share_of_stars: float
-
-
-class LedgerFlowOut(BaseModel):
-    entry_type: str
+    staked: Money
+    returned: Money
     net: Money
-    entries: int
-    players: int
+
+    reference_margin: str
+    margin_cost: Money
+    """What a margin of `reference_margin` per pick would have removed from
+    the winning slips' payouts."""
+    net_with_margin: Money
+
+    active_days_30d: int
+    slips_30d: int
+    calibration: list[CalibrationBucket] = Field(default_factory=list)
 
 
-class EconomyBalance(BaseModel):
-    """Where coins come from and where they go, netted.
-
-    `house_edge` is the only one of these that is not a direct sum: the vig is
-    priced into the odds rather than posted as its own ledger entry, so it only
-    exists as the gap between what players staked and what they were paid back.
-    """
-
-    minted_free: Money
-    minted_purchased: Money
-    house_edge: Money
-    decayed: Money
-    burned_on_rewards: Money
-    net_change: Money
-
-
-class BreakEvenBucketOut(BaseModel):
-    bucket: str
-    players: int
-    daily_stake: Money
-
-
-class PlayerBlock(BaseModel):
-    total: int
-    new_in_window: int
-    staked_in_window: int
-    claimed_in_window: int
-    conversion_rate: float
-
-
-class EconomyReportOut(BaseModel):
-    """One screen's worth of "is this a business yet".
-
-    Star amounts stay in Stars rather than being converted to a currency here.
-    The developer payout rate is set by Telegram and Fragment, changes without
-    notice, and differs by platform — baking a guess at it into the API would
-    turn a rate change into a silently wrong revenue figure. The dashboard
-    applies a rate the operator can see and edit.
-    """
-
-    window_days: int
-    since: datetime
-    generated_at: datetime
-
-    revenue: RevenueBlock
-    lifetime: RevenueBlock
-    stars_per_day: float
-    stars_per_paying_player: float
-
-    daily: list[RevenueDay]
-    packages: list[PackageSalesOut]
-    players: PlayerBlock
-
-    ledger: list[LedgerFlowOut]
-    balance: EconomyBalance
-
-    break_even_daily_stake: Money
-    break_even_buckets: list[BreakEvenBucketOut]
-    free_players_share: float
+# ----- messages -------------------------------------------------------------
 
 
 class MessageRequest(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
-    kind: Literal["MESSAGE", "PRIZE_CLAIM"] = "MESSAGE"
 
 
 class MessageOut(BaseModel):
@@ -480,32 +474,191 @@ class MessageList(BaseModel):
     messages: list[MessageOut]
 
 
+# ----- articles -------------------------------------------------------------
+
+
+class ArticleDraft(BaseModel):
+    """What an author sends. The ceilings here only stop an absurd body before
+    any work is done on it; the real limits, and the messages that name them,
+    are in repositories/articles.py."""
+
+    title: str = Field(max_length=400)
+    summary: str = Field(max_length=1_000)
+    body: str = Field(max_length=120_000)
+
+
+class ArticleSummaryOut(BaseModel):
+    """A published article as a listing shows it."""
+
+    slug: str
+    title: str
+    summary: str
+    author: str
+    published_at: datetime
+    edited_at: datetime
+    reading_minutes: int
+
+
+class ArticleOut(ArticleSummaryOut):
+    body: str
+
+
+class ArticlePage(BaseModel):
+    articles: list[ArticleSummaryOut]
+    total: int
+
+
+class MyArticleOut(BaseModel):
+    """An author's own article, in whatever state it is in."""
+
+    id: str
+    slug: str
+    title: str
+    summary: str
+    body: str
+    status: Literal["DRAFT", "SUBMITTED", "PUBLISHED", "REJECTED", "REMOVED"]
+    review_note: str | None = None
+    reading_minutes: int
+    created_at: datetime
+    edited_at: datetime
+    submitted_at: datetime | None = None
+    published_at: datetime | None = None
+
+
+class ArticleLimits(BaseModel):
+    """The rules of the writing form, so the form states them from the same
+    place that enforces them."""
+
+    title_min: int
+    title_max: int
+    summary_min: int
+    summary_max: int
+    body_min: int
+    body_max: int
+    max_open: int
+
+
+class MyArticleList(BaseModel):
+    articles: list[MyArticleOut]
+    limits: ArticleLimits
+    can_write: bool
+    """False for a guest: writing needs an account."""
+    publishes_directly: bool
+    """True for an operator, whose own articles skip the review queue."""
+
+
+class ArticleReview(BaseModel):
+    decision: Literal["publish", "reject", "remove"]
+    note: str | None = Field(default=None, max_length=4_000)
+
+
+class QueuedArticleOut(MyArticleOut):
+    author: str
+    author_code: str
+
+
+class ArticleQueueOut(BaseModel):
+    articles: list[QueuedArticleOut]
+    waiting: int
+    live: int
+
+
+# ----- operator -------------------------------------------------------------
+
+
+class LedgerFlowOut(BaseModel):
+    entry_type: str
+    net: Money
+    entries: int
+    players: int
+
+
+class OverviewPlayers(BaseModel):
+    total: int
+    registered: int
+    guests: int
+    new_in_window: int
+    forecast_in_window: int
+    claimed_in_window: int
+
+
+class OverviewForecasts(BaseModel):
+    placed: int
+    settled: int
+    won: int
+    lost: int
+    open: int
+
+
+class OverviewPoints(BaseModel):
+    """Where points came from and where they went, in the window.
+
+    Points arrive two ways: `granted` free, and `bought` (net of anything
+    refunded). The gap between `staked` and `returned` is what forecasts cost
+    the players who made them — at fair odds that gap is luck and skill, and
+    it sums to nobody's income. The money paid for `bought` points is not in
+    this report at all: it is in Stripe, which is the record of it.
+    """
+
+    granted: Money
+    bought: Money
+    staked: Money
+    returned: Money
+    adjusted: Money
+    net_change: Money
+
+
+class OverviewSaferPlay(BaseModel):
+    with_daily_limit: int
+    on_break: int
+    erased: int
+
+
+class OverviewDay(BaseModel):
+    day: date
+    new_players: int
+    forecasts: int
+    forecasters: int
+
+
+class OverviewOut(BaseModel):
+    window_days: int
+    since: datetime
+    generated_at: datetime
+    players: OverviewPlayers
+    forecasts: OverviewForecasts
+    points: OverviewPoints
+    safer_play: OverviewSaferPlay
+    daily: list[OverviewDay]
+    ledger: list[LedgerFlowOut]
+
+
 class PlayerOut(BaseModel):
     """One row of the roster.
 
-    `net` is what betting has cost or made this player — returned minus
+    `net` is what forecasting has cost or made this player — returned minus
     staked. Open slips count their stake but not their outcome, so somebody
-    mid-parlay reads slightly negative until it settles.
+    mid-slip reads slightly negative until it settles.
     """
 
     id: str
     player_code: str
-    telegram_id: int
-    username: str | None
     display_name: str
+    email: str | None
+    is_guest: bool
     status: str
     balance: Money
-    lifetime_stars: int
     staked: Money
     returned: Money
     net: Money
-    bought: Money
     granted: Money
     adjusted: Money
     slips: int
     won: int
     lost: int
     open_slips: int
+    daily_limit: Money | None = None
+    break_until: datetime | None = None
     created_at: datetime
     last_seen_at: datetime
 
@@ -516,25 +669,12 @@ class PlayerList(BaseModel):
 
 
 class AdjustRequest(BaseModel):
-    """Credit or debit a player, identified by whichever handle is to hand.
+    """Credit or debit a player, identified by their code."""
 
-    Both identifiers are optional and exactly one must be given. The operator
-    has the player code when working from the roster or from a message, and the
-    Telegram id when somebody has reached them outside the app; making them
-    translate one into the other by hand is asking for a mistake with money.
-    """
-
-    player_code: str | None = Field(default=None, min_length=1, max_length=16)
-    telegram_id: int | None = None
+    player_code: str = Field(min_length=1, max_length=16)
     amount_minor: int
     reason: str = Field(min_length=1, max_length=200)
     reference: str = Field(min_length=1, max_length=64)
-
-    @model_validator(mode="after")
-    def _exactly_one_handle(self) -> AdjustRequest:
-        if (self.player_code is None) == (self.telegram_id is None):
-            raise ValueError("Give either player_code or telegram_id, not both.")
-        return self
 
 
 class AdjustResult(BaseModel):
@@ -547,20 +687,10 @@ class ReplyRequest(BaseModel):
 
 
 class ReplyResult(BaseModel):
-    """What happened to the reply, told apart from whether it was written.
-
-    `delivered` false does not mean the reply failed: it means Telegram would
-    not carry it, because a bot cannot open a conversation the player has not
-    opened first. The answer is saved and the player reads it in the app. The
-    operator needs that distinction to know whether to expect a response.
-    """
-
     id: str
     status: str
     reply_body: str
     replied_at: datetime
-    delivered: bool
-    delivery_detail: str | None = None
 
 
 class StatusRequest(BaseModel):
@@ -575,11 +705,9 @@ class StatusResult(BaseModel):
 
 class InboxItemOut(MessageOut):
     admin_note: str | None = None
-    reply_delivered: bool = False
     player_code: str
-    username: str | None = None
     display_name: str
-    telegram_id: int
+    is_guest: bool
     balance: Money
     player_status: str
 

@@ -93,60 +93,6 @@ async def get_json(
     raise UpstreamUnavailable(f"GET {url} failed after {max_retries} attempts") from last_error
 
 
-async def post_json(
-    client: httpx.AsyncClient,
-    url: str,
-    payload: dict[str, object],
-    *,
-    max_retries: int = 3,
-    timeout: float | None = None,
-    scrub: str | None = None,
-    headers: dict[str, str] | None = None,
-) -> object:
-    """POST JSON, retrying only transient statuses.
-
-    `scrub` is a secret to strip from any error this raises. Telegram's Bot
-    API puts the bot token in the URL, so an exception that quotes the URL
-    leaks the single most sensitive value in the system into logs.
-    """
-    last_error: Exception | None = None
-
-    for attempt in range(max_retries):
-        try:
-            response = await client.post(
-                url, json=payload, timeout=_timeout(timeout), headers=headers
-            )
-        except httpx.HTTPError as exc:
-            last_error = _scrubbed(exc, scrub)
-        else:
-            if response.status_code not in _RETRY_STATUSES:
-                return response.json()
-
-            last_error = UpstreamUnavailable(f"HTTP {response.status_code}")
-            retry_after = _retry_after_seconds(response)
-            if retry_after is not None and attempt < max_retries - 1:
-                await asyncio.sleep(min(retry_after, 30.0))
-                continue
-
-        if attempt < max_retries - 1:
-            await asyncio.sleep((2**attempt) * 0.5 + random.uniform(0, 0.25))  # noqa: S311
-
-    raise UpstreamUnavailable(
-        f"POST to {_endpoint_name(url, scrub)} failed after {max_retries} attempts: {last_error}"
-    ) from last_error
-
-
-def _endpoint_name(url: str, scrub: str | None) -> str:
-    name = url.rsplit("/", 1)[-1] if "/" in url else url
-    return name.replace(scrub, "***") if scrub else name
-
-
-def _scrubbed(exc: Exception, scrub: str | None) -> Exception:
-    if not scrub:
-        return exc
-    return UpstreamUnavailable(str(exc).replace(scrub, "***"))
-
-
 def _retry_after_seconds(response: httpx.Response) -> float | None:
     raw = response.headers.get("Retry-After")
     if not raw:

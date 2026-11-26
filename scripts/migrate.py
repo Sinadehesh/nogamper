@@ -40,6 +40,11 @@ _ADD_CHECKSUM = """
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum VARCHAR(64)
 """
 
+# NULL when the table does not exist, which cannot happen where this is used.
+_TRACKING_HAS_NO_ROW_SECURITY = """
+SELECT NOT relrowsecurity FROM pg_class WHERE oid = to_regclass('schema_migrations')
+"""
+
 LOCK_KEY = 0x6D66_4D49_4752_0001
 
 _BEGIN = re.compile(r"^BEGIN\s*;[ \t]*$", re.MULTILINE)
@@ -176,6 +181,39 @@ async def has_application_tables(conn: asyncpg.Connection) -> bool:
     )
 
 
+async def lock_down_tracking(conn: asyncpg.Connection) -> None:
+    """Row security on the runner's own table, whichever way it came to exist.
+
+    Migration 0006 enables row security on every table in the schema, by
+    reading the catalogue. On a fresh database this table is already there
+    when 0006 runs and is covered with the rest. On a database that was
+    migrated by hand and then baselined it is created *after* 0006 has run,
+    and nothing ever went back for it — leaving the one table that decides
+    which migrations run as the one table without the protection every other
+    table has.
+
+    So the runner does it for itself, every time, and says nothing when there
+    is nothing to do. The owner of a table is exempt from row security, so
+    this changes nothing about how the runner reads its own records.
+
+    A role that does not own the table cannot alter it. That is reported and
+    survived rather than raised: failing a deploy over the bookkeeping table's
+    own hardening would be the wrong trade.
+    """
+    if not await conn.fetchval(_TRACKING_HAS_NO_ROW_SECURITY):
+        return
+    try:
+        await conn.execute("ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY")
+    except asyncpg.InsufficientPrivilegeError:
+        print(
+            "  ! could not enable row security on schema_migrations: this role does not "
+            "own it. Run, as its owner:\n"
+            "      ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY;"
+        )
+    else:
+        print("  enabled row security on schema_migrations")
+
+
 async def ensure_tracking(conn: asyncpg.Connection, *, baseline: bool, files: list[Path]) -> None:
     """Create the tracking table, refusing to guess about a pre-existing schema.
 
@@ -197,6 +235,7 @@ async def ensure_tracking(conn: asyncpg.Connection, *, baseline: bool, files: li
     """
     await conn.execute(_CREATE_TRACKING)
     await conn.execute(_ADD_CHECKSUM)
+    await lock_down_tracking(conn)
 
     recorded = await conn.fetchval("SELECT count(*) FROM schema_migrations")
     if recorded:
