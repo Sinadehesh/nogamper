@@ -29,7 +29,7 @@ The third is the one that matters if you are deciding whether to use one. But th
 
 In the United States, real-money prediction markets operate as exchanges overseen by the federal derivatives regulator, the CFTC. A contract that pays a dollar if a team wins is, on this view, an “event contract”: the same kind of instrument as a future on the price of wheat. Federal law governs it, and state gambling law does not apply.
 
-State regulators see a bet on a football match, offered to anyone aged 18 with a phone, in states where a sportsbook must be licensed and taxed and, in most of them, closed to anyone under 21. More than a dozen states have taken action against the exchanges.
+State regulators see a bet on a football match, offered to anyone aged 18 with a phone, in states where a sportsbook must be licensed and taxed and, in most of them, closed to anyone under 21. Many states have taken action against the exchanges.
 
 The courts have not settled it. They have split:
 
