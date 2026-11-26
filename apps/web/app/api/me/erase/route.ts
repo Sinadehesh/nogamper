@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { SESSION_COOKIE, badRequest, callApi, readJson } from "@/lib/server/upstream";
+import { refreshReaderArticles } from "@/lib/server/articles";
+import { badRequest, callApi, clearSession, readJson } from "@/lib/server/upstream";
 
 /** Erase the account. On success there is no session left to hold a cookie for. */
 export async function POST(request: Request) {
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
     return NextResponse.json(result.error, { status: result.status });
   }
 
-  const response = new NextResponse(null, { status: 204 });
-  response.cookies.delete(SESSION_COOKIE);
-  return response;
+  // Their articles went with the account; the public pages should agree.
+  refreshReaderArticles();
+  return clearSession(new NextResponse(null, { status: 204 }));
 }

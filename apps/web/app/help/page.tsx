@@ -1,19 +1,23 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 
+import { WhenSignedIn } from "@/components/SignedIn";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { help } from "@/lib/content";
+import { pageMetadata } from "@/lib/seo";
 import { getRules } from "@/lib/server/rules";
-import { hasSessionCookie } from "@/lib/server/session";
 
-export const metadata: Metadata = { title: help.title, description: help.lede };
+export const metadata = pageMetadata({
+  title: help.metaTitle,
+  description: help.metaDescription,
+  path: "/help",
+});
 
 export default async function HelpPage() {
-  const [signedIn, rules] = await Promise.all([hasSessionCookie(), getRules()]);
+  const rules = await getRules();
 
   return (
     <>
-      <SiteHeader signedIn={signedIn} />
+      <SiteHeader />
 
       <main id="main" className="container-page flex-1 py-10 sm:py-14">
         <div className="max-w-3xl">
@@ -80,11 +84,11 @@ export default async function HelpPage() {
                 </li>
               ))}
             </ul>
-            {signedIn ? (
+            <WhenSignedIn>
               <Link href="/play?tab=safer" className="btn btn-secondary mt-4">
                 {help.toolsCta}
               </Link>
-            ) : null}
+            </WhenSignedIn>
           </section>
 
           <section className="mt-10" aria-labelledby="recovery">

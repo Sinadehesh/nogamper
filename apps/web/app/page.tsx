@@ -1,24 +1,34 @@
 import Link from "next/link";
 
-import { GuestButton } from "@/components/GuestButton";
+import { JsonLd } from "@/components/JsonLd";
+import { StartActions, WhenSignedOut } from "@/components/SignedIn";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { landing } from "@/lib/content";
 import { t } from "@/lib/copy";
 import { percent } from "@/lib/format";
 import { bookmakerTake } from "@/lib/odds";
+import { organizationLd, pageMetadata, websiteLd } from "@/lib/seo";
 import { getRules } from "@/lib/server/rules";
-import { hasSessionCookie } from "@/lib/server/session";
 
 const PICK_COUNTS = [1, 2, 3, 4, 5];
 
+export const metadata = pageMetadata({
+  title: landing.metaTitle,
+  description: landing.metaDescription,
+  path: "/",
+  absoluteTitle: true,
+});
+
 export default async function LandingPage() {
-  const [signedIn, rules] = await Promise.all([hasSessionCookie(), getRules()]);
+  const rules = await getRules();
   const margin = Number(rules?.reference_margin ?? "0.05");
   const marginLabel = percent(margin);
 
   return (
     <>
-      <SiteHeader signedIn={signedIn} />
+      <JsonLd data={websiteLd()} />
+      <JsonLd data={organizationLd()} />
+      <SiteHeader />
 
       <main id="main" className="flex-1">
         <section className="container-page py-12 sm:py-20">
@@ -31,21 +41,10 @@ export default async function LandingPage() {
           <p className="mt-5 max-w-2xl text-lg text-muted">{landing.lede}</p>
 
           <div className="mt-8 flex flex-wrap items-start gap-3">
-            {signedIn ? (
-              <Link href="/play" className="btn btn-primary">
-                {landing.ctaContinue}
-              </Link>
-            ) : (
-              <>
-                <GuestButton label={landing.ctaGuest} />
-                <Link href="/signup" className="btn btn-secondary">
-                  {landing.ctaSignUp}
-                </Link>
-              </>
-            )}
+            <StartActions />
           </div>
           <p className="mt-4 text-sm text-muted">
-            {landing.ctaNote} {signedIn ? null : t.adultsConfirm}
+            {landing.ctaNote} <WhenSignedOut>{t.adultsConfirm}</WhenSignedOut>
           </p>
         </section>
 
@@ -148,6 +147,11 @@ export default async function LandingPage() {
               <p key={paragraph.slice(0, 24)}>{paragraph}</p>
             ))}
           </div>
+          <p className="mt-5">
+            <Link href="/mission" className="font-semibold text-accent underline underline-offset-2">
+              {landing.whyMissionLink}
+            </Link>
+          </p>
           <p className="notice mt-6 max-w-2xl">
             {landing.whyHelpPrompt}{" "}
             <Link href="/help" className="font-semibold text-accent underline underline-offset-2">

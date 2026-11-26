@@ -3,6 +3,8 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { SIGNED_IN_COOKIE } from "@/lib/session-marker";
+
 /**
  * The only code that talks to the API.
  *
@@ -176,15 +178,22 @@ export function sessionResponse(result: UpstreamResult<SessionPayload>): NextRes
   const { access_token, expires_at, is_new_user, user } = result.data;
   const response = NextResponse.json({ isNewUser: is_new_user, user }, { status: result.status });
 
-  response.cookies.set({
-    name: SESSION_COOKIE,
-    value: access_token,
-    httpOnly: true,
+  const shared = {
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     expires: new Date(expires_at),
-  });
+  };
+  response.cookies.set({ name: SESSION_COOKIE, value: access_token, httpOnly: true, ...shared });
+  // Readable by the page, and worth nothing: see lib/session-marker.ts.
+  response.cookies.set({ name: SIGNED_IN_COOKIE, value: "1", httpOnly: false, ...shared });
+  return response;
+}
+
+/** Drop the session, and the marker that says there is one. */
+export function clearSession(response: NextResponse): NextResponse {
+  response.cookies.delete(SESSION_COOKIE);
+  response.cookies.delete(SIGNED_IN_COOKIE);
   return response;
 }
 

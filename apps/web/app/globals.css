@@ -263,6 +263,119 @@ body {
     margin-top: 0.9rem;
   }
 
+  /* An article. Sized for reading rather than scanning: a measure of about
+     seventy characters, generous leading, and headings that sit closer to
+     what follows them than to what came before. */
+  .prose {
+    max-width: 42rem;
+    font-size: 1.0625rem;
+    line-height: 1.7;
+  }
+  .prose > * + * {
+    margin-top: 1.15em;
+  }
+  .prose h2 {
+    margin-top: 2.2em;
+    font-size: 1.5rem;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  .prose h3 {
+    margin-top: 1.8em;
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .prose h2 + *,
+  .prose h3 + * {
+    margin-top: 0.6em;
+  }
+  .prose a {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    overflow-wrap: anywhere;
+  }
+  .prose strong {
+    font-weight: 700;
+  }
+  .prose ul,
+  .prose ol {
+    padding-left: 1.4em;
+  }
+  .prose ul {
+    list-style: disc;
+  }
+  .prose ol {
+    list-style: decimal;
+  }
+  .prose li + li {
+    margin-top: 0.4em;
+  }
+  .prose li > ul,
+  .prose li > ol {
+    margin-top: 0.4em;
+  }
+  .prose blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 0.1em 0 0.1em 1em;
+    color: var(--muted);
+  }
+  .prose hr {
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin-block: 2em;
+  }
+  .prose code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--sunken);
+    border-radius: 0.3rem;
+    padding: 0.1em 0.35em;
+  }
+  .prose pre {
+    overflow-x: auto;
+    background: var(--sunken);
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    padding: 0.9rem 1rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .prose pre code {
+    background: none;
+    padding: 0;
+  }
+  /* A table wider than a phone scrolls inside its own box instead of
+     dragging the page sideways with it. */
+  .prose-table {
+    overflow-x: auto;
+  }
+  .prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+    line-height: 1.45;
+  }
+  .prose th {
+    text-align: left;
+    font-weight: 700;
+    border-bottom: 2px solid var(--line);
+    padding: 0.5rem 0.9rem 0.5rem 0;
+    white-space: nowrap;
+  }
+  .prose td {
+    border-top: 1px solid var(--line);
+    padding: 0.55rem 0.9rem 0.55rem 0;
+    vertical-align: top;
+  }
+  .prose th:last-child,
+  .prose td:last-child {
+    padding-right: 0;
+  }
+
   .table {
     width: 100%;
     border-collapse: collapse;

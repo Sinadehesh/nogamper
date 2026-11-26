@@ -1,14 +1,15 @@
 import Link from "next/link";
 
+import { AccountLinks } from "@/components/SignedIn";
 import { t } from "@/lib/copy";
 
 /**
  * The header and footer of every page that is not the game itself.
  *
- * Server components, both: neither needs to know who is signed in. The header
- * is told whether a session cookie exists so it can offer "Play" rather than
- * "Sign in" — a hint about which link is useful, not a claim that the session
- * is still good.
+ * Server components, both, and neither reads the request: the pages they sit
+ * on are built once and served to everybody. The one part of the header that
+ * differs for a signed-in visitor — "Play" instead of "Sign in" — is decided
+ * in the browser by <AccountLinks>.
  */
 
 function Mark() {
@@ -37,7 +38,7 @@ export function Wordmark({ href = "/" }: { href?: string }) {
   );
 }
 
-export function SiteHeader({ signedIn = false }: { signedIn?: boolean }) {
+export function SiteHeader() {
   return (
     <header className="border-b border-line bg-surface">
       {/* One row on a wide screen: name, links, account. On a phone the links
@@ -51,7 +52,14 @@ export function SiteHeader({ signedIn = false }: { signedIn?: boolean }) {
           aria-label={t.navLabel}
           className="order-last flex w-full flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:order-none sm:ml-auto sm:w-auto"
         >
-          <Link href="/about" className="text-muted hover:text-ink">
+          <Link href="/articles" className="text-muted hover:text-ink">
+            {t.navArticles}
+          </Link>
+          <Link href="/mission" className="text-muted hover:text-ink">
+            {t.navMission}
+          </Link>
+          {/* In the footer on a phone, where four links do not fit on a row. */}
+          <Link href="/about" className="hidden text-muted hover:text-ink md:inline">
             {t.navAbout}
           </Link>
           <Link href="/help" className="text-muted hover:text-ink">
@@ -59,20 +67,7 @@ export function SiteHeader({ signedIn = false }: { signedIn?: boolean }) {
           </Link>
         </nav>
         <div className="ml-auto flex items-center gap-x-3 text-sm sm:ml-0">
-          {signedIn ? (
-            <Link href="/play" className="btn btn-primary btn-sm">
-              {t.navPlay}
-            </Link>
-          ) : (
-            <>
-              <Link href="/login" className="font-semibold hover:text-accent">
-                {t.navSignIn}
-              </Link>
-              <Link href="/signup" className="btn btn-primary btn-sm">
-                {t.navSignUp}
-              </Link>
-            </>
-          )}
+          <AccountLinks />
         </div>
       </div>
     </header>
@@ -83,9 +78,18 @@ export function SiteFooter() {
   return (
     <footer className="mt-auto border-t border-line">
       <div className="container-page space-y-3 py-6 text-xs text-muted">
-        <nav className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+        <nav aria-label={t.navLabel} className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+          <Link href="/mission" className="hover:text-ink">
+            {t.navMission}
+          </Link>
+          <Link href="/articles" className="hover:text-ink">
+            {t.navArticles}
+          </Link>
           <Link href="/about" className="hover:text-ink">
             {t.navAbout}
+          </Link>
+          <Link href="/privacy" className="hover:text-ink">
+            {t.navPrivacy}
           </Link>
           <Link href="/help" className="font-semibold text-ink hover:text-accent">
             {t.navHelp}

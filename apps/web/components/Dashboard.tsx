@@ -70,6 +70,9 @@ function Screen({
         <div className="container-page flex items-center justify-between gap-3 py-3">
           <Wordmark href="/play" />
           <nav className="flex items-center gap-4 text-sm">
+            <Link href="/articles" className="hidden text-muted hover:text-ink sm:inline">
+              {t.navArticles}
+            </Link>
             <Link href="/about" className="hidden text-muted hover:text-ink sm:inline">
               {t.navAbout}
             </Link>

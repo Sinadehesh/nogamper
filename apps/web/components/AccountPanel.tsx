@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 
@@ -37,9 +38,23 @@ export function AccountPanel() {
     <section className="space-y-4">
       <ProfileCard />
       {player.is_guest ? null : <PasswordCard />}
+      <WritingCard />
       <ContactCard />
       <LeaveCard />
     </section>
+  );
+}
+
+/** A door to the writing page, which is a page of its own and not a tab. */
+function WritingCard() {
+  return (
+    <article className="card p-5">
+      <h2 className="text-lg font-bold">{t.writeTitle}</h2>
+      <p className="mt-1 text-sm text-muted">{t.writeIntro}</p>
+      <Link href="/write" className="btn btn-secondary mt-4">
+        {t.writeLink}
+      </Link>
+    </article>
   );
 }
 

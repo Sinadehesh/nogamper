@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { SESSION_COOKIE, callApi } from "@/lib/server/upstream";
+import { refreshReaderArticles } from "@/lib/server/articles";
+import { callApi, clearSession } from "@/lib/server/upstream";
 
 /**
  * Every signed-in request the page makes, forwarded to the API.
@@ -27,7 +28,9 @@ const ALLOWED: Record<string, RegExp[]> = {
     new RegExp(`^predictions/${UUID}$`),
     /^economy\/leaderboard$/,
     /^messages$/,
-    /^admin\/(overview|players|messages|diagnostics)$/,
+    /^me\/articles$/,
+    new RegExp(`^me/articles/${UUID}$`),
+    /^admin\/(overview|players|messages|diagnostics|articles)$/,
   ],
   POST: [
     /^me\/break$/,
@@ -38,12 +41,24 @@ const ALLOWED: Record<string, RegExp[]> = {
     /^auth\/password$/,
     /^admin\/players\/(adjust|status)$/,
     new RegExp(`^admin/messages/${UUID}(/reply)?$`),
+    /^me\/articles$/,
+    new RegExp(`^me/articles/${UUID}/(submit|withdraw)$`),
+    new RegExp(`^admin/articles/${UUID}/review$`),
   ],
-  PUT: [/^me\/limits$/],
+  PUT: [/^me\/limits$/, new RegExp(`^me/articles/${UUID}$`)],
   PATCH: [/^me$/],
+  DELETE: [new RegExp(`^me/articles/${UUID}$`)],
 };
 
+// Writes that can change which readers' articles are public: anything an
+// author or a reviewer does to one, and a ban, which hides its author's.
+const CHANGES_PUBLIC_ARTICLES = /^(me\/articles|admin\/articles|admin\/players\/status$)/;
+
 const MAX_BODY_BYTES = 16 * 1024;
+// An article is the one thing a visitor sends that is meant to be long. The
+// API holds it to 30,000 characters; this is that with room for the JSON
+// around it and for text that is not all ASCII.
+const MAX_ARTICLE_BODY_BYTES = 160 * 1024;
 
 type Context = { params: Promise<{ path: string[] }> };
 
@@ -61,7 +76,8 @@ async function forward(request: NextRequest, context: Context): Promise<NextResp
 
   if (request.method !== "GET") {
     const body = await request.text();
-    if (body.length > MAX_BODY_BYTES) {
+    const ceiling = path.startsWith("me/articles") ? MAX_ARTICLE_BODY_BYTES : MAX_BODY_BYTES;
+    if (body.length > ceiling) {
       return NextResponse.json(
         { code: "payload_too_large", detail: "That request is too large." },
         { status: 413 },
@@ -79,6 +95,7 @@ async function forward(request: NextRequest, context: Context): Promise<NextResp
   const result = await callApi(`/v1/${path}${query ? `?${query}` : ""}`, init);
 
   if (result.ok) {
+    if (request.method !== "GET" && CHANGES_PUBLIC_ARTICLES.test(path)) refreshReaderArticles();
     return result.status === 204
       ? new NextResponse(null, { status: 204 })
       : NextResponse.json(result.data, { status: result.status });
@@ -89,7 +106,7 @@ async function forward(request: NextRequest, context: Context): Promise<NextResp
     // The session is gone on the API's side — expired, revoked, erased. Keep
     // sending its cookie and every request repeats this; drop it and the page
     // can show the sign-in form once.
-    response.cookies.delete(SESSION_COOKIE);
+    clearSession(response);
   }
   return response;
 }
@@ -98,3 +115,4 @@ export const GET = forward;
 export const POST = forward;
 export const PUT = forward;
 export const PATCH = forward;
+export const DELETE = forward;

@@ -6,6 +6,16 @@ const config: NextConfig = {
   // set — a stack fingerprint with no benefit to a visitor, and one more
   // fact an outside prober does not need.
   poweredByHeader: false,
+  // The site's own articles are Markdown files read from disk. Pages built
+  // ahead of time read them during the build; pages rendered on demand — a
+  // reader's article, the listing when it refreshes — read them on the
+  // server, which only has the files it was told it needs.
+  outputFileTracingIncludes: {
+    "/articles": ["./content/articles/*.md"],
+    "/articles/[slug]": ["./content/articles/*.md"],
+    "/articles/[slug]/opengraph-image": ["./content/articles/*.md"],
+    "/sitemap.xml": ["./content/articles/*.md"],
+  },
   async headers() {
     return [
       {

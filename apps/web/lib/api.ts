@@ -1,4 +1,7 @@
 import type {
+  ArticleDraft,
+  ArticleQueue,
+  ArticleStatus,
   ClaimResult,
   Diagnostics,
   Inbox,
@@ -7,11 +10,15 @@ import type {
   MarketPage,
   MarketSort,
   Money,
+  MyArticle,
+  MyArticles,
   Overview,
   PlayerList,
   PlayerMessage,
   PlayerRow,
+  QueuedArticle,
   RealityCheck,
+  ReviewDecision,
   Side,
   Slip,
   SlipPage,
@@ -176,6 +183,28 @@ export const placeSlip = (body: SlipBody, idempotencyKey: string) =>
 export const sendMessage = (body: string) => post<PlayerMessage>("/api/messages", { body });
 
 export const getMyMessages = () => request<{ messages: PlayerMessage[] }>("/api/messages");
+
+// ----- articles -------------------------------------------------------------
+
+export const getMyArticles = () => request<MyArticles>("/api/me/articles");
+
+export const createArticle = (draft: ArticleDraft) => post<MyArticle>("/api/me/articles", draft);
+
+export const updateArticle = (id: string, draft: ArticleDraft) =>
+  request<MyArticle>(`/api/me/articles/${id}`, { method: "PUT", body: JSON.stringify(draft) });
+
+export const submitArticle = (id: string) => post<MyArticle>(`/api/me/articles/${id}/submit`);
+
+export const withdrawArticle = (id: string) => post<MyArticle>(`/api/me/articles/${id}/withdraw`);
+
+export const deleteArticle = (id: string) =>
+  request<void>(`/api/me/articles/${id}`, { method: "DELETE" });
+
+export const getArticleQueue = (status: Exclude<ArticleStatus, "DRAFT">) =>
+  request<ArticleQueue>(`/api/admin/articles?status=${status}`);
+
+export const reviewArticle = (id: string, decision: ReviewDecision, note?: string) =>
+  post<QueuedArticle>(`/api/admin/articles/${id}/review`, { decision, note: note || null });
 
 // ----- operator -------------------------------------------------------------
 

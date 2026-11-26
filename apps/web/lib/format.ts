@@ -143,6 +143,18 @@ export function seasonName(code: string): string {
   return MONTH_YEAR.format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1)));
 }
 
+const DATE_UTC = new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeZone: "UTC" });
+
+/**
+ * A calendar date written as "2026-11-26", with no time attached.
+ *
+ * Formatted in UTC because that is how such a string is parsed: read in any
+ * zone west of Greenwich it would otherwise print as the day before.
+ */
+export function calendarDate(isoDate: string): string {
+  return DATE_UTC.format(new Date(isoDate));
+}
+
 export function date(isoTimestamp: string): string {
   return DATE.format(new Date(isoTimestamp));
 }

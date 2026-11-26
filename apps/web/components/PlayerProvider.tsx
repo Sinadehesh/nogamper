@@ -1,10 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { getProfile } from "@/lib/api";
 import { t } from "@/lib/copy";
+import { SIGNED_IN_COOKIE } from "@/lib/session-marker";
 import type { Limits, UserProfile } from "@/lib/types";
 
 /**
@@ -56,6 +65,19 @@ export function PlayerProvider({
   const applyLimits = useCallback((limits: Limits) => {
     setPlayer((current) => ({ ...current, limits }));
   }, []);
+
+  // This screen only renders for somebody the server has just confirmed is
+  // signed in, so it is the one place that knows for certain what the marker
+  // should say. Setting it here repairs a session that predates the marker,
+  // or a marker somebody cleared; clearing it on sign-out stops the public
+  // pages offering "Play" to somebody who would be sent to sign in.
+  const expires = initial.session_expires_at;
+  useEffect(() => {
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = signedOut
+      ? `${SIGNED_IN_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
+      : `${SIGNED_IN_COOKIE}=1; Path=/; Expires=${new Date(expires).toUTCString()}; SameSite=Lax${secure}`;
+  }, [signedOut, expires]);
 
   const value = useMemo(() => {
     const { break_until: until, daily_limit: limit, daily_spent: spent } = player.limits;

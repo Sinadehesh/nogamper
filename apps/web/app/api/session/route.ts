@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { SESSION_COOKIE, callApi } from "@/lib/server/upstream";
+import { callApi, clearSession } from "@/lib/server/upstream";
 
 /**
  * Sign out. The cookie is cleared whatever the API says: if the session was
@@ -10,7 +10,5 @@ import { SESSION_COOKIE, callApi } from "@/lib/server/upstream";
 export async function DELETE() {
   await callApi<null>("/v1/auth/session", { method: "DELETE", authenticated: true });
 
-  const response = new NextResponse(null, { status: 204 });
-  response.cookies.delete(SESSION_COOKIE);
-  return response;
+  return clearSession(new NextResponse(null, { status: 204 }));
 }

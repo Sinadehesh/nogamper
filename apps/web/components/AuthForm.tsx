@@ -25,8 +25,19 @@ function describe(failure: ApiFailure): string {
   return errorMessage(failure.code);
 }
 
-export function AuthForm({ mode, passwordMin = 10 }: { mode: Mode; passwordMin?: number }) {
+export function AuthForm({
+  mode,
+  passwordMin = 10,
+  next = "/play",
+}: {
+  mode: Mode;
+  passwordMin?: number;
+  /** Where to go afterwards. Chosen by the page from a fixed list, never
+      taken from the address bar as it stands. */
+  next?: string;
+}) {
   const router = useRouter();
+  const carried = next === "/play" ? "" : `?next=${encodeURIComponent(next)}`;
   const ids = { name: useId(), email: useId(), password: useId(), error: useId() };
 
   const [displayName, setDisplayName] = useState("");
@@ -50,7 +61,7 @@ export function AuthForm({ mode, passwordMin = 10 }: { mode: Mode; passwordMin?:
       : await signIn(email, password);
 
     if (result.ok) {
-      router.push("/play");
+      router.push(next);
       router.refresh();
       return;
     }
@@ -145,7 +156,7 @@ export function AuthForm({ mode, passwordMin = 10 }: { mode: Mode; passwordMin?:
       <p className="mt-5 text-sm text-muted">
         {mode === "login" ? t.needAccount : t.haveAccount}{" "}
         <Link
-          href={mode === "login" ? "/signup" : "/login"}
+          href={`${mode === "login" ? "/signup" : "/login"}${carried}`}
           className="font-semibold text-accent underline underline-offset-2"
         >
           {mode === "login" ? t.navSignUp : t.navSignIn}

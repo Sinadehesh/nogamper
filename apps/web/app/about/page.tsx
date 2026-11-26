@@ -1,18 +1,20 @@
-import type { Metadata } from "next";
-
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { AUTHOR_NAME, AUTHOR_URL, REPOSITORY_URL, about } from "@/lib/content";
+import { pageMetadata } from "@/lib/seo";
 import { getRules } from "@/lib/server/rules";
-import { hasSessionCookie } from "@/lib/server/session";
 
-export const metadata: Metadata = { title: about.title, description: about.lede };
+export const metadata = pageMetadata({
+  title: about.title,
+  description: about.metaDescription,
+  path: "/about",
+});
 
 export default async function AboutPage() {
-  const [signedIn, rules] = await Promise.all([hasSessionCookie(), getRules()]);
+  const rules = await getRules();
 
   return (
     <>
-      <SiteHeader signedIn={signedIn} />
+      <SiteHeader />
 
       <main id="main" className="container-page flex-1 py-10 sm:py-14">
         <div className="max-w-3xl">

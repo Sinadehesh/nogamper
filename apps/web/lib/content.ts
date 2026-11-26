@@ -40,6 +40,11 @@ export const AUTHOR_URL = process.env.NEXT_PUBLIC_AUTHOR_URL ?? "";
 // ---------------------------------------------------------------------------
 
 export const landing = {
+  metaTitle: `${APP_NAME} — prediction markets without the gambling`,
+  metaDescription:
+    `${APP_NAME} is a free forecasting game: real questions, live odds from real prediction ` +
+    "markets, and points instead of money. Nothing to deposit, nothing to cash out.",
+
   eyebrow: "A free forecasting game",
   headline: "All the fun of calling it. None of the betting.",
   lede:
@@ -127,6 +132,7 @@ export const landing = {
   ],
   whyHelpPrompt: "If gambling is already costing you more than you want it to,",
   whyHelpLink: "there is real, free help here.",
+  whyMissionLink: "Read the mission",
 };
 
 // ---------------------------------------------------------------------------
@@ -143,6 +149,11 @@ export type Resource = {
 };
 
 export const help = {
+  metaTitle: "Worried about gambling? Where to get free help",
+  metaDescription:
+    "Free, confidential help for a gambling problem: helplines and services around the world, " +
+    "the signs worth taking seriously, and tools for stepping back.",
+
   title: "Worried about gambling?",
   lede:
     `${APP_NAME} is a game with no money in it. It is not a treatment, and it cannot help ` +
@@ -252,6 +263,10 @@ export const help = {
 // ---------------------------------------------------------------------------
 
 export const about = {
+  metaDescription:
+    `How ${APP_NAME} works: fair odds with no house margin, points with no cash value, real ` +
+    "questions from live prediction markets — and what was deliberately left out.",
+
   title: "How it works",
   lede:
     "The rules, the arithmetic, and how it is built. Nothing here is hidden behind a " +
@@ -376,4 +391,307 @@ export const about = {
   ],
   buildRepo: "Read the source on GitHub",
   buildBy: (name: string) => `Built by ${name}.`,
+};
+
+// ---------------------------------------------------------------------------
+// Mission
+// ---------------------------------------------------------------------------
+
+export type Source = { label: string; href: string };
+
+export const mission = {
+  metaTitle: "Our mission",
+  metaDescription:
+    `Why ${APP_NAME} exists: to keep the pleasure of forecasting and remove the money, ` +
+    "the hidden margin and the tricks that make gambling harmful. What we do, and what we will not.",
+
+  eyebrow: "Our mission",
+  title: "Keep the game. Lose the gambling.",
+  lede:
+    `${APP_NAME} exists so that calling an outcome — having a view, committing to it, ` +
+    "finding out whether you were right — is something anyone can enjoy without putting " +
+    "their money or their peace of mind on the table.",
+
+  beliefsTitle: "What we believe",
+  beliefs: [
+    {
+      title: "Forecasting is worth enjoying",
+      body:
+        "Guessing what happens next is one of the oldest games there is, and one of the few " +
+        "that makes you better at thinking. It rewards paying attention, changing your mind " +
+        "and being honest about what you do not know. None of that needs money.",
+    },
+    {
+      title: "The harm is in the design, not the person",
+      body:
+        "Betting products are built — carefully, by capable people — to keep someone playing " +
+        "past the point they meant to stop: a fee folded into every price, offers with a " +
+        "clock on them, streaks that punish a day off. People hurt by them are not weak. " +
+        "They are outmatched.",
+    },
+    {
+      title: "An alternative has to be good",
+      body:
+        "Telling people to stop is not a plan. Something to do instead only works if it is " +
+        "worth choosing for its own sake — real questions, live prices, a record that means " +
+        "something — and if it is free of the things that do the damage.",
+    },
+  ],
+
+  scaleTitle: "Why it matters",
+  scale: [
+    "The World Health Organization estimates that about 1.2% of the world's adults have a " +
+    "gambling disorder. A commission published in The Lancet Public Health in 2024 put the " +
+    "number living with gambling disorder or problematic gambling at around 80 million " +
+    "adults, with close to 450 million at some risk of harm, and expects what people lose " +
+    "to gambling each year to approach 700 billion US dollars by 2028.",
+    "Those are large numbers and they are hard to feel. Each one is a person, and usually a " +
+    "household around them. Most never ask for help. Many started with something that " +
+    "looked like a bit of fun on a phone.",
+  ],
+  scaleSources: [
+    {
+      label: "World Health Organization — Gambling fact sheet (December 2024)",
+      href: "https://www.who.int/news-room/fact-sheets/detail/gambling",
+    },
+    {
+      label: "The Lancet Public Health Commission on gambling (2024)",
+      href: "https://doi.org/10.1016/S2468-2667(24)00167-1",
+    },
+  ] satisfies Source[],
+  sourcesLabel: "Sources",
+
+  doTitle: "What we do",
+  commitments: (rules: Rules) => [
+    {
+      title: "A place to play that cannot cost you anything",
+      body:
+        "There is no way to deposit, nothing to buy and nothing to win. That is not a policy " +
+        "that might change next quarter: the code that would take money does not exist. " +
+        (rules
+          ? `Everyone starts with ${rules.signup_bonus.display} points and can claim ` +
+            `${rules.daily_topup.display} more each day.`
+          : "Everyone starts with the same points and can claim more each day."),
+    },
+    {
+      title: "Honest numbers",
+      body:
+        "Odds here are exactly one divided by the probability, with nothing taken out. Every " +
+        "forecast shows the chance it comes in beside what it would pay, and a reality " +
+        "check shows your own record alongside what it would have cost at a bookmaker.",
+    },
+    {
+      title: "Brakes that hold",
+      body:
+        "A daily limit you can lower in a second and raise only after a day. A break that " +
+        "cannot be cancelled once it starts. A reminder when you have been here a while. " +
+        "They are enforced by the server, because willpower is the wrong tool for the job.",
+    },
+    {
+      title: "Things worth reading",
+      body:
+        "Plain-English guides to how odds, margins and prediction markets really work, and " +
+        "to stepping back from gambling — written carefully, with their sources listed. " +
+        "Anyone with an account can write too, and everything is read before it is published.",
+    },
+    {
+      title: "A clear door to real help",
+      body:
+        "This is a game, not a treatment. Every page links to free, confidential services " +
+        "run by people who do this every day, and we would rather you used them than us.",
+    },
+  ],
+
+  wontTitle: "What we will not do",
+  wont: [
+    "Take money from the people who play, in any form.",
+    "Carry advertising, sponsorship or affiliate links from gambling companies.",
+    "Earn anything from sending someone to a betting or trading site.",
+    "Use streaks, countdowns, near-miss messages or anything else built to bring you back.",
+    "Sell or share personal data, or run advertising trackers.",
+    "Pretend that a game can treat an addiction.",
+  ],
+
+  forTitle: "Who this is for",
+  forBody: [
+    "People who enjoy calling sport, politics or markets and would rather not lose money " +
+    "doing it. People cutting down who want somewhere for the same itch to go. People who " +
+    "are simply curious how odds work, and would like to understand a margin before they " +
+    "ever meet one.",
+  ],
+  notForTitle: "And who it is not for",
+  notForBody: [
+    "Anyone under 18. And anyone for whom odds and stakes of any kind stir up the urge to " +
+    "bet for real. If that is you, the kindest thing this site can do is point you to " +
+    "people who can help — and step out of the way.",
+  ],
+  notForLink: "Free, confidential help",
+
+  measureTitle: "How we will know it is working",
+  measureIntro:
+    "Not by how long people stay. Nothing here counts that, on purpose. We would call it " +
+    "a success when:",
+  measures: [
+    "someone who was about to place a bet makes a forecast here instead, and that is enough;",
+    "someone reads how a bookmaker's margin multiplies across an accumulator and never " +
+    "builds one again;",
+    "someone sets a limit, takes a break, or closes their account, and it simply works;",
+    "someone opens the help page and makes the call.",
+  ],
+
+  independenceTitle: "Independent, free and open",
+  independence:
+    `${APP_NAME} is free to use and its source code is public, so anyone can check that it ` +
+    "does what this page says. It is run independently and takes no money from the gambling " +
+    "industry.",
+
+  ctaPlay: "Start playing — no sign-up",
+  ctaRead: "Read the guides",
+  ctaHelp: "Worried about gambling?",
+};
+
+// ---------------------------------------------------------------------------
+// Privacy
+// ---------------------------------------------------------------------------
+
+export const PRIVACY_UPDATED = "2026-11-26";
+
+export const privacy = {
+  metaTitle: "Privacy",
+  metaDescription:
+    `What ${APP_NAME} stores about you, what it never collects, and how to delete it. ` +
+    "Written in plain language.",
+
+  title: "What this site knows about you",
+  lede:
+    "As little as it can. This page says exactly what is stored, why, and how to remove it. " +
+    "It is a plain description of how the site works rather than a legal document.",
+  updatedLabel: "Last updated",
+
+  sections: [
+    {
+      title: "If you play as a guest",
+      body: [
+        "A guest account is a random identifier kept in a cookie in your browser, with your " +
+        "points and your forecasts stored against it. There is no name and no email. Clear " +
+        "the cookie and the account is unreachable.",
+      ],
+    },
+    {
+      title: "If you create an account",
+      body: [
+        "Your email address, used only to sign in. Nothing on this site sends email, so the " +
+        "address is never written to and never verified.",
+        "Your password, stored only as an Argon2id hash. Nobody who runs the site can read it.",
+        "The display name you choose, your forecasts and points, any limits or breaks you " +
+        "set, messages you send through the account page, and articles you write.",
+      ],
+    },
+    {
+      title: "What other people can see",
+      body: [
+        "The leaderboard shows the first letter of your display name and nothing else. If " +
+        "you publish an article, your display name appears on it as the byline. Everything " +
+        "else is private to you and to the person who runs the site.",
+      ],
+    },
+    {
+      title: "Cookies and your browser",
+      body: [
+        "Two cookies, both set when you start playing: one that holds your session and " +
+        "cannot be read by scripts, and one that says only that you are signed in, so the " +
+        "page can show the right links. Your session-reminder setting is kept in your " +
+        "browser and never sent anywhere.",
+        "There are no advertising cookies, no tracking pixels and no third-party scripts.",
+      ],
+    },
+    {
+      title: "Counting visits",
+      body: [
+        "Page views are counted in aggregate, without cookies, using the privacy-friendly " +
+        "analytics provided by the site's host. It records which page was viewed, the site " +
+        "that linked to it, the country, and the type of device and browser. It does not " +
+        "identify you and does not follow you to other sites.",
+        "To slow down abuse, the address you connect from is used for a few minutes to limit " +
+        "repeated sign-up and sign-in attempts. It is not stored with your account.",
+      ],
+    },
+    {
+      title: "Who else is involved",
+      body: [
+        "The companies that host the site, its database and its application process data on " +
+        "its behalf and keep ordinary server logs for a limited time. Market prices come " +
+        "from Polymarket's public data, fetched by the site's own servers; your browser " +
+        "never contacts Polymarket.",
+        "Nothing is sold, and nothing is shared with advertisers or gambling companies.",
+      ],
+    },
+    {
+      title: "Changing or deleting it",
+      body: [
+        "You can change your display name, withdraw or delete anything you have written, and " +
+        "delete your account, all from the account page. Deleting an account takes effect " +
+        "at once: your email, password, name, messages and articles are removed. Your past " +
+        "forecasts remain as anonymous entries, because other people's results and the " +
+        "season's standings were worked out from them.",
+      ],
+    },
+    {
+      title: "Questions",
+      body: [
+        "Use “Write to us” on the account page. Replies appear there too.",
+      ],
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Articles
+// ---------------------------------------------------------------------------
+
+export const articlesPage = {
+  metaTitle: "Articles on odds, prediction markets and quitting gambling",
+  metaDescription:
+    "Plain-English guides to how betting odds and prediction markets really work, and to " +
+    "stepping back from gambling — with sources, and nothing to sell.",
+
+  title: "Plain answers, nothing to sell",
+  lede:
+    "How odds and prediction markets really work, and how to step back from gambling when " +
+    "it stops being fun. Written carefully, with the sources listed.",
+
+  // In the order they appear on the page.
+  topics: {
+    "prediction-markets": {
+      title: "Prediction markets",
+      blurb:
+        "What they are, what a price means, and how the real-money and play-money kinds differ.",
+    },
+    odds: {
+      title: "How odds really work",
+      blurb:
+        "Where a bookmaker's margin sits, why it multiplies, and what your mind does with a near miss.",
+    },
+    "stepping-back": {
+      title: "Stepping back from gambling",
+      blurb: "Practical steps, the tools that block betting, and the people who can help.",
+    },
+  },
+
+  readersTitle: "From readers",
+  readersIntro:
+    "Written by people who use the site: their own views and experience, read before publishing.",
+  readersEmpty: "Nothing from readers yet. Yours could be the first.",
+
+  writeTitle: "Have something worth saying?",
+  writeBody:
+    "Anyone with an account can write here — what worked, what did not, what you wish you " +
+    "had known sooner. Everything is read by a person before it is published.",
+  writeCta: "Write an article",
+
+  methodTitle: "How these are written",
+  method:
+    `The guides are written by the ${APP_NAME} project with the help of AI tools, checked ` +
+    "against the sources listed at the foot of each one, and corrected when they turn out to " +
+    "be wrong. They are general information, not medical, legal or financial advice.",
 };

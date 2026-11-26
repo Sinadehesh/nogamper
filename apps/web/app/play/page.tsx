@@ -7,7 +7,7 @@ import { t } from "@/lib/copy";
 import { getViewer } from "@/lib/server/viewer";
 import { isTab } from "@/lib/tabs";
 
-export const metadata: Metadata = { title: t.navPlay };
+export const metadata: Metadata = { title: t.navPlay, robots: { index: false, follow: false } };
 
 export default async function PlayPage({
   searchParams,

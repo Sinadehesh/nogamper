@@ -223,6 +223,66 @@ export type PlayerMessage = {
   replied_at: string | null;
 };
 
+// ----- articles -------------------------------------------------------------
+
+/** A reader's published article, as a listing shows it. */
+export type PublishedArticleSummary = {
+  slug: string;
+  title: string;
+  summary: string;
+  author: string;
+  published_at: string;
+  edited_at: string;
+  reading_minutes: number;
+};
+
+export type PublishedArticle = PublishedArticleSummary & { body: string };
+
+export type PublishedArticlePage = { articles: PublishedArticleSummary[]; total: number };
+
+export type ArticleStatus = "DRAFT" | "SUBMITTED" | "PUBLISHED" | "REJECTED" | "REMOVED";
+
+/** An author's own article, in whatever state it is in. */
+export type MyArticle = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  body: string;
+  status: ArticleStatus;
+  review_note: string | null;
+  reading_minutes: number;
+  created_at: string;
+  edited_at: string;
+  submitted_at: string | null;
+  published_at: string | null;
+};
+
+export type ArticleLimits = {
+  title_min: number;
+  title_max: number;
+  summary_min: number;
+  summary_max: number;
+  body_min: number;
+  body_max: number;
+  max_open: number;
+};
+
+export type MyArticles = {
+  articles: MyArticle[];
+  limits: ArticleLimits;
+  can_write: boolean;
+  publishes_directly: boolean;
+};
+
+export type ArticleDraft = { title: string; summary: string; body: string };
+
+export type QueuedArticle = MyArticle & { author: string; author_code: string };
+
+export type ArticleQueue = { articles: QueuedArticle[]; waiting: number; live: number };
+
+export type ReviewDecision = "publish" | "reject" | "remove";
+
 // ----- operator -------------------------------------------------------------
 
 export type LedgerFlow = {
