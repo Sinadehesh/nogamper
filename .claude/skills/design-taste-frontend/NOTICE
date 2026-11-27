@@ -1,0 +1,18 @@
+design-taste-frontend ("tasteskill"), copied unmodified into this repository.
+
+  Source   https://github.com/Leonxlnx/taste-skill  (folder: skills/taste-skill)
+  Version  tasteskill 2.5.1, commit 952435f63acece7d2fcb4b4d3c1786c1c43603e0
+  Copied   2026-11-27
+  Licence  MIT, see LICENSE in this folder. Copyright (c) 2026 Leonxlnx.
+
+The photographs and icons under assets/ keep their own licences and credits,
+which are recorded beside them (assets/photos/photos.json and the notes in
+references/photos.md and references/icons.md).
+
+Nothing in this folder is part of the website. It is a design skill for the
+coding assistant: instructions in SKILL.md, plus the scripts and page kits
+those instructions use. Its scripts run a headless Chrome to check pages and
+can download photographs, icons and Google Fonts.
+
+To update it, replace this folder with the same folder from a newer commit of
+the source, read what changed in its scripts, and change the commit above.
