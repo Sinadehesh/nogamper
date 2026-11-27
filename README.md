@@ -320,6 +320,7 @@ app deployed from `apps/web`.
 | Site | `NEXT_PUBLIC_SITE_URL` | The one public address, e.g. `https://example.com` — canonical links and the sitemap are built from it |
 | Site | `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | Optional: ownership strings from the search consoles |
 | Site | `DONATE_URL` | Optional: a Stripe Payment Link. Unset, there is no Donate button |
+| Site | `DONATE_PAYEE` | Optional: the name Stripe's page shows for who is paid, when it is not the site's own. The Support page then says so beside the button |
 | API only | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SITE_URL` | Optional, and together: they open the shop. The webhook endpoint is `https://<api>/v1/payments/stripe/webhook` |
 
 In production the API refuses to start without a signing secret and a web-tier

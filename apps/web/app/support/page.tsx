@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { JsonLd } from "@/components/JsonLd";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
-import { DONATE_URL, price, support } from "@/lib/content";
+import { DONATE_PAYEE, DONATE_URL, price, support } from "@/lib/content";
 import { t } from "@/lib/copy";
 import { breadcrumbLd, pageMetadata } from "@/lib/seo";
 import { getRules } from "@/lib/server/rules";
@@ -73,6 +73,9 @@ export default async function SupportPage() {
                   </a>
                 </p>
                 <p className="mt-2 text-xs text-muted">{support.donateNote}</p>
+                {DONATE_PAYEE ? (
+                  <p className="mt-2 text-xs text-muted">{support.donatePayee(DONATE_PAYEE)}</p>
+                ) : null}
               </section>
             ) : null}
 

@@ -96,6 +96,10 @@ databases:
     # Free: 1 GB, no backups, and gone after thirty days. See the top of this
     # file before the thirty days are up.
     plan: free
+    # The version the tests run against: CI and docker-compose.yml both use
+    # Postgres 16. Left out, Render picks its newest, and a database's major
+    # version can be raised later but never lowered, so it is chosen here.
+    postgresMajorVersion: "16"
     # For the paid plan. Storage is billed by the gigabyte, and a disk can be
     # made larger but never smaller, so this starts small rather than at
     # Render's default of 15. The price history the sync job keeps is what

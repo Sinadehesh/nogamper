@@ -61,6 +61,13 @@ function httpsOnly(value: string | undefined): string {
  */
 export const DONATE_URL = httpsOnly(process.env.DONATE_URL);
 
+/**
+ * The name Stripe's page gives for whoever receives a donation, when that is
+ * not this site's own name. The Support page says it, so that nobody presses
+ * Donate here and then wonders who they are about to pay there.
+ */
+export const DONATE_PAYEE = (process.env.DONATE_PAYEE ?? "").trim();
+
 export const REPOSITORY_URL =
   process.env.NEXT_PUBLIC_REPOSITORY_URL ?? "https://github.com/Sinadehesh/nogamper";
 
@@ -871,10 +878,13 @@ export const support = {
   donateTitle: "Donate",
   donateBody:
     "The simplest way to help. A donation buys nothing — no points, no perks, no badge — it " +
-    "just helps this continue. Choose your own amount. Payment is taken by Stripe on " +
-    "Stripe's page, and this site never sees your card.",
+    "just helps this continue. Payment is taken by Stripe on Stripe's page, which shows the " +
+    "amount before you pay, and this site never sees your card.",
   donateCta: "Donate",
   donateNote: "Opens Stripe's secure payment page.",
+  donatePayee: (name: string) =>
+    `Stripe's page will name ${name} as who you are paying. That is the account of the ` +
+    "person who built this site, and it is where the money goes.",
 
   pointsTitle: "Buy extra points",
   pointsBody: (rules: GameRules) =>
