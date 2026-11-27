@@ -24,6 +24,34 @@ from .runlog import recorded
 
 logger = logging.getLogger(__name__)
 
+CATCH_UP_JOB_ID = "startup_catch_up"
+
+
+async def catch_up(client: httpx.AsyncClient, settings: Settings) -> None:
+    """One run of each job that keeps the game current, in order, at startup.
+
+    For a process that has not been running. Left to their own ticks, prices
+    would stay older than the staleness window for the first minute, finished
+    forecasts would wait five to settle, and the standings would wait for the
+    hour to turn — which a server that goes back to sleep first never sees.
+
+    In order because each feeds the next: nothing can be forecast against a
+    stale price, settlement is what changes the standings, and the rollup
+    counts what settlement has just written. A step that fails is logged and
+    the others still run. Each takes its own lease, so a tick that arrives in
+    the middle of this is turned away rather than doubled.
+    """
+    steps = (
+        (sync.JOB_NAME, sync.run_price_sync, (client, settings)),
+        (resolution.JOB_NAME, resolution.run_resolution, (client, settings)),
+        (economy_jobs.JOB_NAME, economy_jobs.run_leaderboard_rollup, (settings,)),
+    )
+    for name, job, args in steps:
+        try:
+            await recorded(name, job)(*args)
+        except Exception:  # noqa: BLE001 - one step failing must not skip the rest
+            logger.exception("startup catch-up: %s failed", name)
+
 
 def build_scheduler(client: httpx.AsyncClient, settings: Settings) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(
@@ -80,6 +108,14 @@ def build_scheduler(client: httpx.AsyncClient, settings: Settings) -> AsyncIOSch
             args=(client, settings),
             id=f"{discovery.JOB_NAME}_startup",
             name="Polymarket discovery (startup)",
+        )
+
+    if settings.catch_up_on_startup:
+        scheduler.add_job(
+            catch_up,
+            args=(client, settings),
+            id=CATCH_UP_JOB_ID,
+            name="Catch up after a start (prices, settlement, standings)",
         )
 
     return scheduler

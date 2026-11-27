@@ -70,13 +70,7 @@ USER appuser
 
 EXPOSE 8000
 
-# `exec` matters. Without it the shell stays PID 1 and does not forward
-# SIGTERM, so a deploy would kill the process instead of letting the lifespan
-# run scheduler.shutdown(wait=True) — which is what lets an in-flight
-# settlement finish its transaction. With exec, uvicorn *is* PID 1 and
-# receives the signal directly.
-#
-# One process per container. Never --workers N: each fork would build its own
-# scheduler, leaving the advisory lock as the only thing between you and four
-# concurrent price syncs. Scale containers instead.
-CMD ["sh", "-c", "exec uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-server-header"]
+# scripts/start.sh applies any pending migrations and then `exec`s uvicorn, so
+# the server is PID 1 and receives SIGTERM itself. The script says why both of
+# those matter. One process per container; scale containers, never --workers.
+CMD ["sh", "scripts/start.sh"]

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { API_BASE_URL, INTERNAL_API_KEY } from "@/lib/server/api-address";
+
 /**
  * Reads of things the API publishes to everybody: the rules of the game,
  * published articles.
@@ -17,8 +19,6 @@ import "server-only";
  * behind it is having a bad minute.
  */
 
-const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:8000";
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 const TIMEOUT_MS = 4_000;
 
 export async function publicApi<T>(

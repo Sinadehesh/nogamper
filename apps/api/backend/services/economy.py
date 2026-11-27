@@ -252,26 +252,10 @@ UPDATE leaderboard_entries e
 """
 
 
-async def roll_up_leaderboard(
-    conn: asyncpg.Connection, settings: Settings, *, today: date | None = None
-) -> LeaderboardReport:
-    today = today or economy_date(settings)
-    report = LeaderboardReport()
-
-    finalized = await conn.execute(
-        """
-        UPDATE leaderboard_seasons
-           SET is_finalized = TRUE, finalized_at = NOW()
-         WHERE ends_at <= NOW() AND NOT is_finalized
-        """
-    )
-    report.seasons_finalized = int(finalized.rsplit(" ", 1)[-1])
-
-    season = await ensure_current_season(conn, settings, today=today)
-    if season["is_finalized"]:
-        return report
-    report.season_code = season["code"]
-
+async def _count_season(
+    conn: asyncpg.Connection, season: asyncpg.Record, settings: Settings
+) -> None:
+    """Rewrite one season's entries and ranks from the slips settled in it."""
     await conn.execute(
         _ROLLUP,
         season["id"],
@@ -281,11 +265,53 @@ async def roll_up_leaderboard(
         Decimal(str(settings.leaderboard_roi_weight)),
         Decimal(settings.leaderboard_full_credit_volume_minor),
     )
-
     await conn.execute(
         "UPDATE leaderboard_entries SET rank = NULL WHERE season_id = $1", season["id"]
     )
     await conn.execute(_RANK, season["id"], settings.leaderboard_min_volume_minor)
+
+
+async def roll_up_leaderboard(
+    conn: asyncpg.Connection, settings: Settings, *, today: date | None = None
+) -> LeaderboardReport:
+    today = today or economy_date(settings)
+    report = LeaderboardReport()
+
+    # A season that has ended is counted one last time before it is closed.
+    # Its standings were last written by whichever run came before the end —
+    # up to an hour earlier on a server that never stops, and much longer on
+    # one that was asleep — and anything settled in between belongs to that
+    # season and would otherwise be in nobody's final standings. The rollup
+    # reads by settlement time, so counting it late gives the same answer as
+    # counting it at the stroke of midnight would have.
+    ended = await conn.fetch(
+        """
+        SELECT id, starts_at, ends_at
+          FROM leaderboard_seasons
+         WHERE ends_at <= NOW() AND NOT is_finalized
+         ORDER BY ends_at
+           FOR UPDATE
+        """
+    )
+    for closing in ended:
+        await _count_season(conn, closing, settings)
+    if ended:
+        await conn.execute(
+            """
+            UPDATE leaderboard_seasons
+               SET is_finalized = TRUE, finalized_at = NOW()
+             WHERE id = ANY($1::uuid[])
+            """,
+            [closing["id"] for closing in ended],
+        )
+    report.seasons_finalized = len(ended)
+
+    season = await ensure_current_season(conn, settings, today=today)
+    if season["is_finalized"]:
+        return report
+    report.season_code = season["code"]
+
+    await _count_season(conn, season, settings)
 
     report.entries = await conn.fetchval(
         "SELECT count(*) FROM leaderboard_entries WHERE season_id = $1", season["id"]

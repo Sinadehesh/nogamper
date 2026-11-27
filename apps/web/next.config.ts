@@ -13,7 +13,7 @@ const config: NextConfig = {
     // can only fail. Development always counts as open: there the default
     // address, this machine, is the right one.
     NEXT_PUBLIC_GAME_OPEN:
-      process.env.API_BASE_URL || process.env.NODE_ENV !== "production" ? "1" : "",
+      process.env.API_BASE_URL?.trim() || process.env.NODE_ENV !== "production" ? "1" : "",
   },
   // The site's own articles are Markdown files read from disk. Pages built
   // ahead of time read them during the build; pages rendered on demand — a
