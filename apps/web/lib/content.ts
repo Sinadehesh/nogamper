@@ -101,6 +101,17 @@ function shopShut(rules: Rules): boolean {
   return rules?.shop?.open === false;
 }
 
+/**
+ * "An 84% chance", "a 62% chance": the article a figure is read with, from
+ * its whole part ("8.5%" is read "eight point five").
+ */
+function articleFor(figure: number | string): "A" | "An" {
+  const text = String(figure).replace(/,/g, "");
+  if (/^[a-z]/i.test(text)) return /^[aeiou]/i.test(text) ? "An" : "A";
+  const whole = text.match(/^\d+/)?.[0] ?? "";
+  return /^(8|11|18|8\d|8\d\d)$/.test(whole) ? "An" : "A";
+}
+
 /** When a daily limit that has been raised or removed takes effect. */
 function loosensAfter(rules: Rules): string {
   if (!rules) return "only after a wait";
@@ -139,7 +150,7 @@ export const landing = {
   // The hero's picture: one open question as the game shows it. Its words
   // are the game's own; these say what the picture is to a screen reader.
   windowLabel: (question: string, yes: string, no: string) =>
-    `One question as ${APP_NAME} shows it, "${question}": a ${yes} chance of yes and ${no} of ` +
+    `One question as ${APP_NAME} shows it, "${question}": ${articleFor(yes).toLowerCase()} ${yes} chance of yes and ${no} of ` +
     "no, its chance over the past week, and the two picks, yes and no.",
   windowEmpty:
     "The live questions could not be read just now. They are read from the market every few minutes.",
@@ -162,7 +173,7 @@ export const landing = {
     },
     {
       title: "Choose yes or no",
-      body: `A ${chance}% chance means the market expects yes about ${chance} times in 100.`,
+      body: `${articleFor(chance)} ${chance}% chance means the market expects yes about ${chance} times in 100.`,
     },
     {
       title: "Stake some points",
@@ -190,7 +201,7 @@ export const landing = {
       ? "No money goes in or comes out, "
       : "Points never come out as money, ") +
     "nothing is taken from a pick, and the limits you set hold.",
-  keepsRules: "Read the rules in full",
+  keepsRules: "Read the rules",
   keeps: (rules: Rules) => ({
     points: {
       title: rules
@@ -236,7 +247,7 @@ export const landing = {
     figures
       ? {
           lead:
-            `On a ${countWord(figures.legs)}-pick bet with a ${figures.margin} margin on each ` +
+            `On ${articleFor(countWord(figures.legs)).toLowerCase()} ${countWord(figures.legs)}-pick bet with ${articleFor(figures.margin).toLowerCase()} ${figures.margin} margin on each ` +
             `pick, a bookmaker keeps ${figures.take} of the stake before a single result is in. ` +
             `${APP_NAME} keeps `,
           strong: "none of it",
@@ -278,8 +289,9 @@ export const landing = {
       answer:
         `From Polymarket's public market data. ${APP_NAME} is not affiliated with Polymarket ` +
         "and takes no money from it.",
-      // Said again in the footer on every page: a phone, short of room, leaves it to that.
-      phone: false,
+      // Said again in the footer on every page: a short screen (a phone, a small
+      // laptop) leaves it to that.
+      spare: true,
     },
     {
       question: "What does a 62% chance mean?",
@@ -303,7 +315,7 @@ export const landing = {
     question: string;
     answer: string;
     link?: { label: string; guide?: string; href?: string };
-    phone?: boolean;
+    spare?: boolean;
   }[],
 
   // The close: the promise again, one fact, and the name set large.

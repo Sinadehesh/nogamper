@@ -35,17 +35,37 @@ const MOVED_ROWS = 4;
 const size = (move: Move) => Math.abs(Number(move.change));
 const bySize = (moves: Move[]) => [...moves].sort((a, b) => size(b) - size(a));
 
+/** A line worth the hero's chart: three days of readings, a day's worth of them. */
+const FULL_SPAN_MS = 72 * 60 * 60 * 1000;
+const FULL_POINTS = 24;
+
 /** Open, with a line to draw: a question the hero can show whole. */
 function showable(question: PublicQuestion): boolean {
   return question.state === "open" && parseHistory(question.history).length >= 2;
 }
 
+/**
+ * A history long enough that the chart's line, its high and its marks a day
+ * and a week back tell one story. A question that has only just been taken up
+ * has a few of the site's own readings, which the chart draws as they are.
+ */
+function full(question: PublicQuestion): boolean {
+  const points = parseHistory(question.history);
+  const first = points[0];
+  const last = points[points.length - 1];
+  return points.length >= FULL_POINTS && !!first && !!last && last.t - first.t >= FULL_SPAN_MS;
+}
+
+/** The first of the questions tried with a full history, else the first that can be shown at all. */
 async function firstShowable(slugs: string[]): Promise<PublicQuestion | null> {
+  let fallback: PublicQuestion | null = null;
   for (const slug of slugs.slice(0, HERO_TRIES)) {
     const answer = await getQuestion(slug);
-    if (answer.status === "ok" && showable(answer.data)) return answer.data;
+    if (answer.status !== "ok" || !showable(answer.data)) continue;
+    if (full(answer.data)) return answer.data;
+    fallback ??= answer.data;
   }
-  return null;
+  return fallback;
 }
 
 /** Any open question, from the index, for a day on which nothing moved. */

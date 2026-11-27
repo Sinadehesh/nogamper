@@ -8,11 +8,6 @@ import { categoryLabel } from "@/lib/copy";
 import type { Move } from "@/lib/types";
 import { closesOn, fromToArrow, groupByEvent } from "@/lib/viz";
 
-// How many of the moves a phone and a small laptop list, where the rows stack
-// under the heading or the screen is short; the moves page lists every one.
-const PHONE_ROWS = 2;
-const LAPTOP_ROWS = 3;
-
 const same = (one: string, other: string) => one.trim().toLowerCase() === other.trim().toLowerCase();
 
 /**
@@ -59,12 +54,10 @@ export function Moved({
             </p>
             <ul className="lp-moves">
               {numbered.map((group) => (
-                <li
-                  key={group.title}
-                  className="lp-moves__group"
-                  data-later={group.rows.every((row) => row.place >= PHONE_ROWS) ? "" : undefined}
-                  data-laptop-later={group.rows.every((row) => row.place >= LAPTOP_ROWS) ? "" : undefined}
-                >
+                // Each row carries its place in the whole list, and each event
+                // its first row's, so a short screen lists the first few
+                // (landing.css, what moved).
+                <li key={group.title} className="lp-moves__group" data-place={group.rows[0]?.place ?? 0}>
                   <p className="lp-moves__event">
                     {group.items.length > 1 || !same(group.title, group.items[0]?.question ?? "")
                       ? landing.movedMeta(categoryLabel(group.category), group.title)
@@ -72,12 +65,7 @@ export function Moved({
                   </p>
                   <ul>
                     {group.rows.map(({ move, place: at }) => (
-                      <li
-                        key={move.slug}
-                        className="lp-move"
-                        data-later={at >= PHONE_ROWS ? "" : undefined}
-                        data-laptop-later={at >= LAPTOP_ROWS ? "" : undefined}
-                      >
+                      <li key={move.slug} className="lp-move" data-place={at}>
                         <Link className="lp-move__q" href={`/questions/${move.slug}`} prefetch={false}>
                           {move.question}
                           <LinkPending label={FETCHING} slowLabel={FETCHING_SLOWLY} ownLine />

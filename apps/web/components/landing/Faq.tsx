@@ -4,8 +4,8 @@ import { getEditorial } from "@/lib/server/editorial";
 /**
  * The questions people ask first, every answer open (the kit's faq). A guide
  * that has been renamed or removed takes its link with it rather than leave
- * one that leads nowhere. On a phone the two answers the page already gives
- * elsewhere (the footer's line on Polymarket, the first step's settling) step
+ * one that leads nowhere. On a short screen (a phone, a small laptop) the
+ * answer the footer gives on every page, where the chances come from, steps
  * aside, so the rest fit one screen.
  */
 export function Faq() {
@@ -24,7 +24,7 @@ export function Faq() {
         </div>
         <div className="faq span-6 start-7">
           {items.map((item) => (
-            <div key={item.question} className="faq__item" data-phone={item.phone === false ? "off" : undefined}>
+            <div key={item.question} className="faq__item" data-spare={item.spare ? "" : undefined}>
               <h3>{item.question}</h3>
               <p>{item.answer}</p>
               {item.link && item.href ? (

@@ -334,13 +334,26 @@
     }
     /* a phone's frame is what the first screen leaves (240px or so): the
        window shows the question and its chance, and ends there, so no row
-       is cut through */
+       is cut through. The chance comes first, as on a market's card, so a
+       long question runs into the frame's fade and the number never does. */
     .lp-win {
       height: auto;
     }
     .lp-win__picks,
     .lp-win__chart {
       display: none;
+    }
+    .lp-win__meta {
+      order: -3;
+    }
+    .lp-win__readout {
+      order: -2;
+    }
+    .lp-win__split {
+      order: -1;
+    }
+    .lp-win__q {
+      margin-top: 0;
     }
   }
 
@@ -547,13 +560,27 @@
 
   /* ----- what keeps it a game: open tiles, the picture first --------------- */
 
-  /* From 640 to 1279 the tiles stack or pair: their pictures take a fixed,
-     wide crop so the group stays within two screens (cards.md, a group's
+  /* From 640 to 1279 the tiles stack or pair over two screens: their
+     pictures take a wide crop whose height follows the screen's, so the
+     group fills its two screens and stays within them (cards.md, a group's
      panel height beside its phone value). */
   @media (min-width: 640px) and (max-width: 1279px) {
     .lp-keeps__grid .panel--top.panel--wide {
       aspect-ratio: auto;
-      height: 236px;
+      height: clamp(236px, calc(66svh - 330px), 450px);
+    }
+  }
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    .lp-keeps__grid .panel--top.panel--wide {
+      height: clamp(236px, calc(100svh - 380px), 400px);
+    }
+  }
+  /* in those taller pictures the receipt and the limits sit on the middle
+     line, as the balance does, not against the top */
+  @media (min-width: 640px) and (max-width: 1279px) {
+    .lp-keeps__grid :is(.lp-at-fair, .lp-at-limits) {
+      top: 50%;
+      translate: 0 -50%;
     }
   }
 
@@ -682,8 +709,10 @@
 
   /* ----- the questions ------------------------------------------------------- */
 
-  @media (max-width: 639px) {
-    .lp-faq .faq__item[data-phone="off"] {
+  /* A short screen leaves the answer the footer gives to the footer: a phone,
+     and a laptop whose answers stand in one column. */
+  @media (max-width: 639px), (min-width: 1280px) and (max-height: 860px) {
+    .lp-faq .faq__item[data-spare] {
       display: none;
     }
   }
@@ -701,7 +730,10 @@
       column-gap: var(--gutter);
       align-items: start;
     }
-    .lp-faq .faq > .faq__item:nth-child(2) {
+    .lp-faq .faq > .faq__item {
+      padding-block: var(--s-4);
+    }
+    .lp-faq .faq > .faq__item:nth-child(-n + 2) {
       padding-top: 0;
     }
   }
@@ -791,20 +823,29 @@
   .lp-move__q:focus-visible {
     text-decoration-color: currentColor;
   }
+
   .lp-move__meta {
     font-size: 13px;
     color: color-mix(in oklab, var(--ink) 66%, #141414);
   }
-  /* A phone lists the two largest moves (the moves page has every one), under
-     the heading that already names their window. */
+  /* How many of the moves a screen lists (the moves page has every one): a
+     laptop four; a tablet and a small laptop three, a small laptop's short
+     screen two, where its narrow column wraps each question to two or three
+     lines; a phone the largest alone, under the heading that already names
+     its window, as its questions run to three or four lines. */
   @media (max-width: 639px) {
-    .lp-moves [data-later],
+    .lp-moves [data-place]:not([data-place="0"]),
     .lp-movelist__head {
       display: none;
     }
   }
-  @media (min-width: 1024px) and (max-width: 1279px) {
-    .lp-moves [data-laptop-later] {
+  @media (min-width: 640px) and (max-width: 1279px) {
+    .lp-moves [data-place]:not([data-place="0"], [data-place="1"], [data-place="2"]) {
+      display: none;
+    }
+  }
+  @media (min-width: 1024px) and (max-width: 1279px) and (max-height: 899px) {
+    .lp-moves [data-place="2"] {
       display: none;
     }
   }
