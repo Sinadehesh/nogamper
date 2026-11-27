@@ -30,7 +30,7 @@ export function LinkPending({ label, slowLabel, ownLine = false }: Props) {
   return (
     <span
       role="status"
-      className={`text-sm font-normal text-muted ${ownLine ? "mt-2 block" : ""}`}
+      className={`text-[13px] leading-snug font-normal text-muted ${ownLine ? "mt-1.5 block" : ""}`}
     >
       <span className="pending-hint">{label}</span>{" "}
       <span className="pending-hint pending-hint-late">{slowLabel}</span>

@@ -807,14 +807,14 @@ export const PRICE_SOURCE =
   "Prices are read from Polymarket's public market data. " +
   `${APP_NAME} is not affiliated with Polymarket and takes no money from it.`;
 
-function pointsWord(points: string): string {
-  return Number(points) === 1 ? "point" : "points";
-}
-
-/** "up 25 points", "down 1 point", "unchanged" — a change, in words. */
+/**
+ * "up 25 percentage points", "down 1 percentage point", "unchanged": a change
+ * in a chance, in words. "Points" alone are the game's currency and nothing
+ * else, so a change is never written in them.
+ */
 export function changeInWords(points: string, direction: "up" | "down" | "flat"): string {
   if (direction === "flat") return "unchanged";
-  return `${direction} ${points} ${pointsWord(points)}`;
+  return `${direction} ${points} percentage ${Number(points) === 1 ? "point" : "points"}`;
 }
 
 /** The line that dates a page's figures, and what it says while newer ones are fetched. */
@@ -839,38 +839,49 @@ export const movesPage = {
 
   title: "What moved",
   lede:
-    "The questions whose chances changed most, and from what to what. A change is reported " +
-    "here. It is not explained, and it is not a tip.",
+    "The questions whose chance of yes changed most in the last day and the last week, " +
+    "read from Polymarket.",
+  notATipLine: "Each change is reported here, not explained, and none of it is a tip.",
+  measured: (time: string) => `Change figures read at ${time}.`,
 
   dayTitle: "In the last day",
   weekTitle: "In the last week",
+  count: (shown: number) =>
+    shown === 1 ? "1 question, the largest move first" : `${shown} questions, the largest move first`,
+  windowWords: { day: "in a day", week: "in a week" },
+  // A move whose own figure was read at another time than the rest of the list.
+  readAt: (time: string) => `Read at ${time}`,
   fromTo: (was: string, now: string) => `From ${was} to ${now}`,
-  emptyDay: (points: string) =>
-    `Nothing has moved by ${points} points or more in the last day.`,
-  emptyWeek: (points: string) =>
-    `Nothing has moved by ${points} points or more in the last week.`,
+  emptyDay: (size: string) =>
+    `Nothing has moved by ${size} percentage points or more in the last day.`,
+  emptyWeek: (size: string) =>
+    `Nothing has moved by ${size} percentage points or more in the last week.`,
   unavailable:
     "The figures could not be fetched just now, or are being read again. That takes a " +
     "minute or two. The rest of the site is unaffected.",
 
+  keyTitle: "How to read a row",
+  keyThen: "then",
+  keyNow: "now",
+  key: [
+    "Hollow is where the chance of yes stood at the start; filled is where it is now.",
+    "Every row has the same track from 0% to 100%, so a longer arrow is a bigger move.",
+  ],
+
   rulesTitle: "What counts as a move",
   rules: (day: string, week: string, hours: number, margin: string) => [
-    `A change of ${day} points or more in a day, or ${week} or more in a week. Less than ` +
-    "that is the ordinary noise of a market, and a page of it would be a page of nothing.",
-    `Only questions that are still open: more than ${hours} hours from closing, and not ` +
-    `within ${margin} points of certain at either end. A price collapsing as a question ` +
-    "is decided is a result arriving, not news.",
-    "The change is measured from where the question stood a day or a week ago to its " +
-    "price now. A move that has already come back is not listed.",
+    `At least ${day} percentage points in a day, or ${week} in a week.`,
+    `Open questions only, more than ${hours} hours before they close.`,
+    `None within ${margin} percentage points of 0% or 100%: that is a result arriving.`,
+    "From where it stood then to its price now, so a move that came back is not listed.",
   ],
 
   notATipTitle: "A move is not a tip",
   notATip: [
-    "A price moves when the people trading on it change their minds, or when one large " +
-    "trade pushes it. Sometimes that is news arriving. Sometimes it is one opinion and a " +
-    "thin market. This page cannot tell you which, and neither can anyone who says they can.",
-    "Some moves hold. Many drift back. Nothing here says what happens next — and on this " +
-    "site there is nothing to win by guessing, which is rather the point.",
+    "A price moves when the people trading change their minds, or when one large trade " +
+      "pushes it. Sometimes that is news arriving. Sometimes it is one opinion in a thin market.",
+    "This page cannot tell you which, and neither can anyone who says they can. Some moves " +
+      "hold and many drift back. Nothing here says what happens next.",
   ],
 
   allLink: "Browse every question",
@@ -883,14 +894,39 @@ export const questionsPage = {
     "currently puts the chance at. Read them freely; nothing here can be bet on.",
   title: "Every question",
   lede:
-    "Every question this site follows, by subject. Each has a page of its own: what the " +
-    "market says, how that has changed, and how it ended once it has.",
+    `Every question ${APP_NAME} follows, by subject. Each one has a page with its chance of ` +
+    "yes, how that has changed, and its chart.",
+  countsLabel: "Questions by subject",
+  openCount: (open: number) => `${open} open`,
+  finishedCount: (finished: number) => `${finished} finished`,
   open: "Open",
   finished: "Finished",
-  finishedIntro: "Questions that have closed or been resolved. Their pages keep the record.",
+  finishedIntro:
+    "Questions that have closed or been resolved, the most recent first. Their pages keep " +
+    "the record.",
+  finishedShown: (shown: number, total: number) => `The ${shown} most recent of ${total}.`,
+  finishedStates: {
+    closed: "Closed, waiting for a result",
+    resolved: "Resolved",
+  },
+  others: "Other questions",
   unavailable: "The list of questions could not be fetched just now.",
   empty: "There are no questions to list yet. They are read from the market every hour.",
   count: (shown: number) => (shown === 1 ? "1 question" : `${shown} questions`),
+
+  filter: {
+    search: "Find a question",
+    placeholder: "Bitcoin, Sweden, the Fed",
+    subject: "Subject",
+    state: "State",
+    all: "All",
+    states: { open: "Open", closed: "Waiting for a result", resolved: "Resolved" },
+    showing: (shown: number, total: number) =>
+      shown === total ? `Showing all ${total} questions` : `Showing ${shown} of ${total} questions`,
+    sectionCount: (shown: number, total: number) => `${shown} of ${total}`,
+    none: "No question matches. Try a shorter word, or clear the search.",
+    clear: "Clear the search",
+  },
 };
 
 export const questionPage = {
@@ -905,62 +941,86 @@ export const questionPage = {
     `answer was decided. Asked: ${question}`,
 
   trail: "Questions",
+  // The state of a question in a word, and then in a sentence beside it.
+  stateWords: {
+    open: "Open",
+    closed: "Closed",
+    resolved: (outcome: string) => `Resolved ${outcome}`,
+    void: "Cancelled",
+    unfollowed: "No longer followed",
+  },
   states: {
-    open: (closes: string) => `Open. Forecasts close on ${closes}.`,
+    open: (closes: string) => `Forecasts close on ${closes}.`,
     closed: (when: string) => `Closed to forecasts on ${when}, and waiting for its result.`,
-    resolved: (outcome: string, when: string) => `Resolved ${outcome} on ${when}.`,
+    resolved: (when: string) => `Settled on ${when}.`,
     void: "Cancelled by its source. Nobody was right or wrong about it.",
     unfollowed: (when: string) =>
-      `No longer followed here. The price shown is the last one this site read, on ${when}.`,
+      `No longer followed here. The price shown is the last one ${APP_NAME} read, on ${when}.`,
   },
   lastPrice: "Last price",
+  answerWord: "was the answer",
 
   changesTitle: "How it has changed",
-  windows: { day: "In the last day", week: "In the last week" },
-  // A question younger than a week has no figure for the week, and the note
-  // should not promise a line that is not there.
-  changesNote: (day: boolean, week: boolean) =>
-    `From where it stood ${day && week ? "a day and a week" : week ? "a week" : "a day"} ago ` +
-    "to the price above.",
+  // "A day ago 98%, a week ago 74%, now 22%."
+  changesLine: (day: string | null, week: string | null, now: string) =>
+    [day ? `A day ago ${day}` : null, week ? `${day ? "a" : "A"} week ago ${week}` : null, `now ${now}`]
+      .filter(Boolean)
+      .join(", ") + ".",
+
+  rangeTitle: { live: "Lowest and highest this week", last: "Lowest and highest in its last week" },
 
   // Not "the last week": a new question has less than a week to show, and a
   // finished one's week is not the last. The dates are under the chart.
   chartTitle: "Price history",
-  chartSummary: (
-    first: string,
-    firstAt: string,
-    last: string,
-    lastAt: string,
-    low: string,
-    high: string,
-  ) => `From ${first} on ${firstAt} to ${last} on ${lastAt}. Lowest ${low}, highest ${high}.`,
   chartSource: {
-    source: "Hourly prices from the market's own history, for Yes.",
-    own: "Prices for Yes as this site recorded them. There are gaps where it was not running.",
+    source: "The chance of yes by the hour, from the market's own history.",
+    own: `The chance of yes as ${APP_NAME} recorded it, with gaps where it was not running.`,
     none: "There is no price history to show for this question.",
   },
+  chartScale: "The scale is always 0% to 100%, so a small move looks small.",
 
   meaningTitle: "What the number means",
-  meaning: [
-    "It is the price, from 0 to 100, at which people are trading a contract that pays 100 " +
-    "if the answer is yes. Read as a chance: at 55%, the market is saying this happens a " +
-    "little more often than not.",
-    "It is the opinion of the people trading, weighted by their money. It is often a good " +
-    "estimate. It is not knowledge, and it can be wrong for a long time.",
-  ],
+  meaning: {
+    live: (inHundred: string, band: string) => `The market gives yes ${inHundred} in 100: ${band}.`,
+    last: (inHundred: string, band: string) =>
+      `At its last price, the market gave yes ${inHundred} in 100: ${band}.`,
+    fewerThanOne: "fewer than 1",
+    moreThan99: "more than 99",
+    bands: {
+      noAlmost: "close to ruled out",
+      noVery: "very unlikely",
+      no: "unlikely, though far from ruled out",
+      noLean: "a little less than even",
+      even: "close to even",
+      yesLean: "a little better than even",
+      yes: "likely, though far from certain",
+      yesVery: "very likely",
+      yesAlmost: "close to certain",
+    },
+    contract: (price: string) =>
+      `On Polymarket, a contract that pays 100 if the answer is yes trades at about ${price}.`,
+    estimate:
+      "That is an estimate by the people trading, weighted by their money. It is not " +
+      "knowledge, and it can stay wrong for a long time.",
+    closed: "Forecasts are closed while the market waits for the result.",
+    resolved: (outcome: string) => `The answer was ${outcome}.`,
+    resolvedRange: (low: string, high: string) =>
+      `In its last week of trading, the market's chance of yes ran between ${low} and ${high}.`,
+    void: "Its source cancelled it, so there is no answer to measure a forecast against.",
+    unfollowed: `${APP_NAME} no longer reads this market, so the figures above are the last it saw.`,
+  },
   meaningLink: "How to read prediction market odds",
 
   decidedTitle: "How the answer is decided",
-  decidedIntro: "In the market's own words:",
+  decidedIntro: "In the market's own words.",
   decidedMore: "Read the rest of the rules",
 
-  playTitle: "Think the market has it wrong?",
+  playTitle: "Your own forecast",
   playBody:
-    "Say so with points instead of money. There is nothing to win here, and nothing to " +
-    "lose but points that are free.",
+    "Say what you think with points instead of money. Points are free, and there is " +
+    "nothing to win or lose but them.",
   playCta: "Make a forecast",
   movesLink: "See what else moved",
-
 };
 
 export const articlesPage = {

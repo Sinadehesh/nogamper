@@ -1433,3 +1433,52 @@ export function layoutTrackLabels(specs: TrackLabelSpec[], narrowest = 300, gap 
     padRight: Math.ceil(best.padRight) + 2,
   };
 }
+
+// ---------------------------------------------------------------------------
+// A chance in words (the question page's "What the number means")
+// ---------------------------------------------------------------------------
+
+export type ChanceBand =
+  | "noAlmost"
+  | "noVery"
+  | "no"
+  | "noLean"
+  | "even"
+  | "yesLean"
+  | "yes"
+  | "yesVery"
+  | "yesAlmost";
+
+/**
+ * How many in 100 a chance is, as `pct` prints it: 22 for "22%". A figure that
+ * prints with a decimal is under 1 or over 99, and is said so, never rounded
+ * to a false 0 or 100.
+ */
+export function inHundred(probability: number | string): number | "under1" | "over99" {
+  const printed = pct(probability);
+  if (printed === viz.missing) return Number.NaN;
+  const value = Number(printed.replace(/[<>%]/g, ""));
+  if (printed.startsWith("<") || (printed.includes(".") && value < 50)) return "under1";
+  if (printed.startsWith(">") || (printed.includes(".") && value > 50)) return "over99";
+  return value;
+}
+
+/**
+ * Which plain description fits a chance of yes: how far it is from even, and
+ * which way, in bands that mirror each other about 50%. Taken from the figure
+ * as printed, so the words and the number beside them agree at every edge.
+ */
+export function chanceBand(probability: number | string): ChanceBand {
+  const shown = inHundred(probability);
+  const value = shown === "under1" ? 0.5 : shown === "over99" ? 99.5 : shown;
+  if (!Number.isFinite(value)) return "even";
+  if (value < 5) return "noAlmost";
+  if (value < 20) return "noVery";
+  if (value < 35) return "no";
+  if (value < 45) return "noLean";
+  if (value <= 55) return "even";
+  if (value <= 65) return "yesLean";
+  if (value <= 80) return "yes";
+  if (value <= 95) return "yesVery";
+  return "yesAlmost";
+}
