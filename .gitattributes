@@ -1,0 +1,4 @@
+# The design skill under .claude/skills is somebody else's work, copied in
+# whole (see its NOTICE). Marked so that GitHub's language bar describes this
+# project's own code and not the skill's page kits.
+.claude/skills/** linguist-vendored

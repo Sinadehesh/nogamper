@@ -13,6 +13,9 @@
 # The frontend is deployed by Vercel, not from this image.
 apps/web
 
+# Skills for the coding assistant: 40 MB the image has no use for.
+.claude
+
 # Nothing in the image reads git history, and .git alone is megabytes.
 .git
 .github

@@ -22,3 +22,7 @@ next-env.d.ts
 
 # Redis snapshot, if a local server is started from the repo root
 dump.rdb
+
+# Working files the design skill (.claude/skills/design-taste-frontend) leaves
+# beside a page while it builds and checks it
+.taste-skill/
