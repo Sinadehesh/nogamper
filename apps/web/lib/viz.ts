@@ -1099,16 +1099,22 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
     { id: "dayAgo", window: windows?.day ?? null, word: viz.chartDayAgo },
     { id: "weekAgo", window: windows?.week ?? null, word: viz.chartWeekAgo },
   ];
+  const refPoints: ChartPoint[] = [];
   for (const ref of refs) {
     if (!ref.window) continue;
     const at = Date.parse(ref.window.at);
     if (!Number.isFinite(at) || at < start || at > end) continue;
     markers.push({ kind: "ref", fx: fx(at), v: ref.window.was, r: 6 });
     labels.push({ id: ref.id, word: ref.word, value: pct(ref.window.was), fx: fx(at), v: ref.window.was, mode: "point" });
+    refPoints.push({ t: at, v: ref.window.was });
   }
 
-  // The lowest and the highest, unless a figure already says the same there.
-  const range = extremes(history.length ? history : points);
+  // The lowest and the highest of everything the chart draws: the line with
+  // its live end, and the day-ago and week-ago marks. Over the line alone, a
+  // sparse history of the site's own readings could print "High 24%" beside
+  // "A day ago 91%". When a mark or the end is the extreme, its own label
+  // already says so and no second one is added.
+  const range = extremes([...points, ...refPoints].sort((a, b) => a.t - b.t));
   if (range && pct(range.low.v) !== pct(range.high.v)) {
     for (const [id, point, word] of [
       ["high", range.high, viz.high],
@@ -1291,9 +1297,14 @@ export function weekRange(
   const range = extremes(parseHistory(question.history));
   if (!range) return null;
   const shown = priceToShow(question);
+  // An open question's day-ago and week-ago figures are readings from this
+  // week too, and its chart marks them: a sparse history of the site's own
+  // readings must not give a range they fall outside.
+  const windows = question.state === "open" ? changeWindows(question) : null;
+  const marks = [windows?.day?.was, windows?.week?.was].filter((v): v is number => typeof v === "number");
   return {
-    low: Math.min(range.low.v, shown.value),
-    high: Math.max(range.high.v, shown.value),
+    low: Math.min(range.low.v, shown.value, ...marks),
+    high: Math.max(range.high.v, shown.value, ...marks),
     now: shown.value,
     kind: shown.kind,
   };
