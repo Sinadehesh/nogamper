@@ -99,13 +99,13 @@ function changes(question: PublicQuestion) {
 
   const now = Number(question.probability.yes);
   const windows = [
-    { label: questionPage.windows.day, change: question.changes.day },
-    { label: questionPage.windows.week, change: question.changes.week },
+    { window: "day", label: questionPage.windows.day, change: question.changes.day },
+    { window: "week", label: questionPage.windows.week, change: question.changes.week },
   ];
-  return windows.flatMap(({ label, change }) => {
+  return windows.flatMap(({ window, label, change }) => {
     if (change === null) return [];
     const was = Math.min(1, Math.max(0, Number(reference) - Number(change)));
-    return [{ label, shown: movement(was, now) }];
+    return [{ window, label, shown: movement(was, now) }];
   });
 }
 
@@ -252,7 +252,12 @@ export default async function QuestionPage({ params }: Props) {
                   </div>
                 ))}
               </dl>
-              <p className="mt-2 text-sm text-muted">{questionPage.changesNote}</p>
+              <p className="mt-2 text-sm text-muted">
+                {questionPage.changesNote(
+                  moved.some((row) => row.window === "day"),
+                  moved.some((row) => row.window === "week"),
+                )}
+              </p>
             </section>
           ) : null}
 

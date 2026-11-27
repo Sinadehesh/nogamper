@@ -30,10 +30,17 @@ if [ "${MIGRATE_ON_START:-true}" = "true" ]; then
 fi
 
 # `exec` matters. Without it this shell stays PID 1 and does not forward
-# SIGTERM, so a deploy would kill the process instead of letting the lifespan
-# run scheduler.shutdown(wait=True) — which is what lets an in-flight
-# settlement finish its transaction. With exec, uvicorn *is* PID 1 and
-# receives the signal directly.
+# SIGTERM, so a deploy would kill the process outright instead of letting it
+# stop in order: requests in flight are answered, the scheduler is stopped,
+# and the database pool is closed. With exec, uvicorn *is* PID 1 and receives
+# the signal directly.
+#
+# Stopping the scheduler does not wait for a job that is mid-run. It cancels
+# it, and the job's open transaction is rolled back. That is safe — every
+# job's writes are transactional and the next start does the work again — but
+# it means the replaced container can leave a job's lease behind for up to
+# two minutes, which is why the new container's start-up jobs wait their turn
+# and ask again (workers/scheduler.py, `when_free`).
 #
 # One process per container. Never --workers N: each fork would build its own
 # scheduler, leaving the lease as the only thing between you and four

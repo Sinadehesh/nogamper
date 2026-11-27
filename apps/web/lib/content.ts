@@ -917,7 +917,11 @@ export const questionPage = {
 
   changesTitle: "How it has changed",
   windows: { day: "In the last day", week: "In the last week" },
-  changesNote: "From where it stood a day and a week ago to the price above.",
+  // A question younger than a week has no figure for the week, and the note
+  // should not promise a line that is not there.
+  changesNote: (day: boolean, week: boolean) =>
+    `From where it stood ${day && week ? "a day and a week" : week ? "a week" : "a day"} ago ` +
+    "to the price above.",
 
   // Not "the last week": a new question has less than a week to show, and a
   // finished one's week is not the last. The dates are under the chart.

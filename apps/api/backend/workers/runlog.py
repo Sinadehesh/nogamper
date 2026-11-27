@@ -78,6 +78,14 @@ async def record(
         logger.warning("could not record the run of %s", job_name, exc_info=True)
 
 
+def did_run(report: object) -> bool:
+    """False when a job was turned away because another replica holds its
+    lease. Jobs say so as `ran: False`; a job that reports nothing ran."""
+    if isinstance(report, dict):
+        return report.get("ran", True) is not False
+    return getattr(report, "ran", True) is not False
+
+
 def recorded(job_name: str, func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """Wrap a scheduled job so its outcome is written down either way."""
 
@@ -105,7 +113,7 @@ def recorded(job_name: str, func: Callable[..., Awaitable[Any]]) -> Callable[...
             )
             raise
 
-        if getattr(report, "ran", True) is False:
+        if not did_run(report):
             return report
 
         detail = _detail(report)

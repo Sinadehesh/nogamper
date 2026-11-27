@@ -88,7 +88,9 @@ const NO_EARLIER_COPY =
 
 /**
  * Called by a page that is built once and refreshed in the background, when
- * the figures it is made of could not be had.
+ * the figures it is made of could not be had. (And by the sitemap, which is
+ * drawn on request: there it simply means "answer with an error, not with
+ * half a map".)
  *
  * On the running site this throws, on purpose. A refresh that fails leaves
  * the page as it was last built still being served — real figures, with the

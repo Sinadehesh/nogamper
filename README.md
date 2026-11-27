@@ -206,7 +206,11 @@ has not been running — a host that puts an idle server to sleep, a restart —
 syncs prices, settles and recounts the standings as it starts, in that order,
 and a leaderboard season is counted once more before it is closed, so nothing
 depends on the server having been awake when the hour turned. Both were measured
-in the real container limited to a tenth of a CPU and 512 MB.
+in the real container limited to a tenth of a CPU and 512 MB. A deploy starts
+the new container while the old one is still running, often in the middle of
+those same jobs; a start-up job that finds one held
+[waits its turn](apps/api/backend/workers/scheduler.py) instead of skipping it,
+so a release does not come up without its first read of the market.
 
 **Migrations are checksummed.** [`scripts/migrate.py`](scripts/migrate.py)
 applies each file once, in a transaction with its own bookkeeping, and refuses
@@ -252,6 +256,8 @@ as an apology; when its figures are out of date, the API sends no list of
 moves at all rather than an old one
 ([`questions.py`](apps/api/backend/routers/questions.py)). An address with no
 question behind it answers 404, not a page that says "not found" with a 200.
+The sitemap is drawn on request rather than prebuilt, so it lists the question
+pages there are now and not the ones there were at the last release.
 
 **No third-party scripts.** No web fonts, no advertising, no trackers. Page
 views are counted by the host without cookies, and the

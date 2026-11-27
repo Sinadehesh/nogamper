@@ -7,8 +7,15 @@ import { keepEarlierCopy } from "@/lib/server/public";
 import { allQuestions } from "@/lib/server/questions";
 import { absolute } from "@/lib/site";
 
-// Kept for five minutes, then built again behind the next reader.
-export const revalidate = 300;
+// Drawn when it is asked for, from answers that are themselves kept for five
+// minutes (lib/server/questions.ts, lib/server/articles.ts).
+//
+// Not built once and refreshed behind the reader, as the pages are. Built that
+// way it was listed as "refreshed every five minutes" and then served by the
+// host as a plain file, unchanged long after: a release that went out while
+// the game's server had nothing to list published a map with no questions in
+// it, and kept publishing it. Drawn on request there is no file to go stale.
+export const dynamic = "force-dynamic";
 
 /**
  * Every page worth a search engine's time, and when each last changed.
@@ -24,8 +31,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const read = await allQuestions();
   // A map that lists four hundred pages one hour and none the next, because
   // the game's server was asleep when it was drawn, tells a crawler they have
-  // gone. On the running site the map stays as it was last drawn instead;
-  // only a fresh build, with no earlier map, is drawn without them.
+  // gone. The list is kept and goes on being used while the server cannot be
+  // asked, so that is rare. When there is no list at all, the running site
+  // answers with an error — which a crawler takes as "come back later" —
+  // rather than with a map that leaves them out.
   if (read === null) keepEarlierCopy("The list of questions, for the sitemap,");
   const questions = read ?? [];
 
