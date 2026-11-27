@@ -1,0 +1,1621 @@
+/* ---------------------------------------------------------------------------
+   Charts and figures: the parts in components/viz.
+
+   Declared in the `components` layer, so the kit's element rules give way to
+   these and every Tailwind utility still wins over them. The layer order is
+   stated again here because a component's stylesheet can reach the page
+   before globals.css does, in development; restating an order that already
+   exists changes nothing.
+
+   Colour does one job each:
+   - the accent (#dafa9c) is Yes, the chance-of-yes line, the "now" marker and
+     a move's arrow;
+   - No is a neutral: white as a word or a marker, a mid grey as its part of
+     a split bar;
+   - everything else is ink, at three strengths, and hairlines.
+   Up and down share one colour. Nothing is red or green.
+
+   Checked with the dataviz skill's validator (yes #dafa9c, no #6b6b6b, on
+   #0f0f0f and on #1a1a1a): CVD separation 42.9, normal-vision 43.1, both
+   marks above 3:1 on both grounds. Its band and chroma checks flag the two on
+   purpose: Yes is the brand accent and No is a neutral by decision 6, so
+   every part also prints the word Yes or No, and Yes always sits on the left.
+   -------------------------------------------------------------------------- */
+
+@layer theme, base, kit, components, utilities;
+
+@layer components {
+  :root {
+    --viz-bg: var(--p-bg, #0f0f0f);
+    --viz-surface: var(--p-surface, #1a1a1a);
+    /* What rings and gaps are cut in. A card sets it to --viz-surface. */
+    --viz-ground: var(--viz-bg);
+    --viz-ink: var(--p-ink, #ffffff);
+    /* Labels and small figures in a chart: APCA Lc 63 on either ground, where
+       the site's muted grey (Lc 41) is too faint at 11px. */
+    --viz-ink-2: color-mix(in oklab, var(--viz-ink) 38%, var(--viz-muted));
+    /* Axis ticks and units: recessive on purpose. */
+    --viz-muted: var(--p-muted, #8f8f8f);
+    --viz-accent: var(--p-accent, #dafa9c);
+    --viz-accent-ink: var(--p-accent-ink, #0f0f0f);
+    /* No's part of a split bar: 3.6:1 on soot, 3.3:1 on the surface. */
+    --viz-no: #6b6b6b;
+    --viz-grid: rgb(255 255 255 / 0.08);
+    --viz-grid-strong: rgb(255 255 255 / 0.2);
+    --viz-rail: rgb(255 255 255 / 0.18);
+    --viz-rule: rgb(255 255 255 / 0.42);
+    --viz-font-figure: "Schibsted Grotesk", var(--font-text, system-ui), sans-serif;
+    --viz-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+
+  .viz-on-surface {
+    --viz-ground: var(--viz-surface);
+  }
+
+  /* Inside one of the kit's cards, rings and gaps are cut in the card's own colour. */
+  .card {
+    --viz-ground: var(--card, var(--viz-surface));
+  }
+
+  .viz-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .viz-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* Tabular digits; everything between them at its own width. */
+  .viz-fig {
+    font-variant-numeric: proportional-nums;
+    font-feature-settings: "tnum" 0, "pnum" 1;
+  }
+
+  .viz-fig__d {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .viz-fig__unit {
+    margin-left: 0.03em;
+    font-size: 0.62em;
+    letter-spacing: 0;
+  }
+
+  /* -------------------------------------------------------------------------
+     ChanceReadout: "62%" and, beside it, what it is
+     ---------------------------------------------------------------------- */
+
+  .viz-readout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25em 1.25em;
+    margin: 0;
+    color: var(--viz-ink);
+    font-family: var(--viz-font-figure);
+  }
+
+  .viz-readout__side {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.5em;
+  }
+
+  .viz-readout__figure {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    line-height: 0.92;
+  }
+
+  .viz-readout__words {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    color: var(--viz-ink-2);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    line-height: 1.2;
+  }
+
+  .viz-key {
+    display: inline-block;
+    flex: none;
+    width: 0.5em;
+    height: 0.5em;
+    border-radius: 50%;
+    background: var(--viz-accent);
+  }
+
+  .viz-key--no {
+    background: var(--viz-no);
+  }
+
+  .viz-readout--header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .viz-readout--header .viz-readout__yes .viz-readout__figure {
+    font-size: clamp(4rem, 2.6rem + 5.5vw, 7rem);
+  }
+
+  .viz-readout--header .viz-readout__yes .viz-readout__words {
+    font-size: clamp(1.0625rem, 0.95rem + 0.45vw, 1.3125rem);
+  }
+
+  .viz-readout--header .viz-readout__no .viz-readout__figure {
+    font-size: clamp(1.5rem, 1.25rem + 1vw, 2rem);
+    letter-spacing: -0.025em;
+  }
+
+  .viz-readout--header .viz-readout__no .viz-readout__words {
+    font-size: 1rem;
+  }
+
+  .viz-readout--card {
+    gap: 0.25em 1em;
+  }
+
+  .viz-readout--card .viz-readout__yes .viz-readout__figure {
+    font-size: 2.5rem;
+  }
+
+  .viz-readout--card .viz-readout__no .viz-readout__figure {
+    font-size: 1.25rem;
+  }
+
+  .viz-readout--card .viz-readout__words {
+    font-size: 0.875rem;
+  }
+
+  .viz-readout--inline {
+    display: inline;
+    font-family: inherit;
+    color: inherit;
+  }
+
+  .viz-readout--inline .viz-readout__side {
+    display: inline;
+  }
+
+  .viz-readout--inline .viz-readout__figure {
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: inherit;
+  }
+
+  .viz-readout--inline .viz-readout__words {
+    display: inline;
+    color: inherit;
+    font-weight: inherit;
+    letter-spacing: inherit;
+    line-height: inherit;
+  }
+
+  .viz-readout--inline .viz-readout__no::before {
+    content: " · ";
+  }
+
+  /* -------------------------------------------------------------------------
+     SplitBar: Yes and No on one bar, 0 to 100, with the middle marked
+     ---------------------------------------------------------------------- */
+
+  .viz-split {
+    display: block;
+    font-family: var(--viz-font-mono);
+  }
+
+  .viz-split__labels {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-split__labels b {
+    font-weight: 500;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-split__labels .viz-num {
+    color: var(--viz-ink);
+    font-weight: 500;
+  }
+
+  .viz-split__track {
+    position: relative;
+    display: block;
+  }
+
+  .viz-split__tick {
+    position: absolute;
+    left: 50%;
+    top: -4px;
+    bottom: -4px;
+    width: 1px;
+    margin-left: -0.5px;
+    background: var(--viz-muted);
+  }
+
+  .viz-split__bar {
+    position: relative;
+    display: flex;
+    gap: 2px;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .viz-split__yes {
+    flex: 0 1 calc(var(--viz-yes) * 1%);
+    min-width: 2px;
+    background: var(--viz-accent);
+  }
+
+  .viz-split__no {
+    flex: 1 1 0;
+    min-width: 2px;
+    background: var(--viz-no);
+  }
+
+  .viz-split--sm .viz-split__bar {
+    height: 4px;
+  }
+
+  .viz-split--sm .viz-split__tick {
+    top: -3px;
+    bottom: -3px;
+  }
+
+  .viz-split--lg .viz-split__bar {
+    height: 12px;
+  }
+
+  .viz-split--lg .viz-split__labels {
+    font-size: 0.8125rem;
+  }
+
+  /* -------------------------------------------------------------------------
+     Rails: a fixed 0-to-100 track, shared by MoveTrack and RangeBar.
+
+     The rail is a size container, so 1cqi is one percentage point of it and
+     anything drawn on it can be sized in px from a length in points. The
+     figures at its ends sit outside it, in padding wide enough for the widest
+     one ("99.5%"), so they never leave the part and never meet.
+     ---------------------------------------------------------------------- */
+
+  .viz-mt,
+  .viz-range {
+    --viz-pad: 2.9rem;
+    --viz-rail-h: 20px;
+    --viz-r-was: 4.5px;
+    --viz-r-now: 5px;
+    position: relative;
+    display: block;
+    padding-inline: var(--viz-pad);
+    font-family: var(--viz-font-mono);
+    font-size: 0.75rem;
+    line-height: 1;
+  }
+
+  .viz-mt__rail,
+  .viz-range__rail {
+    position: relative;
+    display: block;
+    height: var(--viz-rail-h);
+    container-type: inline-size;
+  }
+
+  .viz-mt__line,
+  .viz-range__line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    margin-top: -0.5px;
+    background: var(--viz-rail);
+  }
+
+  .viz-mt__tick,
+  .viz-range__tick {
+    position: absolute;
+    left: calc(var(--viz-at) * 1%);
+    top: 50%;
+    width: 1px;
+    height: 7px;
+    margin: -3.5px 0 0 -0.5px;
+    background: var(--viz-rail);
+  }
+
+  .viz-mt__tick[data-mid],
+  .viz-range__tick[data-mid] {
+    height: 9px;
+    margin-top: -4.5px;
+    background: var(--viz-muted);
+  }
+
+  .viz-mt__seg {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--viz-lo) * 1%);
+    width: calc(var(--viz-d) * 1%);
+    height: 2px;
+    margin-top: -1px;
+    background: var(--viz-accent);
+  }
+
+  /* The arrowhead: as long as the gap between the two markers allows, up to
+     7px, so a short move draws a small head and a tiny one none at all. */
+  .viz-mt__head {
+    --viz-head: clamp(0px, calc(var(--viz-d) * 1cqi - var(--viz-r-was) - var(--viz-r-now) - 3px), 7px);
+    position: absolute;
+    top: 50%;
+    width: var(--viz-head);
+    height: calc(var(--viz-head) * 1.3);
+    transform: translateY(-50%);
+    background: var(--viz-accent);
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+
+  .viz-mt[data-dir="up"] .viz-mt__head {
+    left: calc(var(--viz-now) * 1% - var(--viz-r-now) - 1px - var(--viz-head));
+  }
+
+  .viz-mt[data-dir="down"] .viz-mt__head {
+    left: calc(var(--viz-now) * 1% + var(--viz-r-now) + 1px);
+    clip-path: polygon(100% 0, 0 50%, 100% 100%);
+  }
+
+  .viz-mt__was,
+  .viz-mt__now,
+  .viz-range__now {
+    position: absolute;
+    top: 50%;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .viz-mt__was {
+    left: calc(var(--viz-was) * 1%);
+    width: calc(var(--viz-r-was) * 2);
+    height: calc(var(--viz-r-was) * 2);
+    border: 1.5px solid var(--viz-ink-2);
+    background: var(--viz-ground);
+  }
+
+  .viz-mt__now,
+  .viz-range__now {
+    left: calc(var(--viz-now) * 1%);
+    width: calc(var(--viz-r-now) * 2);
+    height: calc(var(--viz-r-now) * 2);
+    background: var(--viz-accent);
+    box-shadow: 0 0 0 2px var(--viz-ground);
+  }
+
+  .viz-mt__end,
+  .viz-range__end {
+    position: absolute;
+    top: 50%;
+    padding: 1px 3px;
+    border-radius: 3px;
+    background: var(--viz-ground);
+    transform: translateY(-50%);
+    white-space: nowrap;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-mt__fig,
+  .viz-range__fig {
+    color: var(--viz-ink-2);
+    font-weight: 400;
+  }
+
+  .viz-mt__end--now .viz-mt__fig {
+    color: var(--viz-ink);
+    font-weight: 500;
+  }
+
+  .viz-mt__word,
+  .viz-range__word {
+    color: var(--viz-muted);
+    font-size: 0.6875rem;
+    letter-spacing: 0.01em;
+  }
+
+  /* Each figure sits on the far side of its marker from the other one. */
+  .viz-mt[data-dir="up"] .viz-mt__end--was,
+  .viz-mt[data-dir="flat"] .viz-mt__end--was {
+    right: calc(100% - var(--viz-was) * 1% + var(--viz-r-was) + 2px);
+  }
+
+  .viz-mt[data-dir="up"] .viz-mt__end--now,
+  .viz-mt[data-dir="flat"] .viz-mt__end--now {
+    left: calc(var(--viz-now) * 1% + var(--viz-r-now) + 2px);
+  }
+
+  .viz-mt[data-dir="down"] .viz-mt__end--was {
+    left: calc(var(--viz-was) * 1% + var(--viz-r-was) + 2px);
+  }
+
+  .viz-mt[data-dir="down"] .viz-mt__end--now {
+    right: calc(100% - var(--viz-now) * 1% + var(--viz-r-now) + 2px);
+  }
+
+  /* Large: a word over each figure, above the track. */
+  .viz-mt__label,
+  .viz-range__label {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    white-space: nowrap;
+    line-height: 1;
+  }
+
+  .viz-mt__label[data-align="right"],
+  .viz-range__label[data-align="right"] {
+    align-items: flex-end;
+  }
+
+  .viz-mt__label[data-align="center"],
+  .viz-range__label[data-align="center"] {
+    align-items: center;
+  }
+
+  .viz-mt--large,
+  .viz-range--large {
+    --viz-rail-h: 28px;
+    --viz-r-was: 6px;
+    --viz-r-now: 7px;
+    font-size: 0.75rem;
+  }
+
+  .viz-range--large {
+    padding-bottom: 24px;
+  }
+
+  .viz-range__nowlabel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: clamp(
+      calc(-1 * var(--viz-pl)),
+      calc(var(--viz-now) * 1% - var(--viz-now-w) / 2),
+      calc(100% + var(--viz-pr) - var(--viz-now-w))
+    );
+    width: var(--viz-now-w);
+    text-align: center;
+    white-space: nowrap;
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--viz-ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-mt--large .viz-mt__seg {
+    height: 3px;
+    margin-top: -1.5px;
+  }
+
+  .viz-mt--large .viz-mt__head {
+    --viz-head: clamp(0px, calc(var(--viz-d) * 1cqi - var(--viz-r-was) - var(--viz-r-now) - 4px), 10px);
+  }
+
+  .viz-mt--large .viz-mt__fig,
+  .viz-range--large .viz-range__fig {
+    font-family: var(--viz-font-figure);
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .viz-mt--large .viz-mt__label[data-key="now"] .viz-mt__fig {
+    color: var(--viz-ink);
+  }
+
+  .viz-mt--large .viz-mt__word,
+  .viz-range--large .viz-range__word {
+    font-size: 11px;
+  }
+
+  .viz-scale {
+    position: relative;
+    display: block;
+    height: 1rem;
+    margin-top: 0.375rem;
+    padding-inline: var(--viz-pad, 2.9rem);
+    font-family: var(--viz-font-mono);
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    color: var(--viz-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-scale--inset {
+    padding-inline: 0;
+  }
+
+  .viz-scale__inner {
+    position: relative;
+    display: block;
+    height: 100%;
+  }
+
+  .viz-scale__label {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  /* Two windows of one question, on one scale. */
+  .viz-windows {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: center;
+    gap: 0.625rem 0.75rem;
+    font-family: var(--viz-font-mono);
+  }
+
+  .viz-windows__lane {
+    display: contents;
+  }
+
+  .viz-windows__name {
+    font-size: 0.75rem;
+    line-height: 1.2;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-windows__none {
+    display: block;
+    padding-inline: var(--viz-pad, 2.9rem);
+    font-size: 0.75rem;
+    line-height: 20px;
+    color: var(--viz-muted);
+  }
+
+  .viz-windows__scale {
+    grid-column: 2;
+  }
+
+  /* -------------------------------------------------------------------------
+     RangeBar: the week's low to high, with the price now on it
+     ---------------------------------------------------------------------- */
+
+  .viz-range__band {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--viz-low) * 1%);
+    width: max(2px, calc((var(--viz-high) - var(--viz-low)) * 1%));
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 3px;
+    /* 3.3:1 on either ground once composited (#656565 on soot, #6c6c6c on the surface). */
+    background: rgb(255 255 255 / 0.36);
+  }
+
+  .viz-range--large .viz-range__band {
+    height: 10px;
+    margin-top: -5px;
+    border-radius: 5px;
+  }
+
+  .viz-range__end--low {
+    right: calc(100% - var(--viz-low) * 1% + 6px);
+    align-items: flex-end;
+    text-align: right;
+  }
+
+  .viz-range__end--high {
+    left: calc(var(--viz-high) * 1% + 6px);
+  }
+
+  /* -------------------------------------------------------------------------
+     Sparkline: a week in a row, on the same fixed scale
+     ---------------------------------------------------------------------- */
+
+  .viz-spark {
+    position: relative;
+    display: inline-block;
+    width: var(--viz-spark-w, 6rem);
+    height: var(--viz-spark-h, 1.75rem);
+    vertical-align: middle;
+  }
+
+  .viz-spark svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .viz-spark__mid {
+    stroke: var(--viz-grid-strong);
+    stroke-width: 1;
+  }
+
+  .viz-spark__line {
+    fill: none;
+    stroke: var(--viz-accent);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  .viz-spark__end {
+    position: absolute;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--viz-accent);
+    box-shadow: 0 0 0 1.5px var(--viz-ground);
+    transform: translate(-50%, -50%);
+  }
+
+  /* -------------------------------------------------------------------------
+     LineChart: the price over time
+     ---------------------------------------------------------------------- */
+
+  .viz-lc {
+    margin: 0;
+    container: viz-lc / inline-size;
+    color: var(--viz-ink);
+  }
+
+  .viz-lc__frame {
+    --viz-lc-top: var(--viz-lc-top-xs);
+    --viz-lc-h: var(--viz-lc-h-xs);
+    --viz-lc-left: var(--viz-lc-left-xs);
+    --viz-lc-right: var(--viz-lc-right-xs);
+    --viz-lc-x: var(--viz-lc-x-xs);
+    display: grid;
+    grid-template-columns: var(--viz-lc-left) minmax(0, 1fr) var(--viz-lc-right);
+    grid-template-rows: var(--viz-lc-top) var(--viz-lc-h) var(--viz-lc-x);
+    font-family: var(--viz-font-mono);
+  }
+
+  .viz-lc__y {
+    position: relative;
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .viz-lc__ylabel {
+    position: absolute;
+    right: 8px;
+    transform: translateY(-50%);
+    font-size: 10.5px;
+    line-height: 1;
+    color: var(--viz-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .viz-lc__plot {
+    position: relative;
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .viz-lc__svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .viz-lc__grid {
+    stroke: var(--viz-grid);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+  }
+
+  .viz-lc__grid[data-mid] {
+    stroke: var(--viz-grid-strong);
+  }
+
+  .viz-lc__line {
+    fill: none;
+    stroke: var(--viz-accent);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  .viz-lc__wash-top {
+    stop-color: var(--viz-accent);
+    stop-opacity: 0.16;
+  }
+
+  .viz-lc__wash-bottom {
+    stop-color: var(--viz-accent);
+    stop-opacity: 0.015;
+  }
+
+  .viz-lc__rule {
+    position: absolute;
+    top: calc(-1 * var(--viz-lc-top) + 2px);
+    bottom: 0;
+    width: 1px;
+    margin-left: -0.5px;
+    background: var(--viz-rule);
+  }
+
+  .viz-lc__mk {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .viz-lc__mk--end {
+    width: 10px;
+    height: 10px;
+    background: var(--viz-accent);
+    box-shadow: 0 0 0 2px var(--viz-ground);
+  }
+
+  .viz-lc__mk--ref {
+    width: 9px;
+    height: 9px;
+    border: 1.5px solid var(--viz-ink);
+    background: var(--viz-ground);
+  }
+
+  .viz-lc__mk--bead {
+    width: 6px;
+    height: 6px;
+    background: var(--viz-ink);
+    box-shadow: 0 0 0 2px var(--viz-ground);
+  }
+
+  .viz-lc__mk--dot {
+    width: 5px;
+    height: 5px;
+    background: var(--viz-accent);
+    box-shadow: 0 0 0 1.5px var(--viz-ground);
+  }
+
+  .viz-lc__mk--outcome {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    box-shadow: 0 0 0 2px var(--viz-ground);
+  }
+
+  .viz-lc__mk--outcome[data-outcome="yes"] {
+    background: var(--viz-accent);
+  }
+
+  .viz-lc__mk--outcome[data-outcome="no"] {
+    background: var(--viz-ink);
+  }
+
+  /* A label's place at each width was decided on the server; the container
+     query only picks which one applies. Sizes are in ch of the monospaced
+     face, the unit the layout was worked out in. */
+  .viz-lc__label {
+    --viz-dx: var(--viz-dx-xs);
+    --viz-dy: var(--viz-dy-xs);
+    --viz-vis: var(--viz-vis-xs);
+    --viz-lt: var(--viz-lt-xs, 0px);
+    --viz-ll: var(--viz-ll-xs, 0px);
+    position: absolute;
+    z-index: 1;
+    box-sizing: border-box;
+    width: calc(var(--viz-chars) * 1ch + 8px);
+    height: 18px;
+    padding: 0 4px;
+    transform: translate(var(--viz-dx), var(--viz-dy));
+    visibility: var(--viz-vis);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--viz-ground) 88%, transparent);
+    font-size: 11px;
+    line-height: 18px;
+    white-space: nowrap;
+    color: var(--viz-ink-2);
+    pointer-events: none;
+  }
+
+  .viz-lc__label-value {
+    color: var(--viz-ink);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-lc__leader {
+    position: absolute;
+    left: calc(-1 * var(--viz-dx) - 0.5px);
+    top: var(--viz-lt);
+    width: 1px;
+    height: var(--viz-ll);
+    background: var(--viz-rule);
+  }
+
+  .viz-lc__end {
+    position: relative;
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .viz-lc__endlabel {
+    position: absolute;
+    left: 10px;
+    right: 0;
+    top: clamp(18px, var(--viz-top), calc(100% - 18px));
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    transform: translateY(-50%);
+  }
+
+  .viz-lc__endvalue {
+    font-family: var(--viz-font-figure);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    color: var(--viz-ink);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .viz-lc__endlabel[data-long] .viz-lc__endvalue {
+    font-size: 13px;
+  }
+
+  .viz-lc__endword {
+    font-size: 10px;
+    line-height: 1.15;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-lc__x {
+    position: relative;
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .viz-lc__tick {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 5px;
+    margin-left: -0.5px;
+    background: var(--viz-grid-strong);
+  }
+
+  .viz-lc__xl {
+    --viz-dx: var(--viz-dx-xs);
+    --viz-vis: var(--viz-vis-xs);
+    position: absolute;
+    top: 10px;
+    transform: translateX(var(--viz-dx));
+    visibility: var(--viz-vis);
+    font-size: 10.5px;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--viz-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-lc__xl[data-xs="long"] .viz-lc__xl-short,
+  .viz-lc__xl[data-xs="short"] .viz-lc__xl-long {
+    display: none;
+  }
+
+  .viz-lc__unit {
+    grid-column: 3;
+    grid-row: 3;
+    padding: 10px 0 0 10px;
+    font-size: 10.5px;
+    line-height: 1;
+    color: var(--viz-muted);
+  }
+
+  @container viz-lc (min-width: 340px) {
+    .viz-lc__frame {
+      --viz-lc-top: var(--viz-lc-top-s);
+      --viz-lc-h: var(--viz-lc-h-s);
+      --viz-lc-left: var(--viz-lc-left-s);
+      --viz-lc-right: var(--viz-lc-right-s);
+      --viz-lc-x: var(--viz-lc-x-s);
+    }
+    .viz-lc__label {
+      --viz-dx: var(--viz-dx-s);
+      --viz-dy: var(--viz-dy-s);
+      --viz-vis: var(--viz-vis-s);
+      --viz-lt: var(--viz-lt-s, 0px);
+      --viz-ll: var(--viz-ll-s, 0px);
+    }
+    .viz-lc__xl {
+      --viz-dx: var(--viz-dx-s);
+      --viz-vis: var(--viz-vis-s);
+    }
+    .viz-lc__xl[data-xs] .viz-lc__xl-short,
+    .viz-lc__xl[data-xs] .viz-lc__xl-long {
+      display: inline;
+    }
+    .viz-lc__xl[data-s="long"] .viz-lc__xl-short,
+    .viz-lc__xl[data-s="short"] .viz-lc__xl-long {
+      display: none;
+    }
+  }
+
+  @container viz-lc (min-width: 520px) {
+    .viz-lc__frame {
+      --viz-lc-top: var(--viz-lc-top-m);
+      --viz-lc-h: var(--viz-lc-h-m);
+      --viz-lc-left: var(--viz-lc-left-m);
+      --viz-lc-right: var(--viz-lc-right-m);
+      --viz-lc-x: var(--viz-lc-x-m);
+    }
+    .viz-lc__label {
+      --viz-dx: var(--viz-dx-m);
+      --viz-dy: var(--viz-dy-m);
+      --viz-vis: var(--viz-vis-m);
+      --viz-lt: var(--viz-lt-m, 0px);
+      --viz-ll: var(--viz-ll-m, 0px);
+    }
+    .viz-lc__xl {
+      --viz-dx: var(--viz-dx-m);
+      --viz-vis: var(--viz-vis-m);
+    }
+    .viz-lc__xl[data-s] .viz-lc__xl-short,
+    .viz-lc__xl[data-s] .viz-lc__xl-long {
+      display: inline;
+    }
+    .viz-lc__xl[data-m="long"] .viz-lc__xl-short,
+    .viz-lc__xl[data-m="short"] .viz-lc__xl-long {
+      display: none;
+    }
+    .viz-lc__endvalue {
+      font-size: 17px;
+    }
+    .viz-lc__endlabel[data-long] .viz-lc__endvalue {
+      font-size: 15px;
+    }
+    .viz-lc__endword {
+      font-size: 10.5px;
+    }
+  }
+
+  @container viz-lc (min-width: 840px) {
+    .viz-lc__frame {
+      --viz-lc-top: var(--viz-lc-top-l);
+      --viz-lc-h: var(--viz-lc-h-l);
+      --viz-lc-left: var(--viz-lc-left-l);
+      --viz-lc-right: var(--viz-lc-right-l);
+      --viz-lc-x: var(--viz-lc-x-l);
+    }
+    .viz-lc__label {
+      --viz-dx: var(--viz-dx-l);
+      --viz-dy: var(--viz-dy-l);
+      --viz-vis: var(--viz-vis-l);
+      --viz-lt: var(--viz-lt-l, 0px);
+      --viz-ll: var(--viz-ll-l, 0px);
+    }
+    .viz-lc__xl {
+      --viz-dx: var(--viz-dx-l);
+      --viz-vis: var(--viz-vis-l);
+    }
+    .viz-lc__xl[data-m] .viz-lc__xl-short,
+    .viz-lc__xl[data-m] .viz-lc__xl-long {
+      display: inline;
+    }
+    .viz-lc__xl[data-l="long"] .viz-lc__xl-short,
+    .viz-lc__xl[data-l="short"] .viz-lc__xl-long {
+      display: none;
+    }
+  }
+
+  /* Narrower than the narrowest layout: only the end of the line is named. */
+  @container viz-lc (max-width: 255px) {
+    .viz-lc__label {
+      visibility: hidden;
+    }
+  }
+
+  .viz-lc__empty {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max-content;
+    max-width: calc(100% - 1rem);
+    margin: 0;
+    padding: 0.5rem 0.875rem;
+    transform: translate(-50%, -50%);
+    border-radius: 8px;
+    background: var(--viz-ground);
+    text-align: center;
+    line-height: 1.45;
+    font-family: var(--viz-font-figure);
+    font-size: 0.9375rem;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-lc__summary {
+    margin: 0.875rem 0 0;
+    font-family: var(--viz-font-figure);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--viz-ink-2);
+  }
+
+  /* The interactive layer over the plot: a crosshair, a dot and a tooltip. */
+  .viz-lc__scrub {
+    position: absolute;
+    inset: -6px 0;
+    z-index: 2;
+    cursor: crosshair;
+    touch-action: pan-y;
+    border-radius: 6px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .viz-lc__scrub:focus {
+    outline: none;
+  }
+
+  /* Hugs the plot (the layer already reaches 6px past it), clear of every label. */
+  .viz-lc__scrub:focus-visible {
+    outline: 2px solid var(--viz-accent);
+    outline-offset: 0;
+  }
+
+  .viz-lc__cross {
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    width: 1px;
+    margin-left: -0.5px;
+    background: var(--viz-ink-2);
+    pointer-events: none;
+  }
+
+  .viz-lc__hover {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--viz-accent);
+    box-shadow:
+      0 0 0 2px var(--viz-ground),
+      0 0 0 3.5px var(--viz-accent);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .viz-lc__tip {
+    position: absolute;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: max-content;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgb(255 255 255 / 0.12);
+    background: color-mix(in srgb, var(--viz-surface) 96%, transparent);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+    pointer-events: none;
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-lc__tip[data-side="right"] {
+    left: calc(var(--viz-fx) * 100% + 12px);
+  }
+
+  .viz-lc__tip[data-side="left"] {
+    right: calc((1 - var(--viz-fx)) * 100% + 12px);
+  }
+
+  .viz-lc__tip[data-at="top"] {
+    top: 10px;
+  }
+
+  .viz-lc__tip[data-at="bottom"] {
+    bottom: 10px;
+  }
+
+  .viz-lc__tip-value {
+    font-family: var(--viz-font-figure);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--viz-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-lc__tip-words {
+    font-family: var(--viz-font-figure);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-lc__tip-note {
+    color: var(--viz-accent);
+  }
+
+  /* The figures, for anyone who would rather read them. */
+  .viz-lc__figures {
+    margin-top: 0.75rem;
+    font-family: var(--viz-font-figure);
+    font-size: 0.875rem;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-lc__figures > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    cursor: pointer;
+    color: var(--viz-ink);
+    font-weight: 500;
+    list-style: none;
+  }
+
+  .viz-lc__figures > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .viz-lc__figures > summary::before {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 160ms ease;
+  }
+
+  .viz-lc__figures[open] > summary::before {
+    transform: rotate(45deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .viz-lc__figures > summary::before {
+      transition: none;
+    }
+  }
+
+  .viz-lc__figures > summary:focus-visible {
+    outline: 2px solid var(--viz-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .viz-lc__keys {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.375rem 1.25rem;
+    margin: 0.5rem 0 1rem;
+  }
+
+  .viz-lc__keys dt {
+    color: var(--viz-ink-2);
+  }
+
+  .viz-lc__keys dd {
+    margin: 0;
+    color: var(--viz-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-lc__tablewrap {
+    max-height: 22rem;
+    overflow: auto;
+    border-radius: 10px;
+    border: 1px solid var(--viz-grid);
+  }
+
+  .viz-lc__tablewrap:focus-visible {
+    outline: 2px solid var(--viz-accent);
+    outline-offset: 2px;
+  }
+
+  .viz-lc__table {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .viz-lc__table th,
+  .viz-lc__table td {
+    padding: 0.375rem 0.75rem;
+    border: 0;
+    border-bottom: 1px solid var(--viz-grid);
+    text-align: left;
+    font-weight: 400;
+    background: none;
+  }
+
+  .viz-lc__table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--viz-surface);
+    color: var(--viz-ink-2);
+    font-weight: 500;
+  }
+
+  .viz-lc__table tbody th[scope="rowgroup"] {
+    padding-top: 0.75rem;
+    color: var(--viz-ink);
+    font-weight: 500;
+  }
+
+  .viz-lc__table tbody th[scope="row"] {
+    font-family: var(--viz-font-mono);
+    font-size: 0.75rem;
+    color: var(--viz-ink-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .viz-lc__table td.viz-num {
+    font-family: var(--viz-font-mono);
+    font-size: 0.75rem;
+    color: var(--viz-ink);
+    text-align: right;
+  }
+
+  .viz-lc__table td:last-child {
+    color: var(--viz-ink-2);
+  }
+
+  /* -------------------------------------------------------------------------
+     MarginBars: what a margin takes, pick by pick, beside none
+     ---------------------------------------------------------------------- */
+
+  .viz-margin {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-family: var(--viz-font-figure);
+    color: var(--viz-ink-2);
+  }
+
+  .viz-margin th,
+  .viz-margin td {
+    padding: 0;
+    border: 0;
+    background: none;
+    text-align: left;
+    vertical-align: middle;
+    font-weight: 400;
+  }
+
+  .viz-margin thead th {
+    padding-bottom: 0.875rem;
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    color: var(--viz-ink-2);
+    font-weight: 500;
+  }
+
+  .viz-margin tbody th {
+    width: 1%;
+    padding: 0.3125rem 1rem 0.3125rem 0;
+    white-space: nowrap;
+    font-family: var(--viz-font-mono);
+    font-size: 0.75rem;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-margin__cell {
+    padding: 0.3125rem 0;
+  }
+
+  .viz-margin__us-col {
+    width: 26%;
+    padding-left: 1.25rem !important;
+  }
+
+  .viz-margin__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-height: 1.5rem;
+    border-left: 1px solid var(--viz-rail);
+  }
+
+  .viz-margin__fill {
+    flex: none;
+    width: calc(var(--viz-take) / var(--viz-max) * (100% - 3.75rem));
+    height: 14px;
+    border-radius: 0 4px 4px 0;
+    background: var(--viz-no);
+  }
+
+  .viz-margin__value {
+    font-family: var(--viz-font-mono);
+    font-size: 0.8125rem;
+    color: var(--viz-ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-margin__zero {
+    font-family: var(--viz-font-mono);
+    font-size: 0.8125rem;
+    color: var(--viz-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-margin__stub {
+    flex: none;
+    width: 2px;
+    height: 14px;
+    background: var(--viz-ink-2);
+  }
+
+  .viz-margin tr[data-lead] th {
+    color: var(--viz-ink);
+  }
+
+  .viz-margin tr[data-lead] .viz-margin__fill {
+    background: var(--viz-ink);
+  }
+
+  .viz-margin tr[data-lead] .viz-margin__value {
+    color: var(--viz-ink);
+    font-weight: 600;
+  }
+
+  /* -------------------------------------------------------------------------
+     Slip figures: a chance, its fair odds, what a stake returns
+     ---------------------------------------------------------------------- */
+
+  .viz-pick {
+    container: viz-pick / inline-size;
+    font-family: var(--viz-font-figure);
+  }
+
+  .viz-pick__steps {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: start;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .viz-pick__step {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+
+  .viz-pick__figure {
+    font-size: 1.75rem;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: var(--viz-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-pick__words {
+    font-size: 0.8125rem;
+    line-height: 1.35;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-pick__rule {
+    font-family: var(--viz-font-mono);
+    font-size: 0.6875rem;
+    color: var(--viz-muted);
+  }
+
+  .viz-pick__arrow {
+    align-self: start;
+    padding-top: 0.35rem;
+    font-size: 1.125rem;
+    line-height: 1;
+    color: var(--viz-muted);
+  }
+
+  @container viz-pick (max-width: 359px) {
+    .viz-pick__steps {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.5rem;
+    }
+    .viz-pick__arrow {
+      padding: 0;
+      transform: rotate(90deg);
+      justify-self: start;
+    }
+  }
+
+  .viz-pick__note {
+    margin: 0.75rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-slip {
+    font-family: var(--viz-font-figure);
+    color: var(--viz-ink-2);
+  }
+
+  .viz-slip__title {
+    margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-slip__steps {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .viz-slip__step {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 3.75rem;
+    grid-template-areas: "label label" "bar value";
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+  }
+
+  .viz-slip__label {
+    grid-area: label;
+    font-size: 0.8125rem;
+    color: var(--viz-ink-2);
+  }
+
+  .viz-slip__label b {
+    font-weight: 500;
+    color: var(--viz-ink);
+  }
+
+  .viz-slip__track {
+    grid-area: bar;
+    position: relative;
+    height: 10px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.06);
+  }
+
+  .viz-slip__fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: max(2px, calc(var(--viz-p) * 1%));
+    border-radius: 999px;
+    background: var(--viz-no);
+  }
+
+  .viz-slip__track::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -3px;
+    bottom: -3px;
+    width: 1px;
+    background: var(--viz-muted);
+    opacity: 0.6;
+  }
+
+  .viz-slip__value {
+    grid-area: value;
+    text-align: right;
+    font-family: var(--viz-font-mono);
+    font-size: 0.8125rem;
+    color: var(--viz-ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-slip__step[data-last] .viz-slip__fill {
+    background: var(--viz-ink);
+  }
+
+  .viz-slip__step[data-last] .viz-slip__value {
+    color: var(--viz-ink);
+    font-weight: 600;
+  }
+
+  .viz-slip__total {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    margin: 1rem 0 0;
+    padding-top: 0.875rem;
+    border-top: 1px solid var(--viz-grid);
+  }
+
+  .viz-slip__all {
+    font-size: 1.375rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--viz-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-slip__return {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0.5rem 0 0;
+    font-size: 0.875rem;
+    color: var(--viz-ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-slip__return b {
+    color: var(--viz-ink);
+    font-weight: 500;
+  }
+
+  .viz-slip__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--viz-ink-2);
+  }
+
+  /* -------------------------------------------------------------------------
+     High contrast: system colours, so nothing depends on the palette.
+     ---------------------------------------------------------------------- */
+
+  @media (forced-colors: active) {
+    .viz-split__yes,
+    .viz-mt__seg,
+    .viz-mt__head,
+    .viz-mt__now,
+    .viz-range__now,
+    .viz-lc__mk--end,
+    .viz-lc__mk--dot,
+    .viz-spark__end,
+    .viz-key {
+      background: Highlight;
+      forced-color-adjust: none;
+    }
+    .viz-split__no,
+    .viz-range__band,
+    .viz-margin__fill,
+    .viz-slip__fill,
+    .viz-key--no {
+      background: CanvasText;
+      forced-color-adjust: none;
+    }
+    .viz-lc__line,
+    .viz-spark__line {
+      stroke: Highlight;
+    }
+    .viz-lc__grid {
+      stroke: GrayText;
+    }
+  }
+}

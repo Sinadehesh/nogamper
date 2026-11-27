@@ -38,7 +38,7 @@ export function MarketCard({
           <span>{remaining ? t.closesIn(remaining) : t.closed}</span>
           {market.probability.stale ? <span>· {t.priceUpdating}</span> : null}
         </p>
-        <h3 className="mt-2 font-semibold leading-snug">{market.question}</h3>
+        <h3 className="mt-2 text-base font-semibold leading-snug">{market.question}</h3>
         {market.event.title && market.event.title !== market.question ? (
           <p className="mt-1 line-clamp-1 text-xs text-muted">{market.event.title}</p>
         ) : null}

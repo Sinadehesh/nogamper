@@ -120,7 +120,7 @@ function RecordBody({ record }: { record: RealityCheck }) {
       </dl>
 
       <div className="mt-5 rounded-xl border border-line bg-sunken p-4">
-        <h3 className="font-bold">{t.marginTitle}</h3>
+        <h3 className="text-base font-bold">{t.marginTitle}</h3>
         <p className="mt-1 text-sm text-muted">{t.marginBody(margin)}</p>
         {record.margin_cost.minor > 0 ? (
           <>
@@ -141,7 +141,7 @@ function RecordBody({ record }: { record: RealityCheck }) {
 
       {calibrated.length > 0 ? (
         <div className="mt-5">
-          <h3 className="font-bold">{t.calibrationTitle}</h3>
+          <h3 className="text-base font-bold">{t.calibrationTitle}</h3>
           <p className="mt-1 text-sm text-muted">{t.calibrationIntro}</p>
           <table className="table mt-3">
             <thead>

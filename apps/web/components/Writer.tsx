@@ -189,7 +189,7 @@ export function Writer({ displayName }: { displayName: string }) {
       ) : (
         <>
           <section className="mt-8 max-w-2xl" aria-labelledby="rules">
-            <h2 id="rules" className="font-bold">
+            <h2 id="rules" className="text-base font-bold">
               {t.writeRulesTitle}
             </h2>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
@@ -220,7 +220,7 @@ export function Writer({ displayName }: { displayName: string }) {
                 {desk.articles.map((article) => (
                   <li key={article.id} className="card max-w-3xl p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <h3 className="font-bold leading-snug">{article.title}</h3>
+                      <h3 className="text-base font-bold leading-snug">{article.title}</h3>
                       <span className={`chip ${STATUS_TONE[article.status]}`}>
                         {t.articleStatus[article.status]}
                       </span>

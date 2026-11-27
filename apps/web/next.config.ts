@@ -23,6 +23,13 @@ const config: NextConfig = {
   // instructions for assistants are kept deliberately, so nothing is added
   // behind the owner's back.
   agentRules: false,
+  // The development build's floating badge sits over the page's own corner,
+  // in the way of the layout being checked.
+  devIndicators: false,
+  // The development server refuses its own live-reload connection from any
+  // address but localhost, so a page opened at 127.0.0.1 never comes alive.
+  // Development only: production builds ignore this.
+  allowedDevOrigins: ["127.0.0.1"],
   env: {
     // Whether this build knows where the game's API is. A production build
     // with no API_BASE_URL has nothing behind its "Start playing" button, so

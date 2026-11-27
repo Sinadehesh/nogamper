@@ -1,175 +1,435 @@
+/* ---------------------------------------------------------------------------
+   The order of the cascade, before anything else
+
+   The page kit (public/assets, the design skill's system.css and the files it
+   comes with) is loaded by app/layout.tsx into the layer "kit". Declared here
+   first, and again first in the layout's <style>, so whichever the browser
+   meets first sets the same order:
+
+     theme, base   Tailwind's variables and its preflight reset
+     kit           the kit's tokens, element rules and classes (.btn, .card ...)
+     components    this file's classes, which win over the kit's
+     utilities     every Tailwind utility, which wins over everything above
+
+   The kit's own files are never edited. Where one of its rules is wrong for
+   this site, a rule in "components" below says so and wins.
+   -------------------------------------------------------------------------- */
+@layer theme, base, kit, components, utilities;
+
 @import "tailwindcss";
+
+/* The kit's files are served as they are, not built: Tailwind has no class
+   names to find in them. */
+@source not "../public/assets";
+
+/* ---------------------------------------------------------------------------
+   Type
+
+   Schibsted Grotesk (variable, 400 to 700) for everything, JetBrains Mono
+   (400 to 500) for code and figures set in a fixed width. Both are served
+   from this site's own /fonts folder, with their licences beside them: a
+   font fetched from a third party would be a request from every visitor to a
+   site about a sensitive subject, and a build that fails whenever that third
+   party is unreachable. The families are named as the kit's tokens name them
+   (--font-display, --font-text, --font-mono in app/layout.tsx).
+   -------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Schibsted Grotesk";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/schibsted-grotesk-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Schibsted Grotesk";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/schibsted-grotesk-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 /* ---------------------------------------------------------------------------
    Colour
 
-   The brief for this palette is mostly a list of things it must not be. No
-   gold, no neon, nothing that pulses: every visual habit of a betting site
-   is a habit this one is trying not to have. What is left is paper, ink and
-   one calm green-blue, with colour spent only where it carries a meaning —
-   which side of a question, and whether something needs attention.
+   Dark only: soot, near white, one grey and one lime accent, dealt with the
+   kit and set in app/layout.tsx as --p-*. The kit turns them into the tokens
+   of the ground an element stands on (--bg, --surface, --card, --ink,
+   --muted, --line, --line-strong, --accent, --accent-ink, --action,
+   --action-ink), and turns them again inside .ground-inverse and the other
+   grounds. Tailwind's colour names point at those tokens with `@theme
+   inline`, so a utility resolves where it is used: text-ink is near white on
+   the page and soot on a white band.
 
-   The values are plain custom properties on :root, switched by the OS
-   preference, and Tailwind's theme below points at them with `@theme inline`.
-   That indirection matters: a nested `@theme` inside a media query is hoisted
-   out of it by Tailwind v4, so a "dark" block written that way silently
-   applies everywhere. Variables on :root do exactly what they look like.
+   Every text colour clears WCAG AA, 4.5:1, on the ground and the surface it
+   sits on. The percentage on a card is the one number a player must not
+   misread.
 
-   Every text colour clears WCAG AA (4.5:1) against the surface it sits on in
-   both schemes; yes/no clear 3:1 as fills and 4.5:1 as text. Keep that
-   property when retuning — the percentage on a card is the one number a
-   player must not misread.
+   Yes is the lime accent and No a neutral light, never green and red: one
+   side is not the recommended one. Colour is never the only sign, so both
+   always carry their word.
    -------------------------------------------------------------------------- */
-:root {
-  color-scheme: light dark;
-
-  --bg: #f6f5f1;
-  --surface: #ffffff;
-  --sunken: #efede7;
-  --ink: #18212b;
-  --muted: #566170;
-  --line: #dcd9d0;
-  --accent: #0d6b63;
-  --accent-strong: #0a524c;
-  --on-accent: #ffffff;
-  --yes: #0a6e4b;
-  --no: #a81e44;
-  --warn: #8a4b06;
-  --warn-bg: #fdf3dd;
-  --danger: #a81e44;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f141a;
-    --surface: #182029;
-    --sunken: #121920;
-    --ink: #e7ecf2;
-    --muted: #9eaab9;
-    --line: #2b3643;
-    --accent: #3ccbb9;
-    --accent-strong: #62dccc;
-    --on-accent: #05211e;
-    --yes: #3dd69c;
-    --no: #ff8aa3;
-    --warn: #f6c453;
-    --warn-bg: #2b2412;
-    --danger: #ff8aa3;
-  }
-}
-
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
+  --color-card: var(--card);
   --color-sunken: var(--sunken);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-on-accent: var(--on-accent);
+  --color-action: var(--action);
+  --color-on-action: var(--action-ink);
   --color-yes: var(--yes);
   --color-no: var(--no);
   --color-warn: var(--warn);
   --color-warn-bg: var(--warn-bg);
   --color-danger: var(--danger);
 
-  /* The system's own typeface. No web font is fetched: it would be a request
-     to a third party from every visitor to a site about a sensitive subject,
-     and a build that fails whenever that third party is unreachable. */
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    "Noto Sans", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: var(--font-text);
 }
 
-html {
-  background-color: var(--bg);
-  color: var(--ink);
-  -webkit-text-size-adjust: 100%;
-}
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
 
-body {
-  font-family: var(--font-sans);
-  line-height: 1.55;
-  text-rendering: optimizeLegibility;
-}
+  /* The site's own tokens beyond the kit's, worked out from them on every
+     ground, so they follow a band of another colour as the kit's do. */
+  :root,
+  .ground-base,
+  .ground-surface,
+  .ground-inverse,
+  .ground-brand,
+  .nav--tone,
+  .footer--dark {
+    --sunken: color-mix(in oklab, var(--bg) 50%, var(--surface));
+    --on-accent: var(--accent-ink);
+    --accent-strong: color-mix(in oklab, var(--accent) 84%, var(--bg));
+    /* The kit's own error red, pulled towards the ink: 6:1 on soot. */
+    --danger: color-mix(in oklab, #d92d20 72%, var(--ink));
+    --warn: color-mix(in oklab, #e09a2b 78%, var(--ink));
+    --warn-bg: color-mix(in oklab, var(--warn) 9%, var(--surface));
+    --yes: var(--p-accent);
+    --no: #e6e6e6;
+  }
+  /* On the white band the lime and the light grey would vanish. */
+  .ground-inverse {
+    --yes: #4a6512;
+    --no: #4d4d4d;
+    --warn: #8a4b06;
+  }
 
-/* A visible focus ring on everything, drawn outside the element so it is
-   never clipped by a rounded corner. Keyboard users find their place; mouse
-   users never see it. */
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 0.25rem;
-}
-
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
+  /* The ground under everything, also past the page's ends when it is
+     pulled. The kit sets the body's own type and colour. */
+  html {
+    background-color: var(--bg);
+  }
 }
 
 /* ---------------------------------------------------------------------------
-   Components
+   The site's components, and the places where the kit needs telling
 
-   A handful of shapes used everywhere, named once. Anything more specific
-   is utilities in the component that needs it.
+   The kit's .btn, .card and .grid are the look. The classes below give the
+   site's markup the kit's look under the names that markup already uses
+   (btn-primary for the kit's btn--primary), and add what the kit has no
+   word for: a disabled button, a field that is the input itself, a notice.
    -------------------------------------------------------------------------- */
 @layer components {
-  .container-page {
-    width: 100%;
-    max-width: 64rem;
-    margin-inline: auto;
-    padding-inline: 1rem;
+  /* ----- the frame: the fixed header, the skip link ---------------------- */
+
+  /* The kit's header is fixed over the page. A page that opens on the kit's
+     hero lets the hero sit under it, as the kit means; every other page
+     starts below it, and an anchor jump lands clear of it. */
+  body:has(> header.nav) {
+    padding-top: var(--nav);
   }
-  @media (min-width: 40rem) {
-    .container-page {
-      padding-inline: 1.5rem;
+  html:has(> body > header.nav) {
+    scroll-padding-top: calc(var(--nav) + var(--s-5));
+  }
+  body:has(> main > :is(.hero, .section--hero):first-child) {
+    padding-top: 0;
+  }
+  html:has(> body > main > :is(.hero, .section--hero):first-child) {
+    scroll-padding-top: 0;
+  }
+
+  /* The skip link is the first thing in the page (app/layout.tsx), so it
+     works on the pages without the site's header too. It shows where the
+     kit shows it, over the logo on the bar's left line, above the bar. */
+  body > .skip-link {
+    position: fixed;
+    top: calc(var(--nav) / 2);
+    z-index: 60;
+  }
+
+  .container-page {
+    width: min(100% - 2 * var(--gut), var(--container));
+    margin-inline: auto;
+  }
+
+  /* The kit makes every section directly in main exactly one or two screens
+     tall: the layout of a page built on the kit's hero, the front page. A
+     page whose main does not open on that hero keeps its sections as tall as
+     what they hold. (New pages also keep their content out of direct
+     main > section children, as the redesign's brief asks; this keeps the
+     pages not yet redesigned, the game and admin readable meanwhile.) */
+  main:not(:has(> :is(.hero, .section--hero))) > :is(section, .section) {
+    display: block;
+    height: auto;
+    min-height: 0;
+    padding: 0;
+  }
+
+  /* ----- the header (components/SiteChrome.tsx) -------------------------- */
+
+  /* The kit opens a word's panel on hover and on focus by CSS alone, which
+     Escape cannot close. The site's header opens it from React state instead
+     (data-open on the item), with the same timing and the same look. */
+  @media (min-width: 1024px) {
+    .nav[data-driver="react"] .nav__item > .nav__menu {
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-6px);
+      transition:
+        opacity 120ms var(--ease),
+        transform 120ms var(--ease),
+        visibility 0s linear 120ms;
+    }
+    .nav[data-driver="react"] .nav__item[data-open] > .nav__menu {
+      opacity: 1;
+      visibility: visible;
+      transform: none;
+      transition-duration: 200ms, 200ms, 0s;
+      transition-delay: 0s;
+    }
+    .nav[data-driver="react"] .nav__item > .nav__link .chev {
+      transform: none;
+    }
+    .nav[data-driver="react"] .nav__item[data-open] > .nav__link .chev {
+      transform: rotate(180deg);
     }
   }
 
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 1rem;
+  /* A small laptop's bar (1024 to 1279) holds the logo, five words and the
+     button, not six words and Sign in too: Mission and Sign in step out of it
+     there (data-wide-only). Both stay in the footer and the phone's sheet,
+     and the button's page asks a signed-out visitor to sign in anyway. */
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    .nav [data-wide-only] {
+      display: none;
+    }
   }
 
-  .btn {
-    display: inline-flex;
+  /* A narrow phone: the kit fits the name, the button and the menu button in
+     342px (390 wide). Below that the three sit closer, and below 360 the
+     button leaves the bar for the sheet's foot, where it always is, rather
+     than push the menu button off the screen. */
+  @media (max-width: 389px) {
+    .nav__bar {
+      gap: 6px;
+    }
+    .nav:not(.is-open) .nav__actions .btn {
+      padding-inline: 10px;
+    }
+  }
+  @media (max-width: 359px) {
+    .nav:not(.is-open) .nav__actions {
+      display: none;
+    }
+    .nav:not(.is-open) .nav__toggle {
+      margin-left: auto;
+    }
+  }
+
+  /* A word whose section holds the page (Questions on a question's page)
+     carries the same bar as the page's own word. */
+  .nav__link[aria-current="true"]::after {
+    content: "";
+    position: absolute;
+    left: var(--s-3);
+    right: var(--s-3);
+    bottom: -2px;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+  }
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    .nav__link[aria-current="true"]::after {
+      left: var(--s-2);
+      right: var(--s-2);
+    }
+  }
+  @media (max-width: 1023px) {
+    .nav.is-open .nav__link[aria-current="true"]::after {
+      left: 0;
+      right: auto;
+      width: 24px;
+      bottom: 10px;
+    }
+  }
+
+  /* A card in a word's panel names the page it leads to; the name takes the
+     action colour under the pointer and the keyboard. */
+  .menu-card .t-card {
+    transition: color var(--dur) var(--ease);
+  }
+  .menu-card:is(:hover, :focus-visible) .t-card {
+    color: var(--action);
+  }
+  .menu-card .t-small {
+    max-width: 40ch;
+  }
+
+  /* The mark: the kit's dots, set as a row of three with the middle one lit,
+     because the name means the one in the middle. A mask in the kit's way,
+     two colours by a stepped gradient behind it; sized from the name it sits
+     beside. */
+  .mark[data-mark="dots"] {
+    --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 12'%3E%3Ccircle cx='6' cy='6' r='4.5'/%3E%3Ccircle cx='18' cy='6' r='4.5'/%3E%3Ccircle cx='30' cy='6' r='4.5'/%3E%3C/svg%3E");
+    --mark-dim: color-mix(in oklab, var(--ink) 42%, transparent);
+    width: 1.5em;
+    height: 0.5em;
+    background: linear-gradient(
+      90deg,
+      var(--mark-dim) 0 33.3%,
+      var(--accent) 33.3% 66.7%,
+      var(--mark-dim) 66.7% 100%
+    );
+  }
+
+  /* ----- the footer ------------------------------------------------------ */
+
+  .footer__brand .footer__help {
+    margin-top: var(--s-5);
+    max-width: 34ch;
+    font-size: var(--t-body);
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  /* The link runs on in the sentence, its arrow a space after its words. */
+  .footer__brand .footer__help .link {
+    display: inline;
+  }
+  .footer__brand .footer__help .link::after {
+    margin-left: 0.3em;
+  }
+  .footer__notes {
+    display: grid;
+    gap: var(--s-2);
+    max-width: 78ch;
+    font-size: var(--t-small);
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  /* On a phone the kit gives the row's links a 44px tap height; the year
+     beside them centres on it. */
+  .footer__legal {
     align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    min-height: 2.75rem; /* a comfortable touch target */
-    padding: 0.55rem 1.1rem;
-    border-radius: 0.75rem;
-    border: 1px solid transparent;
-    font-weight: 600;
-    font-size: 0.95rem;
+  }
+  .footer__legal a:hover {
+    color: var(--ink);
+  }
+
+  /* ----- the kit's 12-column .grid and Tailwind's `grid` ------------------
+
+     Both are called "grid". The kit's version also makes every child of a
+     .grid span the whole row, which turns a Tailwind grid with columns
+     (grid md:grid-cols-2) back into one column. A grid that names its
+     columns with a grid-cols utility is a Tailwind grid: one column until
+     its utility says otherwise, and children that flow. The kit's own grids
+     (.wrap.grid with .span-N children) name no grid-cols and are left as
+     they are. */
+  .grid[class*="grid-cols-"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grid[class*="grid-cols-"] > * {
+    grid-column: auto;
+  }
+
+  /* ----- cards ----------------------------------------------------------- */
+
+  /* The kit's card (ui/cards.css) is the look. It lifts under the pointer,
+     which is right for a card that is a link and wrong for one that is not
+     (the kit's .m-nolift, motion.md): a card that leads nowhere stays put. */
+  @media (hover: hover) and (pointer: fine) {
+    html:not([data-motion="off"]) .card:not(a, :has(a[href]), .card--open, .card--plan):hover {
+      transform: none;
+      border-color: var(--c-border);
+      box-shadow:
+        inset 0 1px 0 var(--c-hi),
+        0 1px 2px var(--c-sh);
+    }
+  }
+
+  /* ----- buttons ----------------------------------------------------------
+
+     The kit's .btn: 44px, 16px at 500, a pill (data-buttons="solid" on
+     round corners). New markup uses the kit's own names (btn btn--primary)
+     and gets exactly the kit's button. The site's older markup (btn
+     btn-primary) gets the same look, and a label too long for its row wraps
+     inside the button instead of running out of it. */
+  .btn:not([class*="btn--"]) {
+    height: auto;
+    min-height: var(--btn-h);
+    padding-block: var(--s-2);
     line-height: 1.2;
     text-align: center;
-    cursor: pointer;
-    transition:
-      background-color 120ms ease,
-      border-color 120ms ease,
-      opacity 120ms ease;
+    white-space: normal;
   }
-  .btn:disabled {
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
     opacity: 0.5;
     cursor: not-allowed;
   }
+  .btn:disabled:is(:hover, :active) {
+    transform: none;
+  }
   .btn-primary {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--action);
+    color: var(--action-ink);
   }
   .btn-primary:hover:not(:disabled) {
-    background: var(--accent-strong);
+    background: color-mix(in oklab, var(--action) 84%, var(--bg));
   }
   .btn-secondary {
-    background: var(--surface);
+    background: var(--bg);
     color: var(--ink);
-    border-color: var(--line);
+    border-color: var(--line-strong);
   }
   .btn-secondary:hover:not(:disabled) {
-    border-color: var(--muted);
+    background: color-mix(in oklab, var(--bg) 92%, var(--ink));
+    border-color: color-mix(in oklab, var(--ink) 32%, transparent);
   }
   .btn-quiet {
     background: transparent;
@@ -183,80 +443,119 @@ body {
   .btn-danger {
     background: transparent;
     color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    border-color: color-mix(in oklab, var(--danger) 45%, transparent);
   }
   .btn-danger:hover:not(:disabled) {
     border-color: var(--danger);
   }
+  /* Smaller words, never a smaller target. */
   .btn-sm {
-    min-height: 2.25rem;
-    padding: 0.35rem 0.75rem;
-    font-size: 0.85rem;
-    border-radius: 0.6rem;
+    padding-inline: var(--s-4);
+    font-size: var(--t-small);
   }
 
-  .field {
+  /* ----- fields -----------------------------------------------------------
+
+     The kit's .field is a wrapper round a label and its input; this site's
+     markup puts .field on the input itself. The look is the kit's input. */
+  :is(input, select, textarea).field {
     display: block;
     width: 100%;
-    min-height: 2.75rem;
-    padding: 0.55rem 0.8rem;
-    border-radius: 0.75rem;
-    border: 1px solid var(--line);
-    background: var(--surface);
+    height: var(--btn-h);
+    padding: 0 var(--s-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--bg);
     color: var(--ink);
-    font: inherit;
+    font: 400 var(--t-body) / 1.4 var(--font-text);
+    transition:
+      border-color var(--dur) var(--ease),
+      box-shadow var(--dur) var(--ease);
+  }
+  textarea.field {
+    height: auto;
+    min-height: 120px;
+    padding-block: var(--s-3);
+    resize: vertical;
   }
   .field::placeholder {
-    color: color-mix(in srgb, var(--muted) 75%, transparent);
+    color: color-mix(in oklab, var(--muted) 85%, transparent);
   }
-  .field[aria-invalid="true"] {
-    border-color: var(--danger);
+  :is(input, select, textarea).field:hover {
+    border-color: color-mix(in oklab, var(--ink) 48%, transparent);
+  }
+  /* The field's own ring in place of the outline, as the kit draws it. */
+  :is(input, select, textarea).field:focus {
+    outline: none;
+    border-color: var(--action);
+    box-shadow:
+      0 0 0 1px var(--action),
+      0 0 0 4px color-mix(in oklab, var(--action) 20%, transparent);
+  }
+  :is(input, select, textarea).field[aria-invalid="true"] {
+    border: 2px solid var(--danger);
   }
   .label {
     display: block;
-    font-size: 0.85rem;
-    font-weight: 600;
-    margin-bottom: 0.3rem;
+    margin-bottom: var(--s-2);
+    font-size: var(--t-small);
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--ink);
   }
   .hint {
-    font-size: 0.8rem;
+    margin-top: var(--s-2);
+    font-size: var(--t-small);
+    line-height: 1.5;
     color: var(--muted);
-    margin-top: 0.3rem;
   }
+
+  /* ----- small parts ----------------------------------------------------- */
 
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
-    padding: 0.15rem 0.55rem;
+    gap: var(--s-1);
+    min-height: 24px;
+    padding: 0 var(--s-3);
     border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 600;
+    font-size: var(--t-label);
+    font-weight: 500;
+    line-height: 1.3;
     background: var(--sunken);
     color: var(--muted);
     white-space: nowrap;
   }
 
   .notice {
-    border-radius: 0.75rem;
-    padding: 0.7rem 0.9rem;
-    font-size: 0.9rem;
+    border-radius: var(--r-md);
+    padding: var(--s-3) var(--s-4);
+    font-size: var(--t-small);
+    line-height: 1.5;
     border: 1px solid var(--line);
     background: var(--sunken);
   }
+  /* A notice's own heading is set in the notice's size. (The kit's sizes for
+     bare headings win over Tailwind's reset, so a heading here would
+     otherwise be a section's 48px.) */
+  .notice :is(h1, h2, h3, h4) {
+    font-size: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+  }
   .notice-warn {
     background: var(--warn-bg);
-    border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+    border-color: color-mix(in oklab, var(--warn) 45%, transparent);
     color: var(--ink);
   }
   .notice-error {
-    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+    border-color: color-mix(in oklab, var(--danger) 50%, transparent);
     color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+    background: color-mix(in oklab, var(--danger) 7%, var(--surface));
   }
   .notice-ok {
-    border-color: color-mix(in srgb, var(--yes) 45%, transparent);
-    background: color-mix(in srgb, var(--yes) 8%, var(--surface));
+    border-color: color-mix(in oklab, var(--yes) 45%, transparent);
+    background: color-mix(in oklab, var(--yes) 8%, var(--surface));
   }
 
   .prose-block p + p {
@@ -277,15 +576,17 @@ body {
   .prose h2 {
     margin-top: 2.2em;
     font-size: 1.5rem;
-    font-weight: 800;
+    font-weight: 500;
     line-height: 1.25;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
   }
   .prose h3 {
     margin-top: 1.8em;
+    font-family: var(--font-text);
     font-size: 1.2rem;
-    font-weight: 700;
+    font-weight: 500;
     line-height: 1.3;
+    letter-spacing: -0.01em;
   }
   .prose h2 + *,
   .prose h3 + * {
@@ -293,13 +594,17 @@ body {
   }
   .prose a {
     color: var(--accent);
-    font-weight: 600;
+    font-weight: 500;
     text-decoration: underline;
-    text-underline-offset: 2px;
+    text-decoration-color: color-mix(in oklab, var(--accent) 55%, transparent);
+    text-underline-offset: 3px;
     overflow-wrap: anywhere;
   }
+  .prose a:hover {
+    text-decoration-color: currentColor;
+  }
   .prose strong {
-    font-weight: 700;
+    font-weight: 600;
   }
   .prose ul,
   .prose ol {
@@ -339,7 +644,7 @@ body {
     overflow-x: auto;
     background: var(--sunken);
     border: 1px solid var(--line);
-    border-radius: 0.75rem;
+    border-radius: var(--r-md);
     padding: 0.9rem 1rem;
     font-size: 0.9rem;
     line-height: 1.5;
@@ -358,11 +663,12 @@ body {
     border-collapse: collapse;
     font-size: 0.95rem;
     line-height: 1.45;
+    font-variant-numeric: tabular-nums;
   }
   .prose th {
     text-align: left;
-    font-weight: 700;
-    border-bottom: 2px solid var(--line);
+    font-weight: 500;
+    border-bottom: 1px solid var(--line-strong);
     padding: 0.5rem 0.9rem 0.5rem 0;
     white-space: nowrap;
   }
@@ -379,14 +685,13 @@ body {
   .table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.88rem;
+    font-size: var(--t-small);
+    font-variant-numeric: tabular-nums;
   }
   .table th {
     text-align: left;
-    font-weight: 600;
-    font-size: 0.72rem;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
+    font-weight: 500;
+    font-size: var(--t-label);
     color: var(--muted);
     padding: 0.4rem 0.6rem;
     white-space: nowrap;
@@ -410,21 +715,21 @@ body {
   }
   .table .num {
     text-align: right;
-    font-variant-numeric: tabular-nums;
   }
   .table tr.is-me td {
-    background: color-mix(in srgb, var(--accent) 9%, transparent);
-    font-weight: 600;
+    background: color-mix(in oklab, var(--accent) 9%, transparent);
+    font-weight: 500;
   }
 }
 
 /* ---------------------------------------------------------------------------
    Motion
 
-   One animation to speak of in the whole product: the probability bar
-   settling to its width when a card first appears, so the number reads as a
-   measurement. No urgency pulse, no glow, nothing that moves to ask for a
-   click.
+   The kit's layer (motion.css) moves buttons, links and linked cards under
+   the pointer, and stills everything under reduced motion. Besides it, one
+   animation of the site's own: the probability bar settling to its width
+   when a card first appears, so the number reads as a measurement. No
+   urgency pulse, no glow, nothing that moves to ask for a click.
    -------------------------------------------------------------------------- */
 @keyframes bar-in {
   from {
@@ -464,8 +769,5 @@ body {
   /* Still waits, then is simply there. */
   .pending-hint {
     animation-duration: 0s;
-  }
-  .btn {
-    transition: none;
   }
 }

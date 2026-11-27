@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { AdminNav } from "@/components/admin/AdminNav";
 import { StatusBanner } from "@/components/admin/StatusBanner";
+import { SiteFooter } from "@/components/SiteChrome";
 import { t } from "@/lib/copy";
 import { getViewer } from "@/lib/server/viewer";
 
@@ -23,6 +24,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <StatusBanner />
         {children}
       </main>
+      <SiteFooter />
     </>
   );
 }

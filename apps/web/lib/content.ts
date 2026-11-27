@@ -1117,3 +1117,17 @@ export const support = {
     },
   ],
 };
+
+// ---------------------------------------------------------------------------
+// A page that does not exist
+// ---------------------------------------------------------------------------
+
+export const notFoundPage = {
+  metaTitle: "Page not found",
+  title: "Page not found",
+  lede:
+    "The address may be mistyped, or the page has moved. Every question on the site is listed " +
+    "on one page.",
+  questionsLink: "See every question",
+  homeLink: "Go to the front page",
+};

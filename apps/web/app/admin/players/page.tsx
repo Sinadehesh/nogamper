@@ -214,7 +214,7 @@ function AdjustForm({
 
   return (
     <form onSubmit={submit} className="card space-y-3 p-4">
-      <h2 className="font-bold">{t.adminAdjustTitle(player.player_code)}</h2>
+      <h2 className="text-base font-bold">{t.adminAdjustTitle(player.player_code)}</h2>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor={amountId} className="label">{t.adminAdjustAmount}</label>

@@ -1,0 +1,130 @@
+import "./viz.css";
+
+import type { ReactNode } from "react";
+
+import { viz } from "@/lib/copy";
+import { figureWidth, layoutTrackLabels, monoWidth, pct } from "@/lib/viz";
+
+import { Figure } from "./Figure";
+import { at, cx, vars } from "./style";
+
+type RangeBarProps = {
+  /** The lowest and highest price of the last 7 days, 0 to 1. */
+  low: number | string;
+  high: number | string;
+  /** The price to mark on it: the live one, or a closed question's last. */
+  now: number | string;
+  /** "live" says "Now"; "last" says "Last price". `weekRange()` gives all four. */
+  kind?: "live" | "last";
+  size?: "row" | "large";
+  className?: string;
+};
+
+const TICKS = [0, 25, 50, 75, 100];
+const WORD_PX = 11;
+const FIGURE_PX = 20;
+
+/**
+ * The week's range as a band on a fixed 0-to-100 track, with the price now
+ * marked on it: a question that swung from 20% to 98% and one that sat at
+ * 61% all week look as different as they are.
+ */
+export function RangeBar({ low, high, now, kind = "live", size = "row", className }: RangeBarProps) {
+  const lo = Math.min(1, Math.max(0, Number(low)));
+  const hi = Math.max(lo, Math.min(1, Math.max(0, Number(high))));
+  const current = Math.min(hi, Math.max(lo, Number(now)));
+  const nowWord = kind === "last" ? viz.rangeLast : viz.rangeNow;
+  const sentence = viz.rangeSentence(pct(lo), pct(hi), nowWord, pct(current));
+  const position = vars({ "--viz-low": at(lo), "--viz-high": at(hi), "--viz-now": at(current) });
+
+  const rail = (children?: ReactNode) => (
+    <span className="viz-range__rail" aria-hidden="true">
+      <span className="viz-range__line" />
+      {TICKS.map((tick) => (
+        <span
+          key={tick}
+          className="viz-range__tick"
+          data-mid={tick === 50 ? "" : undefined}
+          style={vars({ "--viz-at": tick })}
+        />
+      ))}
+      <span className="viz-range__band" />
+      <span className="viz-range__now" />
+      {children}
+    </span>
+  );
+
+  if (size !== "large") {
+    return (
+      <span className={cx("viz-range", "viz-range--row", className)} style={position}>
+        <span className="viz-sr">{sentence}</span>
+        {rail(
+          <>
+            <span className="viz-range__end viz-range__end--low">
+              <span className="viz-range__fig">{pct(lo)}</span>
+            </span>
+            <span className="viz-range__end viz-range__end--high">
+              <span className="viz-range__fig">{pct(hi)}</span>
+            </span>
+          </>,
+        )}
+      </span>
+    );
+  }
+
+  const labels = [
+    { key: "low", x: lo, word: viz.low, figure: pct(lo) },
+    { key: "high", x: hi, word: viz.high, figure: pct(hi) },
+  ].map((label) => ({
+    ...label,
+    r: 6,
+    width: Math.ceil(Math.max(monoWidth(label.word, WORD_PX), figureWidth(label.figure, FIGURE_PX))) + 4,
+  }));
+  const nowText = `${nowWord} ${pct(current)}`;
+  const nowWidth = Math.ceil(monoWidth(nowText, WORD_PX)) + 8;
+  const layout = layoutTrackLabels(labels.map(({ x, width, r }) => ({ x, width, r })));
+  // The line under the track names the price now; it may need room too.
+  const padLeft = Math.max(layout.padLeft, nowWidth / 2 - current * 300 + 2, 0);
+  const padRight = Math.max(layout.padRight, nowWidth / 2 - (1 - current) * 300 + 2, 0);
+  const rows = Math.max(0, ...layout.places.map((place) => place.row)) + 1;
+
+  return (
+    <span
+      className={cx("viz-range", "viz-range--large", className)}
+      style={{
+        ...position,
+        ...vars({ "--viz-now-w": `${nowWidth}px`, "--viz-pl": `${Math.ceil(padLeft)}px`, "--viz-pr": `${Math.ceil(padRight)}px` }),
+        paddingLeft: `${Math.ceil(padLeft)}px`,
+        paddingRight: `${Math.ceil(padRight)}px`,
+        paddingTop: `${rows * 42 + 4}px`,
+      }}
+    >
+      <span className="viz-sr">{sentence}</span>
+      {rail(
+        <>
+          {labels.map((label, index) => {
+            const place = layout.places[index];
+            if (!place) return null;
+            return (
+              <span
+                key={label.key}
+                className="viz-range__label"
+                data-align={place.align}
+                style={{
+                  left: `calc(${(label.x * 100).toFixed(2)}% + ${place.offset}px)`,
+                  width: `${label.width}px`,
+                  textAlign: place.align,
+                  bottom: `calc(100% + ${6 + place.row * 42}px)`,
+                }}
+              >
+                <span className="viz-range__word">{label.word}</span>
+                <Figure className="viz-range__fig" text={label.figure} />
+              </span>
+            );
+          })}
+          <span className="viz-range__nowlabel">{nowText}</span>
+        </>,
+      )}
+    </span>
+  );
+}

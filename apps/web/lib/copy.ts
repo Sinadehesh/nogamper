@@ -19,7 +19,24 @@ export const t = {
     "prediction markets, and points instead of money — free to play, and nothing to cash out.",
 
   // ----- navigation ---------------------------------------------------------
-  navLabel: "Site",
+  // The header's and the footer's link lists are two landmarks, so they need
+  // two different names.
+  navMainLabel: "Main",
+  navFooterLabel: "Site map",
+  navMenu: "Menu",
+  navShowLinks: (word: string) => `Show the ${word} links`,
+  navQuestionsWord: "Questions",
+  navGuides: "Guides",
+  navHelpWord: "Help",
+  // The header's one button, and what it says to somebody already signed in.
+  navStart: "Start playing free",
+  navOpenGame: "Open the game",
+  // One line under each guide topic in the header's Guides panel.
+  navGuideLines: {
+    "prediction-markets": "What a price means, and how the kinds differ",
+    odds: "Where the margin sits, and why it adds up",
+    "stepping-back": "Practical steps, blocking tools and real help",
+  },
   navPlay: "Play",
   navMission: "Mission",
   navArticles: "Articles",
@@ -47,6 +64,17 @@ export const t = {
   footerNotAffiliated:
     "Market questions and prices come from public Polymarket data. This site is not " +
     "affiliated with Polymarket and places no trades anywhere.",
+  footerGameTitle: "The game",
+  footerLearningTitle: "Learning",
+  footerHelpTitle: "Help",
+  footerSiteTitle: "The site",
+  footerHelpLine:
+    "Worried about gambling, yours or someone close to you? The services on the help page " +
+    "are free and confidential.",
+  footerHelpLink: "See where to get help",
+  footerSaferTools: "Limits and breaks",
+  footerTerms: "Terms",
+  footerCopyright: (year: number) => `© ${year} ${APP_NAME}`,
 
   // ----- shared -------------------------------------------------------------
   loading: "Loading…",
@@ -729,3 +757,147 @@ const CATEGORY_LABELS: Record<string, string> = {
 export function categoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category;
 }
+
+// ---------------------------------------------------------------------------
+// Charts and figures (components/viz): every word they print or announce.
+//
+// A change in a chance is "from 54% to 62%", or "54% → 62%". Its size, where
+// one is needed, is in percentage points: "points" alone are the game's
+// currency and nothing else.
+// ---------------------------------------------------------------------------
+
+function percentagePoints(size: string): string {
+  return `${size} percentage ${size === "1" ? "point" : "points"}`;
+}
+
+export const viz = {
+  missing: "—",
+  yes: t.yes,
+  no: t.no,
+
+  // The figure and the words beside it.
+  chanceOfYes: "chance of yes",
+  chanceOfNo: "chance of no",
+  lastChanceOfYes: "chance of yes at the last price",
+  split: (yes: string, no: string) => `${t.yes} ${yes}, ${t.no.toLowerCase()} ${no}`,
+
+  // Changes.
+  fromTo: (was: string, now: string) => `from ${was} to ${now}`,
+  fromToStart: (was: string, now: string) => `From ${was} to ${now}`,
+  arrow: (was: string, now: string) => `${was} → ${now}`,
+  unchanged: (now: string) => `unchanged at ${now}`,
+  unchangedStart: (now: string) => `Unchanged at ${now}`,
+  up: (size: string) => `up ${percentagePoints(size)}`,
+  down: (size: string) => `down ${percentagePoints(size)}`,
+  sentence: (fromTo: string, by: string) => `${fromTo}, ${by}.`,
+  windowSentence: (window: string, change: string) => `${window}: ${change}`,
+  now: "now",
+  dayAgo: "a day ago",
+  weekAgo: "a week ago",
+  pastDay: "Past day",
+  pastWeek: "Past week",
+  noWeek: "No figure for the week yet",
+  noDay: "No figure for the day yet",
+  noChanges: "No change figures to show right now.",
+  scaleStart: "0%",
+  scaleMiddle: "50%",
+  scaleEnd: "100%",
+
+  // Dates. A time to close is a date, never a countdown.
+  closesOn: (date: string) => `Closes ${date}`,
+  closedOn: (date: string) => `Closed ${date}`,
+
+  // The 7-day range.
+  low: "Low",
+  high: "High",
+  rangeSentence: (low: string, high: string, nowWord: string, now: string) =>
+    `Over 7 days: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
+  rangeNow: "Now",
+  rangeLast: "Last price",
+
+  // The small line in a row.
+  sparkSentence: (from: string, to: string, low: string, high: string) =>
+    `Over 7 days: from ${from} to ${to}. Lowest ${low}, highest ${high}.`,
+
+  // The price chart.
+  chartDayAgo: "A day ago",
+  chartWeekAgo: "A week ago",
+  chartClosed: (date: string) => `Closed ${date}`,
+  chartUtc: "UTC",
+  endNow: "now",
+  endLast: "last price",
+  endResult: "result",
+  chartEmpty: "There is no price history to show for this question.",
+  chartOne: (value: string, date: string) => `One price so far: ${value} on ${date}.`,
+  chartSummary: (
+    first: string,
+    firstAt: string,
+    last: string,
+    lastAt: string,
+    low: string,
+    high: string,
+  ) => `From ${first} on ${firstAt} to ${last} on ${lastAt}. Lowest ${low}, highest ${high}.`,
+  chartSlider: "Price history",
+  chartHint:
+    "Use the arrow keys to step through the prices, Page Up and Page Down to move a day, " +
+    "and Home and End for the first and the last.",
+  chartPoint: (time: string, value: string) => `${time}: ${value} chance of yes`,
+  chartFigures: "Show the figures",
+  chartKeyFigures: "Key figures",
+  chartTableCaption: "Every price on the chart, for yes. Times are in UTC.",
+  chartColTime: "Time (UTC)",
+  chartColChance: "Chance of yes",
+  chartColNote: "Note",
+  noteHigh: "7-day high",
+  noteLow: "7-day low",
+  noteNow: "Now",
+  noteLast: "Last price",
+  noteGap: (hours: string) => `No prices for ${hours} hours after this`,
+  keyNow: "Now",
+  keyLast: "Last price",
+  keyDayAgo: "A day ago",
+  keyWeekAgo: "A week ago",
+  keyLow: "Lowest",
+  keyHigh: "Highest",
+  keyClosed: "Closed to forecasts",
+  keyResult: "Result",
+  keyAt: (value: string, when: string) => `${value} on ${when}`,
+  resultWord: (outcome: "yes" | "no") => (outcome === "yes" ? t.yes : t.no),
+
+  // A bookmaker's margin, beside none.
+  marginCaption: (margin: string) =>
+    `What a bookmaker's margin of ${margin} a pick takes from a stake, by the number of picks on ` +
+    `one slip, and what ${APP_NAME} takes.`,
+  marginColPicks: "Picks on one slip",
+  marginColBookmaker: (margin: string) => `A bookmaker at ${margin} a pick`,
+  marginColUs: APP_NAME,
+  marginPicks: (count: number) => (count === 1 ? "1 pick" : `${count} picks`),
+  marginUnavailable: "The margin figures could not be read just now.",
+
+  // One pick, and a slip of several.
+  pickChance: (side: "YES" | "NO") => (side === "YES" ? "chance of yes" : "chance of no"),
+  pickOdds: "fair odds",
+  pickRule: (probability: string) => `1 ÷ ${probability}`,
+  pickReturn: (stake: string) => `points back on a ${stake}-point stake`,
+  pickUnpriceable: t.settledAlready,
+  pickUnpriceableHint: t.settledAlreadyHint,
+  stepsTitle: "The chance that every pick so far is right",
+  stepPick: (index: number, side: string, chance: string) => `Pick ${index}: ${side} at ${chance}`,
+  allRight: (count: number, chance: string) =>
+    count === 1
+      ? `1 pick right: ${chance} chance`
+      : count === 2
+        ? `Both right: ${chance} chance`
+        : `All ${count} right: ${chance} chance`,
+  slipPays: (multiple: string) => `Pays ${multiple}`,
+  slipReturn: (amount: string, stake: string) =>
+    `${amount} points back on a ${stake}-point stake`,
+  slipCapped: (cap: string) => t.cappedAt(cap),
+  slipOverLimit: (limit: string) =>
+    `That is over the ${limit} limit for one slip, so the game would not take it.`,
+  slipTooMany: (max: number) => `A slip holds up to ${max} picks.`,
+  slipUnpriceable: "One pick is all but settled, so this slip has no price.",
+  slipEmpty: "No picks yet.",
+  stepArrow: "→",
+  pickUnpriceableNote: `${t.settledAlready}. ${t.settledAlreadyHint}`,
+} as const;

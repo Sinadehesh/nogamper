@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { Dashboard } from "@/components/Dashboard";
 import { PlayerProvider } from "@/components/PlayerProvider";
+import { SiteFooter } from "@/components/SiteChrome";
 import { t } from "@/lib/copy";
 import { getViewer } from "@/lib/server/viewer";
 import { isTab } from "@/lib/tabs";
@@ -24,9 +25,14 @@ export default async function PlayPage({
   const initialTab = isTab(requested) ? requested : "markets";
   const returned = purchase === "done" || purchase === "cancelled" ? purchase : null;
 
+  // The game keeps its own header; the site's footer, with the help line and
+  // the lines every page carries, closes it like every other page.
   return (
-    <PlayerProvider initial={viewer}>
-      <Dashboard initialTab={initialTab} purchase={returned} />
-    </PlayerProvider>
+    <>
+      <PlayerProvider initial={viewer}>
+        <Dashboard initialTab={initialTab} purchase={returned} />
+      </PlayerProvider>
+      <SiteFooter />
+    </>
   );
 }
