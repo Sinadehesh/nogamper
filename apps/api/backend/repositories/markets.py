@@ -38,9 +38,11 @@ _UPSERT_MARKET = """
 INSERT INTO markets (
     event_id, polymarket_market_id, condition_id, question, description, category,
     image_url, yes_token_id, no_token_id, raw_yes_prob, liquidity_usd, volume_usd,
-    lock_at, end_date, question_source, description_source, status
+    lock_at, end_date, question_source, description_source, status,
+    slug, change_1h, change_24h, change_7d, change_ref_prob, changes_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'ACTIVE')
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'ACTIVE',
+        $17, $18, $19, $20, $21, CASE WHEN $21::numeric IS NULL THEN NULL ELSE NOW() END)
 ON CONFLICT (polymarket_market_id) DO UPDATE SET
     question           = EXCLUDED.question,
     description        = EXCLUDED.description,
@@ -51,6 +53,20 @@ ON CONFLICT (polymarket_market_id) DO UPDATE SET
     volume_usd    = EXCLUDED.volume_usd,
     lock_at       = EXCLUDED.lock_at,
     end_date      = EXCLUDED.end_date,
+    -- A page's address does not change under it: once a question has one it
+    -- keeps it, whatever the feed calls the question later.
+    slug          = COALESCE(markets.slug, EXCLUDED.slug),
+    -- The change figures are replaced whole or not at all. A pass that
+    -- brought none leaves the last ones, with their own date, rather than
+    -- blanking a history the reader was shown an hour ago.
+    change_1h       = CASE WHEN EXCLUDED.changes_at IS NULL
+                           THEN markets.change_1h ELSE EXCLUDED.change_1h END,
+    change_24h      = CASE WHEN EXCLUDED.changes_at IS NULL
+                           THEN markets.change_24h ELSE EXCLUDED.change_24h END,
+    change_7d       = CASE WHEN EXCLUDED.changes_at IS NULL
+                           THEN markets.change_7d ELSE EXCLUDED.change_7d END,
+    change_ref_prob = COALESCE(EXCLUDED.change_ref_prob, markets.change_ref_prob),
+    changes_at      = COALESCE(EXCLUDED.changes_at, markets.changes_at),
     -- raw_yes_prob is deliberately absent: the price sync worker owns it.
     -- yes_token_id / no_token_id are absent too: a token swap on an existing
     -- market would silently flip the meaning of every open leg on it.
@@ -105,6 +121,11 @@ async def upsert_events(conn: asyncpg.Connection, events: list[NormalizedEvent])
                 market.end_date,
                 market.question_source or market.question,
                 market.description_source,
+                market.slug,
+                market.change_1h,
+                market.change_24h,
+                market.change_7d,
+                market.reference_prob,
             )
             if row["was_created"]:
                 result.markets_created += 1

@@ -30,13 +30,11 @@ from ..schemas import (
     MarketPage,
     MarketSummary,
     Money,
-    Probability,
 )
 from ..security.dependencies import CurrentUser
+from ..services.probabilities import current_probability as _probability
 
 router = APIRouter(prefix="/v1", tags=["markets"])
-
-_PROB_PLACES = Decimal("0.0001")
 
 
 def _bad_cursor() -> HTTPException:
@@ -83,37 +81,6 @@ def _decode_offset(cursor: str) -> int:
     if not isinstance(offset, int) or isinstance(offset, bool) or not 0 <= offset <= 100_000:
         raise _bad_cursor()
     return offset
-
-
-def _probability(
-    market_id: uuid.UUID,
-    stored_prob: Decimal,
-    stored_at: datetime,
-    cached: price_cache.CachedPrice | None,
-    settings: Settings,
-    now: datetime,
-) -> Probability:
-    if cached is not None:
-        probability, source, age = (
-            cached.probability,
-            cached.source,
-            cached.age_seconds(now),
-        )
-    else:
-        probability, source, age = (
-            stored_prob,
-            "DATABASE",
-            (now - stored_at).total_seconds(),
-        )
-
-    yes = probability.quantize(_PROB_PLACES)
-    return Probability(
-        yes=str(yes),
-        no=str((Decimal(1) - yes).quantize(_PROB_PLACES)),
-        source=source,
-        age_seconds=round(age, 1),
-        stale=age > settings.price_staleness_seconds,
-    )
 
 
 SortOrder = Literal["closing", "tossup", "volume"]

@@ -52,13 +52,16 @@ export function SiteHeader() {
           aria-label={t.navLabel}
           className="order-last flex w-full flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:order-none sm:ml-auto sm:w-auto"
         >
+          <Link href="/moves" className="text-muted hover:text-ink">
+            {t.navMoves}
+          </Link>
           <Link href="/articles" className="text-muted hover:text-ink">
             {t.navArticles}
           </Link>
-          <Link href="/mission" className="text-muted hover:text-ink">
+          {/* In the footer on a phone, where five links do not fit on a row. */}
+          <Link href="/mission" className="hidden text-muted hover:text-ink sm:inline">
             {t.navMission}
           </Link>
-          {/* In the footer on a phone, where four links do not fit on a row. */}
           <Link href="/about" className="hidden text-muted hover:text-ink md:inline">
             {t.navAbout}
           </Link>
@@ -84,6 +87,12 @@ export function SiteFooter() {
           </Link>
           <Link href="/articles" className="hover:text-ink">
             {t.navArticles}
+          </Link>
+          <Link href="/moves" className="hover:text-ink">
+            {t.navMoves}
+          </Link>
+          <Link href="/questions" className="hover:text-ink">
+            {t.navQuestions}
           </Link>
           <Link href="/about" className="hover:text-ink">
             {t.navAbout}

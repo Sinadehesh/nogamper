@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
@@ -126,6 +127,18 @@ class NormalizedMarket:
     the site being English-only and is still what the API reads, so a row
     written while questions were being translated renders in English too."""
     description_source: str | None = None
+    slug: str | None = None
+    """Gamma's own name for the market, and the address of its public page.
+    None when it is missing or is not shaped like an address."""
+    change_1h: Decimal | None = None
+    change_24h: Decimal | None = None
+    change_7d: Decimal | None = None
+    """How far the YES price has moved over the last hour, day and week, as
+    Gamma reports it: signed, in probability. None where Gamma gave no figure
+    — never zero, which would be a claim that nothing happened."""
+    reference_prob: Decimal | None = None
+    """The YES price those changes were measured to: Gamma's own, unclamped.
+    None when no usable change came with it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +203,55 @@ def _as_decimal(value: object, default: Decimal = Decimal(0)) -> Decimal:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return default
+
+
+_ADDRESS = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+_MAX_ADDRESS = 200
+_SIX_PLACES = Decimal("0.000001")
+
+
+def _as_address(value: object) -> str | None:
+    """A slug, if it can be used as a page's address exactly as given.
+
+    Not repaired. A slug that needed lowercasing or trimming is a slug that
+    might collide with another once it had been, and the page for one question
+    would then be showing a different one.
+    """
+    text = _as_text(value)
+    if text is None or len(text) > _MAX_ADDRESS or not _ADDRESS.match(text):
+        return None
+    return text
+
+
+def _as_change(value: object, *, sign: int) -> Decimal | None:
+    """A price change in probability, for the YES side, or None.
+
+    Gamma reports every price figure for the market's *first* outcome. On the
+    markets where that is "No", a rise is YES falling, so the sign is turned.
+    Anything that is not a finite number between -1 and 1 is no figure at all.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        change = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not change.is_finite() or not Decimal(-1) <= change <= Decimal(1):
+        return None
+    return (change * sign).quantize(_SIX_PLACES)
+
+
+def _as_reference(value: object) -> Decimal | None:
+    """Gamma's own YES price, unclamped: a probability from 0 to 1, or None."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        price = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not price.is_finite() or not Decimal(0) <= price <= Decimal(1):
+        return None
+    return price.quantize(_SIX_PLACES)
 
 
 def _as_datetime(value: object) -> datetime | None:
@@ -363,6 +425,22 @@ def normalize_market(
     liquidity = _as_decimal(raw.get("liquidityNum", raw.get("liquidity")))
     volume = _as_decimal(raw.get("volumeNum", raw.get("volume")))
 
+    # The source's own account of how the price has moved. All of it is for
+    # the first outcome, so it is turned to face YES; and none of it is kept
+    # without the price it was measured to, because "up 25 points" means
+    # nothing to a reader until it can be said as "from 30% to 55%".
+    sign = 1 if yes_index == 0 else -1
+    reference = _as_reference(prices[yes_index]) if len(prices) == 2 else None
+    changes = {
+        "change_1h": _as_change(raw.get("oneHourPriceChange"), sign=sign),
+        "change_24h": _as_change(raw.get("oneDayPriceChange"), sign=sign),
+        "change_7d": _as_change(raw.get("oneWeekPriceChange"), sign=sign),
+    }
+    if reference is None:
+        changes = dict.fromkeys(changes)
+    elif all(value is None for value in changes.values()):
+        reference = None
+
     return NormalizedMarket(
         polymarket_market_id=market_id,
         condition_id=condition_id,
@@ -379,6 +457,9 @@ def normalize_market(
         volume_usd=volume,
         lock_at=lock_at,
         end_date=end_date,
+        slug=_as_address(raw.get("slug")),
+        reference_prob=reference,
+        **changes,
     )
 
 

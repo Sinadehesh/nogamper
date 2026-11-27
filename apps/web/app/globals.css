@@ -421,9 +421,10 @@ body {
 /* ---------------------------------------------------------------------------
    Motion
 
-   One animation in the whole product: the probability bar settling to its
-   width when a card first appears, so the number reads as a measurement. No
-   urgency pulse, no glow, nothing that moves to ask for a click.
+   One animation to speak of in the whole product: the probability bar
+   settling to its width when a card first appears, so the number reads as a
+   measurement. No urgency pulse, no glow, nothing that moves to ask for a
+   click.
    -------------------------------------------------------------------------- */
 @keyframes bar-in {
   from {
@@ -436,9 +437,33 @@ body {
   animation: bar-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* The other thing that moves, if it can be called that: a word that fades in
+   beside a link once the page behind it has been on its way for half a second
+   (components/LinkPending.tsx). The wait is the point. A page that arrives
+   promptly never shows it. */
+@keyframes pending-in {
+  to {
+    opacity: 1;
+  }
+}
+
+.pending-hint {
+  opacity: 0;
+  animation: pending-in 0.2s 0.5s forwards;
+}
+
+/* The second sentence, for a page that is taking long enough to need one. */
+.pending-hint-late {
+  animation-delay: 6s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-bar-in {
     animation: none;
+  }
+  /* Still waits, then is simply there. */
+  .pending-hint {
+    animation-duration: 0s;
   }
   .btn {
     transition: none;

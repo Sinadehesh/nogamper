@@ -456,6 +456,52 @@ BEGIN
     EXCEPTION WHEN check_violation THEN NULL; END;
 END $$;
 
+\echo '19. A change in a price has something to be measured from, and a page address is shaped like one'
+DO $$
+DECLARE v_market UUID := 'a0000000-0000-0000-0000-00000000000a';
+BEGIN
+    -- The plain case has to be allowed, or everything below proves nothing.
+    UPDATE markets
+       SET slug = 'fed-cuts-25bp', change_24h = 0.25, change_ref_prob = 0.55, changes_at = NOW()
+     WHERE id = v_market;
+
+    BEGIN
+        UPDATE markets SET changes_at = NULL, change_ref_prob = NULL WHERE id = v_market;
+        RAISE EXCEPTION 'FAIL: a change kept with nothing to measure it from';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE markets SET change_ref_prob = NULL WHERE id = v_market;
+        RAISE EXCEPTION 'FAIL: a change dated but with no reference price';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE markets SET change_7d = 1.5 WHERE id = v_market;
+        RAISE EXCEPTION 'FAIL: a change of more than the whole range accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE markets SET change_ref_prob = 1.2 WHERE id = v_market;
+        RAISE EXCEPTION 'FAIL: a reference price that is not a probability accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE markets SET slug = 'Fed Cuts 25bp?' WHERE id = v_market;
+        RAISE EXCEPTION 'FAIL: an address with spaces and capitals accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    BEGIN
+        UPDATE markets SET slug = 'trailing-dash-' WHERE id = v_market;
+        RAISE EXCEPTION 'FAIL: an address ending in a dash accepted';
+    EXCEPTION WHEN check_violation THEN NULL; END;
+
+    -- No figures at all is the ordinary state of a new question.
+    UPDATE markets
+       SET change_1h = NULL, change_24h = NULL, change_7d = NULL,
+           change_ref_prob = NULL, changes_at = NULL
+     WHERE id = v_market;
+END $$;
+
 \echo ''
 \echo 'ALL INVARIANTS HOLD'
 ROLLBACK;
