@@ -17,7 +17,7 @@ const sameText = (one: string, other: string) =>
 // says so: "a day ago" then counts back from another moment.
 const READ_APART_MS = 30 * 60_000;
 
-/** "as a percentage", for the thresholds: "0.0500" is 5. */
+/** A threshold in percentage points, as the rules print it: "0.0500" is "5". */
 export function asPercentagePoints(probability: string): string {
   const value = Number(probability) * 100;
   return Number.isFinite(value) ? String(Math.round(value * 10) / 10) : probability;

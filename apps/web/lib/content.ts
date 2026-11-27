@@ -79,118 +79,239 @@ export const AUTHOR_URL = process.env.NEXT_PUBLIC_AUTHOR_URL ?? "";
 // Landing
 // ---------------------------------------------------------------------------
 
+/** A count of picks in a sentence, in words up to ten: "a five-pick bet". */
+function countWord(count: number): string {
+  const words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+  return words[count] ?? String(count);
+}
+
+/** A break's length as the game offers it: "1 day", "3 days", "1 week", "30 days". */
+export function breakLength(hours: number): string {
+  if (hours === 168) return "1 week";
+  if (hours % 24 === 0) return hours === 24 ? "1 day" : `${hours / 24} days`;
+  return hours === 1 ? "1 hour" : `${hours} hours`;
+}
+
+/**
+ * True only when the rules say, in so many words, that no points are on sale.
+ * "No money goes in" is only ever printed then: with the shop open, or with
+ * no rules to read, the page says the part that is true either way.
+ */
+function shopShut(rules: Rules): boolean {
+  return rules?.shop?.open === false;
+}
+
+/** When a daily limit that has been raised or removed takes effect. */
+function loosensAfter(rules: Rules): string {
+  if (!rules) return "only after a wait";
+  const hours = rules.limit_loosen_delay_hours;
+  return hours === 24 ? "a day later" : `${duration(hours)} later`;
+}
+
+/**
+ * The front page (app/page.tsx and components/landing). Every figure in it
+ * is read from the live rules or the live questions; with neither to hand,
+ * each sentence has a version without the figure that is still true.
+ */
 export const landing = {
   metaTitle: `${APP_NAME} — prediction markets without the gambling`,
   metaDescription:
     `${APP_NAME} is a free forecasting game: real questions, live odds from real prediction ` +
     "markets, and points instead of money. Free to play, and nothing can ever be cashed out.",
 
+  // The share picture's small line over the headline (app/opengraph-image.tsx).
   eyebrow: "A free forecasting game",
-  headline: "All the fun of calling it. None of the betting.",
-  lede:
-    `${APP_NAME} is a prediction market you play with points instead of money. Real ` +
-    "questions about the news, live odds from real markets, a leaderboard to climb — and " +
-    "nothing to lose but an argument.",
+  headline: "A prediction market played with free points",
+  lede: (rules: Rules) =>
+    "Pick yes or no on real news questions at the chance a real market gives. " +
+    (rules
+      ? `Everyone starts with ${rules.signup_bonus.display} points, and none can be cashed out.`
+      : "Everyone starts with the same free points, and none can be cashed out."),
+  heroSecondary: "See what moved today",
+  heroNote: "No sign-up needed.",
+
+  // The buttons other pages show under their own headlines
+  // (components/SignedIn.tsx, StartActions).
   ctaGuest: "Start playing — no sign-up",
   ctaContinue: "Carry on playing",
   ctaSignUp: "Create an account",
-  ctaSignIn: "Sign in",
-  ctaNote: "Free to play. No card needed, and nothing to win or lose but points.",
 
-  promisesTitle: "What makes it not gambling",
-  promises: (rules: Rules) => [
-    {
-      title: "Points, never money",
-      body:
-        (selling(rules)
-          ? "Points cannot be cashed out, traded or won as anything worth money. "
-          : "You cannot buy points, cash them out or win anything worth money. ") +
-        "Everybody starts " +
-        (rules ? `with the same ${rules.signup_bonus.display}` : "with the same balance") +
-        ", and a free top-up every day means nobody is ever stuck" +
-        (selling(rules)
-          ? " or ever has to pay. You can buy extra points to support the site, and they are " +
-            "worth exactly as little as the free ones."
-          : "."),
-    },
-    {
-      title: "Fair odds, no house",
-      body:
-        "Every price is exactly 1 ÷ the probability. Nobody takes a cut on the way through, " +
-        "so the only way to end up ahead is to be right more often than the crowd.",
-    },
-    {
-      title: "Brakes that actually hold",
-      body:
-        "Set a daily limit or take a break. A limit is easy to tighten and slow to loosen, " +
-        "and a break cannot be cut short — enforced by the server, not left to willpower.",
-    },
-  ],
+  // The hero's picture: one open question as the game shows it. Its words
+  // are the game's own; these say what the picture is to a screen reader.
+  windowLabel: (question: string, yes: string, no: string) =>
+    `One question as ${APP_NAME} shows it, "${question}": a ${yes} chance of yes and ${no} of ` +
+    "no, its chance over the past week, and the two picks, yes and no.",
+  windowEmpty:
+    "The live questions could not be read just now. They are read from the market every few minutes.",
+  windowPoints: (amount: string) => `${amount} points`,
+  slipPick: (side: string, chance: string) => `${side} at ${chance}`,
+  slipPays: (payout: string) => `pays ${payout} if right`,
+  slipLabel: (side: string, chance: string, stake: string, payout: string) =>
+    `A slip: ${side.toLowerCase()} at ${chance}, a stake of ${stake} points, and ${payout} ` +
+    "points back if it is right.",
 
-  stepsTitle: "How it works",
-  steps: (rules: Rules) => [
+  // The game, in three steps.
+  gameTitle: "The same questions a real market is trading",
+  gameIntro:
+    "Each question shows the chance a real market puts on it, read from Polymarket. " +
+    "Back the side you think is right and see your points before you confirm.",
+  steps: (rules: Rules, chance: number) => [
     {
       title: "Pick a question",
-      body: "Will rates be cut? Will Bitcoin close the year above a line? Each has a live price.",
+      body: "Elections, crypto prices and the economy. Each one settles when the real answer is in.",
     },
     {
-      title: "Say yes or no",
-      body: "The price is the market's own estimate of the chance. Back the side you think is right.",
+      title: "Choose yes or no",
+      body: `A ${chance}% chance means the market expects yes about ${chance} times in 100.`,
     },
     {
       title: "Stake some points",
+      body: rules
+        ? `From ${rules.min_stake.display} to ${rules.max_stake.display} points, with up to ` +
+          `${rules.max_legs} questions on one slip.`
+        : "A stake within the game's limits, and more than one question on a slip if you like.",
+    },
+  ],
+  stepListLabel: (rows: { question: string; chance: string }[]) =>
+    `Questions as the game lists them, the first one picked: ${rows
+      .map((row) => `${row.question} ${row.chance}`)
+      .join("; ")}.`,
+  stepPickLabel: (question: string, yes: string, no: string, yesPays: string, noPays: string) =>
+    `The two picks on "${question}": yes at ${yes}, which pays ${yesPays}, and no at ${no}, ` +
+    `which pays ${noPays}. Yes is chosen.`,
+  stepSlipLabel: (question: string, side: string, chance: string, stake: string, payout: string) =>
+    `A slip with one pick, ${side.toLowerCase()} at ${chance} on "${question}", a stake of ` +
+    `${stake} points, and ${payout} points back if it is right.`,
+
+  // What keeps it a game.
+  keepsTitle: "What keeps it a game",
+  keepsIntro: (rules: Rules) =>
+    (shopShut(rules)
+      ? "No money goes in or comes out, "
+      : "Points never come out as money, ") +
+    "nothing is taken from a pick, and the limits you set hold.",
+  keepsRules: "Read the rules in full",
+  keeps: (rules: Rules) => ({
+    points: {
+      title: rules
+        ? `Starts everyone at ${rules.signup_bonus.display} points`
+        : "Starts everyone with the same points",
       body:
-        "A little or a lot. " +
-        (rules && rules.max_legs > 1
-          ? `Combine up to ${rules.max_legs} questions on one slip if you are feeling sure.`
-          : "One question at a time."),
+        (rules
+          ? `A free top-up of ${rules.daily_topup.display} arrives every day. `
+          : "A free top-up arrives every day. ") +
+        (shopShut(rules)
+          ? "Points can't be cashed out, sold or traded."
+          : "You can't cash points out, sell them or trade them."),
+    },
+    odds: {
+      title: "Pays fair odds on every pick",
+      body: "A pick at 62% pays 1.61 times its stake: one divided by the chance, with no cut.",
+    },
+    limits: {
+      title: "Holds the limits you set in the game",
+      body: `A daily limit tightens at once and loosens ${loosensAfter(rules)}. A break can't be cut short.`,
+    },
+  }),
+  pointsLabel: (bonus: string, topUp: string) =>
+    `A new player's balance in the game: ${bonus} points, with the free daily top-up of ` +
+    `${topUp} ready to claim.`,
+  pointsLabelBare: "A new player's balance in the game, with the free daily top-up ready to claim.",
+  fairChance: "Chance of yes",
+  fairOdds: (probability: string) => `Fair odds, 1 ÷ ${probability}`,
+  fairTaken: `Taken by ${APP_NAME}`,
+  fairPays: (stake: string) => `A ${stake}-point pick pays`,
+  fairLabel: (chance: string, odds: string, stake: string, payout: string) =>
+    `A pick at ${chance} has fair odds of ${odds}, one divided by the chance. ${APP_NAME} ` +
+    `takes 0%, so ${stake} points pay ${payout}.`,
+  limitsLabel: (lengths: string[]) =>
+    "The game's own limits: a daily limit on stakes" +
+    (lengths.length ? `, and a break of ${list(lengths)}` : ", and a break") +
+    ", which cannot be cut short once it starts.",
+  breakLengths: (hours: number[]) => hours.map(breakLength),
+
+  // The margin, said once, large.
+  marginLabel: "What a bookmaker's margin takes",
+  marginStatement: (figures: { legs: number; margin: string; take: string } | null) =>
+    figures
+      ? {
+          lead:
+            `On a ${countWord(figures.legs)}-pick bet with a ${figures.margin} margin on each ` +
+            `pick, a bookmaker keeps ${figures.take} of the stake before a single result is in. ` +
+            `${APP_NAME} keeps `,
+          strong: "none of it",
+          end: ".",
+        }
+      : {
+          lead:
+            "On a bet of several picks with a margin on each, a bookmaker keeps part of every " +
+            `stake before a single result is in. ${APP_NAME} keeps `,
+          strong: "none of it",
+          end: ".",
+        },
+
+  // What moved.
+  movedTitle: (window: "day" | "week") =>
+    window === "day"
+      ? "The questions that moved in the last day"
+      : "The questions that moved in the last week",
+  movedIntro: (window: "day" | "week") =>
+    window === "day"
+      ? "The questions whose chance changed most since yesterday, read from the market."
+      : "The questions whose chance changed most in the past week, read from the market.",
+  movedNone: "No question's chance has changed much lately. Every move is listed on its own page.",
+  movedAll: "See every move",
+  movedListHead: (window: "day" | "week") => (window === "day" ? "Past day" : "Past week"),
+  movedMeta: (category: string, event: string) => `${category} · ${event}`,
+
+  // Questions.
+  faqTitle: "Questions people ask first",
+  faq: [
+    {
+      question: `Is ${APP_NAME} gambling?`,
+      answer:
+        "No. Points can't be bought for an edge or cashed out, so there is nothing to win or " +
+        "lose but points.",
     },
     {
-      title: "See how you did",
-      body: "When the real-world answer is in, your forecast settles and your record updates.",
+      question: "Where do the questions and chances come from?",
+      answer:
+        `From Polymarket's public market data. ${APP_NAME} is not affiliated with Polymarket ` +
+        "and takes no money from it.",
+      // Said again in the footer on every page: a phone, short of room, leaves it to that.
+      phone: false,
     },
-  ],
+    {
+      question: "What does a 62% chance mean?",
+      answer:
+        "The market expects yes about 62 times in 100, the way a forecaster says 62% chance " +
+        "of rain.",
+      link: { label: "Read the guide to market odds", guide: "how-to-read-prediction-market-odds" },
+    },
+    {
+      question: "What happens when a question ends?",
+      answer:
+        "When the real answer is in, every pick on it settles and the right ones pay their " +
+        "points.",
+    },
+    {
+      question: "Where can I find help if gambling is already a problem?",
+      answer: "This game is not a treatment. Free, confidential help is listed on one page.",
+      link: { label: "Get free help", href: "/help" },
+    },
+  ] as {
+    question: string;
+    answer: string;
+    link?: { label: string; guide?: string; href?: string };
+    phone?: boolean;
+  }[],
 
-  mathTitle: "The part a bookmaker would rather you skipped",
-  mathIntro: (margin: string) =>
-    "Somewhere that takes bets does not pay fair odds. It shaves a margin off every pick, and " +
-    `on a bet with several picks the margin multiplies. Here is what a ${margin} margin takes ` +
-    "from each stake, on average, before luck has had any say:",
-  mathColumnPicks: "On one slip",
-  mathPicks: (count: number) => (count === 1 ? "1 pick" : `${count} picks`),
-  mathThere: (margin: string) => `With a ${margin} margin`,
-  mathHere: `On ${APP_NAME}`,
-  mathNothing: "0%",
-  mathOutro:
-    "That is why the multi-pick bet is the product every betting site pushes hardest. " +
-    `${APP_NAME} charges nothing at any length, and its reality check will show you what ` +
-    "your own record would have cost somewhere that does.",
-
-  whyTitle: "Why this exists",
-  why: [
-    "Predicting things is genuinely fun. Having a view, putting something behind it, and " +
-    "finding out whether you were right is one of the better ways to follow the news.",
-    "Most places that let you do it want your money, and are built — carefully, by people " +
-    "who are good at it — to keep you coming back after you have lost some. This is the same " +
-    "game with the money taken out and those tricks left out: no streaks to protect, no " +
-    "limited-time boosts, no balance that shrinks if you stay away.",
-    "It is not a treatment, and it will not fix a gambling problem. It is somewhere to enjoy " +
-    "the good part without the part that ruins people.",
-  ],
-  whyHelpPrompt: "If gambling is already costing you more than you want it to,",
-  whyHelpLink: "there is real, free help here.",
-  whyMissionLink: "Read the mission",
-
-  readTitle: "Worth reading first",
-  readIntro:
-    "Plain answers to the questions people actually ask, each with its sources listed.",
-  // One from each group, in the order somebody new would want them.
-  readSlugs: [
-    "what-is-a-prediction-market",
-    "why-parlays-are-a-bad-bet",
-    "how-to-stop-gambling",
-  ],
-  readAll: "All the guides",
+  // The close: the promise again, one fact, and the name set large.
+  closeTitle: (rules: Rules) =>
+    rules
+      ? `Free to play, ${rules.signup_bonus.display} points to start`
+      : "Free to play, the same points for everyone",
+  closeLine: "Nothing is taken from a pick.",
 };
 
 // ---------------------------------------------------------------------------
@@ -851,7 +972,6 @@ export const movesPage = {
   windowWords: { day: "in a day", week: "in a week" },
   // A move whose own figure was read at another time than the rest of the list.
   readAt: (time: string) => `Read at ${time}`,
-  fromTo: (was: string, now: string) => `From ${was} to ${now}`,
   emptyDay: (size: string) =>
     `Nothing has moved by ${size} percentage points or more in the last day.`,
   emptyWeek: (size: string) =>
@@ -899,7 +1019,6 @@ export const questionsPage = {
   countsLabel: "Questions by subject",
   openCount: (open: number) => `${open} open`,
   finishedCount: (finished: number) => `${finished} finished`,
-  open: "Open",
   finished: "Finished",
   finishedIntro:
     "Questions that have closed or been resolved, the most recent first. Their pages keep " +
@@ -910,10 +1029,14 @@ export const questionsPage = {
     resolved: "Resolved",
   },
   others: "Other questions",
-  unavailable: "The list of questions could not be fetched just now.",
+  // Where a family's questions differ, read aloud in its heading.
+  slot: "…",
+  unavailable: "The list of questions could not be fetched just now. Try again in a minute or two.",
   empty: "There are no questions to list yet. They are read from the market every hour.",
   count: (shown: number) => (shown === 1 ? "1 question" : `${shown} questions`),
 
+  // For the filter, which runs in the browser and so is handed plain words:
+  // {shown} and {total} are filled in there.
   filter: {
     search: "Find a question",
     placeholder: "Bitcoin, Sweden, the Fed",
@@ -921,9 +1044,9 @@ export const questionsPage = {
     state: "State",
     all: "All",
     states: { open: "Open", closed: "Waiting for a result", resolved: "Resolved" },
-    showing: (shown: number, total: number) =>
-      shown === total ? `Showing all ${total} questions` : `Showing ${shown} of ${total} questions`,
-    sectionCount: (shown: number, total: number) => `${shown} of ${total}`,
+    showingAll: "Showing all {total} questions",
+    showing: "Showing {shown} of {total} questions",
+    sectionCount: "{shown} of {total}",
     none: "No question matches. Try a shorter word, or clear the search.",
     clear: "Clear the search",
   },
@@ -953,19 +1076,16 @@ export const questionPage = {
     open: (closes: string) => `Forecasts close on ${closes}.`,
     closed: (when: string) => `Closed to forecasts on ${when}, and waiting for its result.`,
     resolved: (when: string) => `Settled on ${when}.`,
-    void: "Cancelled by its source. Nobody was right or wrong about it.",
-    unfollowed: (when: string) =>
-      `No longer followed here. The price shown is the last one ${APP_NAME} read, on ${when}.`,
+    void: "Its source called it off, so nobody was right or wrong about it.",
+    unfollowed: (when: string) => `The price shown is the last one ${APP_NAME} read, on ${when}.`,
   },
   lastPrice: "Last price",
   answerWord: "was the answer",
 
   changesTitle: "How it has changed",
-  // "A day ago 98%, a week ago 74%, now 22%."
-  changesLine: (day: string | null, week: string | null, now: string) =>
-    [day ? `A day ago ${day}` : null, week ? `${day ? "a" : "A"} week ago ${week}` : null, `now ${now}`]
-      .filter(Boolean)
-      .join(", ") + ".",
+  // Each over a track: "In the last day 97% → 22%", from where it stood then
+  // to the price at the top of the page.
+  windows: { day: "In the last day", week: "In the last week" },
 
   rangeTitle: { live: "Lowest and highest this week", last: "Lowest and highest in its last week" },
 
@@ -998,7 +1118,10 @@ export const questionPage = {
       yesAlmost: "close to certain",
     },
     contract: (price: string) =>
-      `On Polymarket, a contract that pays 100 if the answer is yes trades at about ${price}.`,
+      `On Polymarket, a contract that pays 100 if the answer is yes trades at ${price}.`,
+    about: (price: string) => `about ${price}`,
+    lessThan: (price: string) => `less than ${price}`,
+    moreThan: (price: string) => `more than ${price}`,
     estimate:
       "That is an estimate by the people trading, weighted by their money. It is not " +
       "knowledge, and it can stay wrong for a long time.",
@@ -1017,8 +1140,8 @@ export const questionPage = {
 
   playTitle: "Your own forecast",
   playBody:
-    "Say what you think with points instead of money. Points are free, and there is " +
-    "nothing to win or lose but them.",
+    "Say what you think with points instead of money. The points are free, and there is " +
+    "nothing else to win or lose.",
   playCta: "Make a forecast",
   movesLink: "See what else moved",
 };

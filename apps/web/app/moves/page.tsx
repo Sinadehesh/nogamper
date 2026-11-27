@@ -6,10 +6,10 @@ import { MovesKey, MovesSection, asPercentagePoints } from "@/components/questio
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { PRICE_SOURCE, movesPage } from "@/lib/content";
 import { t } from "@/lib/copy";
+import { dateTimeUtc } from "@/lib/format";
 import { breadcrumbLd, listLd, pageMetadata } from "@/lib/seo";
 import { keepEarlierCopy } from "@/lib/server/public";
 import { getMoves } from "@/lib/server/questions";
-import { shortDateTimeUtc } from "@/lib/viz";
 
 // Kept for five minutes, then built again behind the next visitor.
 export const revalidate = 300;
@@ -69,7 +69,7 @@ export default async function MovesPage() {
               {moves ? (
                 <div className="flex flex-col gap-1">
                   {measuredAt ? (
-                    <p className="dp-small">{movesPage.measured(shortDateTimeUtc(measuredAt))}</p>
+                    <p className="dp-small">{movesPage.measured(dateTimeUtc(measuredAt))}</p>
                   ) : null}
                   <AsOf at={moves.as_of} changing />
                 </div>

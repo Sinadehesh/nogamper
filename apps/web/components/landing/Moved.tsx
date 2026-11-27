@@ -1,0 +1,105 @@
+import Link from "next/link";
+
+import { AsOf } from "@/components/AsOf";
+import { LinkPending } from "@/components/LinkPending";
+import { MoveScale, MoveTrack } from "@/components/viz";
+import { FETCHING, FETCHING_SLOWLY, landing } from "@/lib/content";
+import { categoryLabel } from "@/lib/copy";
+import type { Move } from "@/lib/types";
+import { closesOn, fromToArrow, groupByEvent } from "@/lib/viz";
+
+// How many of the moves a phone and a small laptop list, where the rows stack
+// under the heading or the screen is short; the moves page lists every one.
+const PHONE_ROWS = 2;
+const LAPTOP_ROWS = 3;
+
+const same = (one: string, other: string) => one.trim().toLowerCase() === other.trim().toLowerCase();
+
+/**
+ * What moved: the largest changes the market reported, each a row with its
+ * move drawn on the fixed 0-to-100 track and a link to its question's page.
+ * It reports and does not advise: one colour whichever way a move went, no
+ * ranking words, nothing to act on but reading more (map 5.3).
+ */
+export function Moved({
+  moved,
+  asOf,
+}: {
+  moved: { window: "day" | "week"; items: Move[] } | null;
+  asOf: string | null;
+}) {
+  const window = moved?.window ?? "day";
+  const groups = moved ? groupByEvent(moved.items) : [];
+  // Each row knows its place in the whole list, not only in its event.
+  let place = 0;
+  const numbered = groups.map((group) => ({
+    ...group,
+    rows: group.items.map((move) => ({ move, place: place++ })),
+  }));
+
+  return (
+    <section className="section lp-moved" id="moved" aria-labelledby="moved-h">
+      <div className="wrap grid grid--top">
+        <div className="span-5 lp-moved__head">
+          <h2 id="moved-h">{landing.movedTitle(window)}</h2>
+          <p className="t-lead">{moved ? landing.movedIntro(window) : landing.movedNone}</p>
+          <a className="link" href="/moves">
+            {landing.movedAll}
+          </a>
+          {/* The one time on the page its figures are from: the hero's
+              question and these moves were read together. */}
+          {asOf ? <AsOf at={asOf} changing /> : null}
+        </div>
+        {/* The list as the game shows it, on the page's lit ground: real
+            rows, each a link to its question's page. */}
+        <div className="span-6 start-7 panel lp-moved__panel">
+          <div className="lp-movelist">
+            <p className="lp-movelist__head">
+              <span>{landing.movedListHead(window)}</span>
+            </p>
+            <ul className="lp-moves">
+              {numbered.map((group) => (
+                <li
+                  key={group.title}
+                  className="lp-moves__group"
+                  data-later={group.rows.every((row) => row.place >= PHONE_ROWS) ? "" : undefined}
+                  data-laptop-later={group.rows.every((row) => row.place >= LAPTOP_ROWS) ? "" : undefined}
+                >
+                  <p className="lp-moves__event">
+                    {group.items.length > 1 || !same(group.title, group.items[0]?.question ?? "")
+                      ? landing.movedMeta(categoryLabel(group.category), group.title)
+                      : categoryLabel(group.category)}
+                  </p>
+                  <ul>
+                    {group.rows.map(({ move, place: at }) => (
+                      <li
+                        key={move.slug}
+                        className="lp-move"
+                        data-later={at >= PHONE_ROWS ? "" : undefined}
+                        data-laptop-later={at >= LAPTOP_ROWS ? "" : undefined}
+                      >
+                        <Link className="lp-move__q" href={`/questions/${move.slug}`} prefetch={false}>
+                          {move.question}
+                          <LinkPending label={FETCHING} slowLabel={FETCHING_SLOWLY} ownLine />
+                        </Link>
+                        <MoveTrack was={move.was} now={move.now} />
+                        <p className="lp-move__meta">
+                          {fromToArrow(move.was, move.now)} · {closesOn(move.closes_at, asOf ?? undefined)}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+            {groups.length ? (
+              <div className="lp-movelist__scale" aria-hidden="true">
+                <MoveScale />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
