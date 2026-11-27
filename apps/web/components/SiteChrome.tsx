@@ -488,10 +488,13 @@ export function SiteFooter({ close }: { close?: ReactNode }) {
         <div className="closing__links">
           <nav className="grid" aria-label={t.navFooterLabel}>
             <div className="span-4 footer__brand">
-              <a className="nav__logo footer__mark" href="/">
-                <Mark />
-                {t.appName}
-              </a>
+              {/* Under the close, the name is already set large just above. */}
+              {close ? null : (
+                <a className="nav__logo footer__mark" href="/">
+                  <Mark />
+                  {t.appName}
+                </a>
+              )}
               <p className="footer__help">
                 {t.footerHelpLine}{" "}
                 <Link className="link" href="/help" prefetch={false}>
