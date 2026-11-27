@@ -17,8 +17,10 @@ from backend.workers import economy as economy_jobs
 from backend.workers import polymarket_discovery as discovery
 from backend.workers import polymarket_sync as sync
 from backend.workers import resolution
-from backend.workers.locks import lock_key
-from backend.workers.scheduler import CATCH_UP_JOB_ID, build_scheduler, catch_up
+from backend.workers import scheduler as scheduler_module
+from backend.workers.locks import lock_key, single_flight
+from backend.workers.runlog import did_run
+from backend.workers.scheduler import CATCH_UP_JOB_ID, build_scheduler, catch_up, when_free
 
 
 @asynccontextmanager
@@ -153,6 +155,135 @@ async def test_catching_up_on_an_empty_database_does_nothing_and_does_not_fail(r
         sync.JOB_NAME: "ok",
         resolution.JOB_NAME: "ok",
     }
+
+
+# ----- a start-up job waits its turn -----------------------------------------------
+#
+# A deploy starts the new container while the old one is still alive, often in
+# the middle of these very jobs. A start-up job that was turned away once and
+# never asked again left a new release without its first read of the market
+# until the hourly tick — which a server that sleeps first never reaches.
+
+
+def _turned_away(times: int, calls: list[int]):
+    """A job another replica holds for its first `times` askings."""
+
+    async def job(*args, **kwargs):
+        calls.append(len(calls) + 1)
+        return sync.SyncReport(ran=len(calls) > times)
+
+    return job
+
+
+async def test_a_start_up_job_that_is_turned_away_asks_again_until_it_runs(resources):
+    calls: list[int] = []
+
+    report = await when_free("prices", _turned_away(2, calls), tries=5, pause=0)
+
+    assert calls == [1, 2, 3]
+    assert report.ran is True
+
+
+async def test_a_start_up_job_that_never_gets_its_turn_gives_up_quietly(resources, caplog):
+    """It is left to its next tick. Not an error, and not a loop."""
+    calls: list[int] = []
+
+    with caplog.at_level("WARNING"):
+        report = await when_free("prices", _turned_away(99, calls), tries=3, pause=0)
+
+    assert calls == [1, 2, 3]
+    assert report.ran is False
+    assert "left to its next tick" in caplog.text
+
+
+async def test_a_job_that_runs_first_time_is_not_asked_twice(resources):
+    calls: list[int] = []
+
+    await when_free("prices", _turned_away(0, calls), tries=5, pause=0)
+
+    assert calls == [1]
+
+
+async def test_catching_up_waits_for_prices_before_it_settles(resources, monkeypatch):
+    """The order still holds when the first step has to wait: nothing is
+    settled, or counted, against prices the old container was still reading."""
+    monkeypatch.setattr(scheduler_module, "START_UP_PAUSE_SECONDS", 0)
+    ran: list[str] = []
+    _stand_ins(monkeypatch, ran)
+    asked: list[int] = []
+
+    async def prices(*args, **kwargs):
+        asked.append(1)
+        ran.append("prices" if len(asked) > 1 else "prices turned away")
+        return sync.SyncReport(ran=len(asked) > 1)
+
+    monkeypatch.setattr(sync, "run_price_sync", prices)
+
+    async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
+        await catch_up(client, resources)
+
+    assert ran == ["prices turned away", "prices", "settlement", "standings"]
+
+
+async def test_the_real_job_runs_once_the_other_replica_lets_go(resources):
+    """Against the real lease: discovery held elsewhere, then released."""
+    holding = asyncio.Event()
+    let_go = asyncio.Event()
+
+    async def the_container_being_replaced():
+        async with single_flight(discovery.JOB_NAME) as owner:
+            assert owner
+            holding.set()
+            await let_go.wait()
+
+    other = asyncio.create_task(the_container_being_replaced())
+    await holding.wait()
+    # Released a moment after the new container first asks.
+    asyncio.get_running_loop().call_later(0.15, let_go.set)
+
+    async with mock_http_client(lambda r: httpx.Response(200, json=[])) as client:
+        report = await when_free(
+            discovery.JOB_NAME, discovery.run_discovery, client, resources, tries=20, pause=0.05
+        )
+    await other
+
+    assert report.ran is True
+    async with db.acquire() as conn:
+        outcome = await conn.fetchval(
+            "SELECT outcome FROM job_runs WHERE job_name = $1", discovery.JOB_NAME
+        )
+    assert outcome == "ok"
+
+
+async def test_the_start_up_read_of_the_market_is_one_that_waits_its_turn():
+    settings = get_settings()
+    settings.run_discovery_on_startup = True
+    async with started_scheduler(settings) as scheduler:
+        job = scheduler.get_job(f"{discovery.JOB_NAME}_startup")
+        assert job.func is when_free
+        assert job.args[:2] == (discovery.JOB_NAME, discovery.run_discovery)
+
+
+def test_turned_away_is_told_from_ran_however_a_job_reports():
+    assert did_run(sync.SyncReport(ran=False)) is False
+    assert did_run({"ran": False}) is False
+    assert did_run(sync.SyncReport(ran=True)) is True
+    assert did_run({"ran": True, "error": "something else went wrong"}) is True
+    assert did_run(None) is True, "a job that reports nothing is taken to have run"
+
+
+async def test_a_run_that_was_turned_away_is_not_written_down(resources):
+    """Whatever shape the job reports in. A dictionary saying so used to be
+    recorded as a successful run, over the top of the last real one."""
+    from backend.workers.runlog import recorded
+
+    async def turned_away():
+        return {"ran": False}
+
+    await recorded("some_job", turned_away)()
+
+    async with db.acquire() as conn:
+        assert await conn.fetchval("SELECT count(*) FROM job_runs") == 0
 
 
 def test_lock_keys_are_stable_distinct_and_fit_in_a_bigint():
