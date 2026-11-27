@@ -18,6 +18,11 @@ const config: NextConfig = {
   // set — a stack fingerprint with no benefit to a visitor, and one more
   // fact an outside prober does not need.
   poweredByHeader: false,
+  // `next dev` would otherwise write AGENTS.md and CLAUDE.md into this folder
+  // whenever it sees an AI coding assistant running. The repository's own
+  // instructions for assistants are kept deliberately, so nothing is added
+  // behind the owner's back.
+  agentRules: false,
   env: {
     // Whether this build knows where the game's API is. A production build
     // with no API_BASE_URL has nothing behind its "Start playing" button, so
