@@ -14,6 +14,13 @@ Copied here, at the kit's own relative paths so its references resolve:
   backgrounds/backgrounds.css
   layout/layout.css
   icons/icon.css
+  effects/fx.js, effects/halftone-screen/effect.js, effects/halftone-screen/meta.json
+  moments/moments.js, moments/lib.js
+  moments/word-highlight/moment.js, moment.css, meta.json
+  moments/liquid-type/moment.js, moment.css, meta.json
+
+The front page (app/page.tsx) is the only page that runs the scripts above: the halftone-screen
+effect in its hero and the two moments (word-highlight, liquid-type).
 
 The site loads the stylesheets into the cascade layer "kit" (app/layout.tsx), so the site's
 own styles and every Tailwind utility win over them. Do not edit these files: replace them

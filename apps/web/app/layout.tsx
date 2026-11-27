@@ -86,7 +86,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // No m-enter here: the hero's entrance belongs to the one page that
     // loads the kit's motion script, so no other page can hide its words
     // waiting for a script that never comes.
+    // suppressHydrationWarning: on the front page the kit's head line adds
+    // classes to <html> before React hydrates. It covers this one element's
+    // attributes only, never anything inside it.
     <html
+      suppressHydrationWarning
       lang="en"
       data-type="software"
       data-radius="round"

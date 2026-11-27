@@ -519,14 +519,14 @@
     --viz-head: clamp(0px, calc(var(--viz-d) * 1cqi - var(--viz-r-was) - var(--viz-r-now) - 4px), 10px);
   }
 
+  /* These are <Figure> elements: their digits are tabular already, and the
+     "." and "%" between them keep their own width ("0.1%", not "0 . 1%"). */
   .viz-mt--large .viz-mt__fig,
   .viz-range--large .viz-range__fig {
     font-family: var(--viz-font-figure);
     font-size: 20px;
     font-weight: 500;
     letter-spacing: -0.01em;
-    font-variant-numeric: tabular-nums;
-    font-feature-settings: "tnum" 1;
   }
 
   .viz-mt--large .viz-mt__label[data-key="now"] .viz-mt__fig {
@@ -1076,7 +1076,8 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  .viz-lc__scrub:focus {
+  /* A click shows no ring; a keyboard visit does (the next rule). */
+  .viz-lc__scrub:focus:not(:focus-visible) {
     outline: none;
   }
 
