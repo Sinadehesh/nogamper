@@ -4,6 +4,8 @@
 questions about the news, live odds taken from real markets, and points that
 can never be cashed out.
 
+**Live at [middlemost.sinadehesh.com](https://middlemost.sinadehesh.com).**
+
 ![The landing page](docs/screenshots/landing.png)
 
 Calling an outcome, putting something behind it and finding out whether you
@@ -319,6 +321,8 @@ app deployed from `apps/web`.
 | Site | `INTERNAL_API_KEY` | The same value the API has |
 | Site | `NEXT_PUBLIC_SITE_URL` | The one public address, e.g. `https://example.com` — canonical links and the sitemap are built from it |
 | Site | `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | Optional: ownership strings from the search consoles |
+| Site | `INDEXNOW_KEY` | Optional: a key of your own choosing, published at `/indexnow-key.txt`. With it, [`scripts/indexnow.py`](scripts/indexnow.py) tells Bing and the other IndexNow search engines about every page in the sitemap, with no account anywhere |
+| Site | `FORMER_HOSTS` | Optional: other names the deployment still answers to, comma-separated. Each is redirected to `NEXT_PUBLIC_SITE_URL` |
 | Site | `DONATE_URL` | Optional: a Stripe Payment Link. Unset, there is no Donate button |
 | Site | `DONATE_PAYEE` | Optional: the name Stripe's page shows for who is paid, when it is not the site's own. The Support page then says so beside the button |
 | API only | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SITE_URL` | Optional, and together: they open the shop. The webhook endpoint is `https://<api>/v1/payments/stripe/webhook` |

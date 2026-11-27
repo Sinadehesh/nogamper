@@ -1,5 +1,17 @@
 import type { NextConfig } from "next";
 
+// Other names this deployment still answers to — an earlier name for the
+// site, the address the host gave the project on its first day. Each is the
+// whole site again at a second address, which is a duplicate to a search
+// engine and a stale link to a person. They are sent on, permanently, to the
+// one real address. Nothing is redirected unless both are set, and never the
+// real address to itself.
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim().replace(/\/+$/, "");
+const FORMER_HOSTS = (process.env.FORMER_HOSTS ?? "")
+  .split(",")
+  .map((host) => host.trim().toLowerCase())
+  .filter((host) => host !== "" && SITE_URL !== "" && !SITE_URL.endsWith(`//${host}`));
+
 const config: NextConfig = {
   reactStrictMode: true,
   // Next.js sends "X-Powered-By: Next.js" on every response unless this is
@@ -25,6 +37,14 @@ const config: NextConfig = {
     "/articles/[slug]": ["./content/articles/*.md"],
     "/articles/[slug]/opengraph-image": ["./content/articles/*.md"],
     "/sitemap.xml": ["./content/articles/*.md"],
+  },
+  async redirects() {
+    return FORMER_HOSTS.map((host) => ({
+      source: "/:path*",
+      has: [{ type: "host" as const, value: host }],
+      destination: `${SITE_URL}/:path*`,
+      permanent: true,
+    }));
   },
   async headers() {
     return [
