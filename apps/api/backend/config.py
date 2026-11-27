@@ -258,6 +258,53 @@ class Settings(BaseSettings):
 
     market_lock_buffer_seconds: int = 300
 
+    # ----- what moved -------------------------------------------------------
+
+    moves_day_threshold: float = 0.05
+    moves_week_threshold: float = 0.10
+    """How far a question's chance must have changed to be reported as having
+    moved: five points in a day, ten in a week.
+
+    Below that is the ordinary noise of a market — a price ticking between a
+    bid and an ask — and a page of it would be a page of nothing, presented as
+    news.
+    """
+
+    moves_min_hours_to_close: int = 24
+    moves_decided_margin: float = 0.03
+    """What keeps a result from being reported as a move.
+
+    A question about to close does not drift, it collapses: "above $66,000 on
+    the 27th?" goes from 40% to 1% on the 27th because the day arrived, not
+    because anybody learned anything. So a question closing within
+    `moves_min_hours_to_close` is left out, and so is one that is already all
+    but decided — within `moves_decided_margin` of 0 or of 100%, now or at
+    the start of the window. What is left is questions that were open then
+    and are open still.
+    """
+
+    moves_max_age_hours: int = 6
+    """How old the source's change figures may be and still be called "the
+    last day". They are refreshed with the question list, hourly; a server
+    that has been asleep refreshes them when it wakes. Older than this they
+    describe some earlier day: the list of moves is then not sent at all (503,
+    so the site keeps the page it last built), and a question's own page
+    leaves its change figures out."""
+
+    moves_price_max_age_seconds: int = 600
+    """How old a question's price may be and still be called "now" in the
+    list of moves. Prices are read every minute while the server runs, so ten
+    minutes forgives a few missed passes; a server that has just woken has the
+    prices it went to sleep with, hours old, until its first pass finishes,
+    and until then there is no list to send."""
+
+    history_cache_seconds: int = 600
+    history_timeout_seconds: float = 3.0
+    """A question's page draws a week of hourly prices, read from the source
+    when the page is asked for and kept for ten minutes. The timeout is short
+    on purpose: the page is worth having without its chart, and not worth
+    waiting on."""
+
     # ----- the forecasting game -------------------------------------------
 
     min_prob: float = 0.01
@@ -527,6 +574,20 @@ class Settings(BaseSettings):
             raise RuntimeError('CORS_ORIGINS must not be "*" in production.')
         if self.min_stake_minor <= 0 or self.max_stake_minor < self.min_stake_minor:
             raise RuntimeError("Stake limits are inconsistent: need 0 < MIN_STAKE <= MAX_STAKE.")
+        if not (
+            0 < self.moves_day_threshold < 1
+            and 0 < self.moves_week_threshold < 1
+            and 0 <= self.moves_decided_margin < 0.5
+            and self.moves_min_hours_to_close >= 0
+            and self.moves_max_age_hours > 0
+            and self.moves_price_max_age_seconds > 0
+        ):
+            # A threshold of zero would report every question as having moved,
+            # every day, and call it news.
+            raise RuntimeError(
+                "The MOVES_* settings are inconsistent: thresholds must be between 0 and 1, "
+                "MOVES_DECIDED_MARGIN below 0.5, and the age settings positive."
+            )
         if self.shop_open:
             self._require_a_safe_shop()
 

@@ -22,6 +22,7 @@ from .routers import (
     me,
     messages,
     predictions,
+    questions,
     rules,
     shop,
 )
@@ -110,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(me.router)
     app.include_router(markets.router)
+    app.include_router(questions.router)
     app.include_router(rules.router)
     app.include_router(predictions.router)
     app.include_router(economy.router)

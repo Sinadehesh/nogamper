@@ -110,3 +110,57 @@ async def fetch_token_price(
         source=source,
         fetched_at=datetime.now(UTC),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class PricePoint:
+    at: datetime
+    probability: Decimal
+
+
+_FOUR_PLACES = Decimal("0.0001")
+MAX_HISTORY_POINTS = 400
+"""A week of hourly prices is 168 points. This is a ceiling on what one answer
+may put on a page, not a target."""
+
+
+async def fetch_price_history(
+    client: httpx.AsyncClient, token_id: str, settings: Settings
+) -> list[PricePoint]:
+    """The last week of a token's price, hourly, oldest first.
+
+    For reading, not for pricing: this is what a question's page draws its
+    chart from, and nothing is ever staked against it. An empty list is a real
+    answer — a market opened an hour ago has no week behind it — and is not an
+    error. Points that are not a time and a probability are dropped rather
+    than guessed at.
+
+    One attempt, on a short clock. The page that asked can be shown without a
+    chart; it cannot be shown while this is still retrying.
+    """
+    payload = await get_json(
+        client,
+        f"{settings.clob_api_url}/prices-history",
+        params={"market": token_id, "interval": "1w", "fidelity": 60},
+        max_retries=1,
+        timeout=settings.history_timeout_seconds,
+    )
+    history = payload.get("history") if isinstance(payload, dict) else None
+    if not isinstance(history, list):
+        raise PriceUnavailable("no history in the response")
+
+    points: list[PricePoint] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        try:
+            at = datetime.fromtimestamp(float(item["t"]), tz=UTC)
+            probability = Decimal(str(item["p"]))
+        except (KeyError, TypeError, ValueError, OverflowError, OSError, InvalidOperation):
+            continue
+        if not probability.is_finite() or not Decimal(0) <= probability <= Decimal(1):
+            continue
+        points.append(PricePoint(at=at, probability=probability.quantize(_FOUR_PLACES)))
+
+    points.sort(key=lambda point: point.at)
+    return points[-MAX_HISTORY_POINTS:]

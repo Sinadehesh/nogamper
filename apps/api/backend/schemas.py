@@ -172,6 +172,114 @@ class MarketSummary(BaseModel):
     end_date: datetime
 
 
+QuestionState = Literal["open", "closed", "resolved", "void", "unfollowed"]
+"""Where a question stands, in the words its public page uses.
+
+`open` can still be forecast. `closed` no longer can and is waiting for its
+result. `resolved` has one. `void` was cancelled by its source. `unfollowed`
+is a question the site once carried and no longer keeps a live price for.
+"""
+
+
+class HistoryPoint(BaseModel):
+    at: datetime
+    yes: str
+
+
+class QuestionChanges(BaseModel):
+    """How far the YES chance has moved, as the source reported it.
+
+    Signed decimal strings in probability: "0.2500" is up 25 points. None where
+    the source gave no figure — a question younger than the window has none —
+    which is not the same as "0.0000".
+    """
+
+    hour: str | None = None
+    day: str | None = None
+    week: str | None = None
+    reference: str | None = None
+    """The YES price the changes were measured to. With it, "up 25 points"
+    can be said as "from 30% to 55%"; it is not the live price, which has had
+    up to an hour to move since."""
+    measured_at: datetime | None = None
+    """When the figures were read. All five are None together when the newest
+    figures are too old to be called the last day: see `moves_max_age_hours`."""
+
+
+class QuestionOut(BaseModel):
+    """One question, for a page anybody can read: what is asked, what the
+    market says, how that has changed, and how it ended if it has."""
+
+    slug: str
+    question: str
+    description: str | None = None
+    category: str
+    event_title: str
+    state: QuestionState
+    outcome: Literal["yes", "no"] | None = None
+    closes_at: datetime
+    ends_at: datetime
+    resolved_at: datetime | None = None
+    probability: Probability
+    changes: QuestionChanges
+    history: list[HistoryPoint]
+    history_source: Literal["source", "own", "none"]
+    """Where the chart's points came from: the source's own hourly history,
+    this site's record of the prices it saw, or nowhere."""
+    volume_usd: str
+    updated_at: datetime
+    as_of: datetime
+    """When this answer was put together. A page built from it is kept and
+    served again, sometimes long after, so the page prints this rather than
+    letting "now" mean whenever it happens to be read."""
+
+
+class Move(BaseModel):
+    """A question whose chance changed: from `was` to `now`, by `change`."""
+
+    slug: str
+    question: str
+    category: str
+    event_title: str
+    closes_at: datetime
+    was: str
+    now: str
+    change: str
+    measured_at: datetime
+
+
+class MovesOut(BaseModel):
+    """The questions that moved most over a day and over a week, and the rules
+    that decided what counts — sent along so the page can state them rather
+    than paraphrase them."""
+
+    day: list[Move]
+    week: list[Move]
+    measured_at: datetime
+    """When the newest change figures were read. Always recent: when the
+    newest are too old to be called the last day there is no list to send,
+    and the route answers 503 instead."""
+    day_threshold: str
+    week_threshold: str
+    min_hours_to_close: int
+    decided_margin: str
+    as_of: datetime
+    """When this list was put together, and so the moment "now" means in it."""
+
+
+class QuestionIndexItem(BaseModel):
+    slug: str
+    question: str
+    category: str
+    state: QuestionState
+    updated_at: datetime
+
+
+class QuestionIndex(BaseModel):
+    questions: list[QuestionIndexItem]
+    total: int
+
+
 class MarketPage(BaseModel):
     """The feed, and the rules a slip built from it has to satisfy.
 

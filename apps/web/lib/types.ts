@@ -429,3 +429,82 @@ export type Diagnostics = {
   runs: JobRun[];
   generated_at: string;
 };
+
+// ----- questions, for pages anybody can read -----------------------------------
+
+/** Where a question stands, in the words its public page uses. */
+export type QuestionState = "open" | "closed" | "resolved" | "void" | "unfollowed";
+
+export type HistoryPoint = { at: string; yes: string };
+
+/**
+ * How far the YES chance has moved, as the market reported it. Signed decimal
+ * strings in probability; null where there is no figure, which is not zero.
+ * `reference` is the price the changes were measured to — not the live one.
+ */
+export type QuestionChanges = {
+  hour: string | null;
+  day: string | null;
+  week: string | null;
+  reference: string | null;
+  measured_at: string | null;
+};
+
+export type PublicQuestion = {
+  slug: string;
+  question: string;
+  description: string | null;
+  category: string;
+  event_title: string;
+  state: QuestionState;
+  outcome: "yes" | "no" | null;
+  closes_at: string;
+  ends_at: string;
+  resolved_at: string | null;
+  probability: Probability;
+  changes: QuestionChanges;
+  history: HistoryPoint[];
+  history_source: "source" | "own" | "none";
+  volume_usd: string;
+  updated_at: string;
+  /** When the API put this answer together: the moment the page describes. */
+  as_of: string;
+};
+
+/** A question whose chance changed: from `was` to `now`, by `change`. */
+export type Move = {
+  slug: string;
+  question: string;
+  category: string;
+  event_title: string;
+  closes_at: string;
+  was: string;
+  now: string;
+  change: string;
+  measured_at: string;
+};
+
+export type Moves = {
+  day: Move[];
+  week: Move[];
+  /** When the market's change figures were last read. Always recent: with
+   * out-of-date figures the API sends no list at all. */
+  measured_at: string;
+  day_threshold: string;
+  week_threshold: string;
+  min_hours_to_close: number;
+  decided_margin: string;
+  /** When the API put this list together: the moment "now" means in it. */
+  as_of: string;
+};
+
+export type QuestionIndexItem = {
+  slug: string;
+  question: string;
+  category: string;
+  state: QuestionState;
+  updated_at: string;
+};
+
+export type QuestionIndex = { questions: QuestionIndexItem[]; total: number };
+

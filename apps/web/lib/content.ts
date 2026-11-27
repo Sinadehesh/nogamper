@@ -798,6 +798,167 @@ export const privacy = {
 // Articles
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// What moved, and a page for each question
+// ---------------------------------------------------------------------------
+
+/** Where the prices come from, said the same way wherever they are shown. */
+export const PRICE_SOURCE =
+  "Prices are read from Polymarket's public market data. " +
+  `${APP_NAME} is not affiliated with Polymarket and takes no money from it.`;
+
+function pointsWord(points: string): string {
+  return Number(points) === 1 ? "point" : "points";
+}
+
+/** "up 25 points", "down 1 point", "unchanged" — a change, in words. */
+export function changeInWords(points: string, direction: "up" | "down" | "flat"): string {
+  if (direction === "flat") return "unchanged";
+  return `${direction} ${points} ${pointsWord(points)}`;
+}
+
+/** The line that dates a page's figures, and what it says while newer ones are fetched. */
+export const asOf = {
+  // Printed as "As of <the time>. Dates and times are in UTC."
+  label: "As of",
+  zone: "Dates and times are in UTC.",
+  looking: "That is a while ago. Newer figures are being fetched.",
+  gaveUp: "Newer figures could not be fetched just now.",
+};
+
+/** Shown inside a link to a question while its page is on the way: the first
+ * after half a second, the second only if it is still not there after six. */
+export const FETCHING = "Fetching…";
+export const FETCHING_SLOWLY = "The server was resting. This can take up to a minute.";
+
+export const movesPage = {
+  metaTitle: "What moved: the biggest changes in prediction market odds",
+  metaDescription:
+    "The questions whose chances changed most over the last day and week, and from what to " +
+    "what. Results being settled are left out. No tips, and nothing to bet.",
+
+  title: "What moved",
+  lede:
+    "The questions whose chances changed most, and from what to what. A change is reported " +
+    "here. It is not explained, and it is not a tip.",
+
+  dayTitle: "In the last day",
+  weekTitle: "In the last week",
+  fromTo: (was: string, now: string) => `From ${was} to ${now}`,
+  emptyDay: (points: string) =>
+    `Nothing has moved by ${points} points or more in the last day.`,
+  emptyWeek: (points: string) =>
+    `Nothing has moved by ${points} points or more in the last week.`,
+  unavailable:
+    "The figures could not be fetched just now, or are being read again. That takes a " +
+    "minute or two. The rest of the site is unaffected.",
+
+  rulesTitle: "What counts as a move",
+  rules: (day: string, week: string, hours: number, margin: string) => [
+    `A change of ${day} points or more in a day, or ${week} or more in a week. Less than ` +
+    "that is the ordinary noise of a market, and a page of it would be a page of nothing.",
+    `Only questions that are still open: more than ${hours} hours from closing, and not ` +
+    `within ${margin} points of certain at either end. A price collapsing as a question ` +
+    "is decided is a result arriving, not news.",
+    "The change is measured from where the question stood a day or a week ago to its " +
+    "price now. A move that has already come back is not listed.",
+  ],
+
+  notATipTitle: "A move is not a tip",
+  notATip: [
+    "A price moves when the people trading on it change their minds, or when one large " +
+    "trade pushes it. Sometimes that is news arriving. Sometimes it is one opinion and a " +
+    "thin market. This page cannot tell you which, and neither can anyone who says they can.",
+    "Some moves hold. Many drift back. Nothing here says what happens next — and on this " +
+    "site there is nothing to win by guessing, which is rather the point.",
+  ],
+
+  allLink: "Browse every question",
+};
+
+export const questionsPage = {
+  metaTitle: "Every question: live prediction market odds, without the betting",
+  metaDescription:
+    "Every question this site follows, by subject: what is asked, and what the market " +
+    "currently puts the chance at. Read them freely; nothing here can be bet on.",
+  title: "Every question",
+  lede:
+    "Every question this site follows, by subject. Each has a page of its own: what the " +
+    "market says, how that has changed, and how it ended once it has.",
+  open: "Open",
+  finished: "Finished",
+  finishedIntro: "Questions that have closed or been resolved. Their pages keep the record.",
+  unavailable: "The list of questions could not be fetched just now.",
+  empty: "There are no questions to list yet. They are read from the market every hour.",
+  count: (shown: number) => (shown === 1 ? "1 question" : `${shown} questions`),
+};
+
+export const questionPage = {
+  // No figure in either: a search result is read days after it was written,
+  // and a chance quoted there would by then be somebody else's old number
+  // under this site's name.
+  metaDescription: (question: string) =>
+    "What the market puts the chance at, how that has changed over the last week, when " +
+    `the question closes, and what the number does and does not mean. Asked: ${question}`,
+  resolvedDescription: (question: string, outcome: string) =>
+    `Resolved: ${outcome}. How the market's chance moved before the end, and how the ` +
+    `answer was decided. Asked: ${question}`,
+
+  trail: "Questions",
+  states: {
+    open: (closes: string) => `Open. Forecasts close on ${closes}.`,
+    closed: (when: string) => `Closed to forecasts on ${when}, and waiting for its result.`,
+    resolved: (outcome: string, when: string) => `Resolved ${outcome} on ${when}.`,
+    void: "Cancelled by its source. Nobody was right or wrong about it.",
+    unfollowed: (when: string) =>
+      `No longer followed here. The price shown is the last one this site read, on ${when}.`,
+  },
+  lastPrice: "Last price",
+
+  changesTitle: "How it has changed",
+  windows: { day: "In the last day", week: "In the last week" },
+  changesNote: "From where it stood a day and a week ago to the price above.",
+
+  // Not "the last week": a new question has less than a week to show, and a
+  // finished one's week is not the last. The dates are under the chart.
+  chartTitle: "Price history",
+  chartSummary: (
+    first: string,
+    firstAt: string,
+    last: string,
+    lastAt: string,
+    low: string,
+    high: string,
+  ) => `From ${first} on ${firstAt} to ${last} on ${lastAt}. Lowest ${low}, highest ${high}.`,
+  chartSource: {
+    source: "Hourly prices from the market's own history, for Yes.",
+    own: "Prices for Yes as this site recorded them. There are gaps where it was not running.",
+    none: "There is no price history to show for this question.",
+  },
+
+  meaningTitle: "What the number means",
+  meaning: [
+    "It is the price, from 0 to 100, at which people are trading a contract that pays 100 " +
+    "if the answer is yes. Read as a chance: at 55%, the market is saying this happens a " +
+    "little more often than not.",
+    "It is the opinion of the people trading, weighted by their money. It is often a good " +
+    "estimate. It is not knowledge, and it can be wrong for a long time.",
+  ],
+  meaningLink: "How to read prediction market odds",
+
+  decidedTitle: "How the answer is decided",
+  decidedIntro: "In the market's own words:",
+  decidedMore: "Read the rest of the rules",
+
+  playTitle: "Think the market has it wrong?",
+  playBody:
+    "Say so with points instead of money. There is nothing to win here, and nothing to " +
+    "lose but points that are free.",
+  playCta: "Make a forecast",
+  movesLink: "See what else moved",
+
+};
+
 export const articlesPage = {
   metaTitle: "Articles on odds, prediction markets and quitting gambling",
   metaDescription:

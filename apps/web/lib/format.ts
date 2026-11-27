@@ -103,6 +103,41 @@ export function chancePair(yesProbability: string | number): { yes: string; no: 
   return { yes: `${yes.toFixed(digits)}%`, no: `${(100 - yes).toFixed(digits)}%` };
 }
 
+/**
+ * A change in a chance, formatted so that its three numbers add up.
+ *
+ * "From 56% to 31%, down 25 points" has to survive the reader's own
+ * subtraction. Rounded separately, 55.6% and 31.4% print as 56% and 31% while
+ * their difference prints as 24 — so the difference is taken from the two
+ * numbers as printed, at the precision they were printed at: whole points in
+ * the middle, tenths when either end is near 0 or 100, where a point matters.
+ *
+ * `direction` is "flat" when the two print the same, whatever lies beneath.
+ */
+export function movement(
+  was: string | number,
+  now: string | number,
+): { was: string; now: string; points: string; direction: "up" | "down" | "flat" } {
+  const from = Number(was);
+  const to = Number(now);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    return { was: "—", now: "—", points: "—", direction: "flat" };
+  }
+
+  const nearAnEnd = (value: number) => value < 0.095 || value > 0.905;
+  const digits = nearAnEnd(from) || nearAnEnd(to) ? 1 : 0;
+  const printedFrom = Number((from * 100).toFixed(digits));
+  const printedTo = Number((to * 100).toFixed(digits));
+  const difference = Number((printedTo - printedFrom).toFixed(digits));
+
+  return {
+    was: `${printedFrom.toFixed(digits)}%`,
+    now: `${printedTo.toFixed(digits)}%`,
+    points: Math.abs(difference).toFixed(digits),
+    direction: difference > 0 ? "up" : difference < 0 ? "down" : "flat",
+  };
+}
+
 export function percentValue(probability: string, fallback = 50): number {
   const parsed = Number(probability);
   if (!Number.isFinite(parsed)) return fallback;
@@ -153,6 +188,33 @@ const DATE_UTC = new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeZone
  */
 export function calendarDate(isoDate: string): string {
   return DATE_UTC.format(new Date(isoDate));
+}
+
+const DATE_TIME_UTC = new Intl.DateTimeFormat(LOCALE, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "UTC",
+  timeZoneName: "short",
+});
+
+/**
+ * A moment as a date in UTC — and, below, as a date and time that says so:
+ * "Nov 27, 2026, 12:54 PM UTC".
+ *
+ * For pages that are built once and read anywhere. `date` and `dateTime`
+ * borrow the clock of whatever runs them. In a visitor's browser that is the
+ * visitor's; on a server it is nobody's, and a page built there would print a
+ * time without saying whose it was.
+ */
+export function dateUtc(isoTimestamp: string): string {
+  return DATE_UTC.format(new Date(isoTimestamp));
+}
+
+export function dateTimeUtc(isoTimestamp: string): string {
+  return DATE_TIME_UTC.format(new Date(isoTimestamp));
 }
 
 export function date(isoTimestamp: string): string {

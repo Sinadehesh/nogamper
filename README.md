@@ -78,6 +78,13 @@ stakes of any kind are a trigger; the site says so plainly and links to
   combine up to five questions on one slip.
 - **See the honest number.** Every slip shows the chance it comes in, not
   just what it pays.
+- **See what moved**: the questions whose chance changed most over the last
+  day and week, and from what to what. A change is reported, never explained,
+  and a question that is merely being settled is left out — a price collapsing
+  as a result arrives is not news.
+- **Look any question up**: each has a public page with the market's chance,
+  how it has changed, its price history on a chart that always runs from 0 to
+  100%, and the rules that decide the answer. No account needed.
 - **Follow your record**: open and settled forecasts, and a monthly
   leaderboard for bragging rights.
 - **Use the brakes**: a daily limit, a break of a day to a month, a reminder
@@ -235,6 +242,17 @@ canonical address, a description and a preview image; there is a sitemap with
 real dates and structured data that claims nothing the page does not show
 ([`seo.ts`](apps/web/lib/seo.ts)).
 
+**A page of figures says when it is from.** The pages built from market data
+— [what moved](apps/web/app/moves/page.tsx) and one for
+[each question](apps/web/app/questions/%5Bslug%5D/page.tsx) — are kept and
+served again, sometimes long after, so each prints the time its figures were
+read and, if that is a while ago, fetches newer ones itself. When the API
+cannot be asked, the page stays as it was last built rather than being rebuilt
+as an apology; when its figures are out of date, the API sends no list of
+moves at all rather than an old one
+([`questions.py`](apps/api/backend/routers/questions.py)). An address with no
+question behind it answers 404, not a page that says "not found" with a 200.
+
 **No third-party scripts.** No web fonts, no advertising, no trackers. Page
 views are counted by the host without cookies, and the
 [privacy page](apps/web/lib/content.ts) says exactly what is stored.
@@ -365,6 +383,9 @@ Migration `0016` is additive and drops nothing.
   data. This project is not affiliated with Polymarket and places no trades.
   When the source is unreachable, questions show as updating and cannot be
   picked.
+- **A move is reported, not explained.** Nothing here knows why a price
+  changed or what it will do next, and no page says either. The day and week
+  figures are the market's own, read once an hour.
 - **Rate limits fail open.** If Redis is down, sign-in keeps working without a
   throttle rather than locking everybody out.
 - **It is a game, not a service for problem gambling.** The help page links to
