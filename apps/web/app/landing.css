@@ -363,11 +363,54 @@
       --p-h: clamp(248px, calc(100svh - 604px), 312px);
     }
   }
+  /* A tablet: the three steps stack in two screens, and their panels take
+     what a tall screen leaves, so the second screen is not left half empty. */
+  @media (min-width: 640px) and (max-width: 1023px) {
+    .lp-steps .panel {
+      --p-h: clamp(248px, calc(45svh - 110px), 420px);
+    }
+  }
+  /* A small laptop: a span-4 panel would be too narrow for the game's parts
+     (the kit sets two up and one wide), so each step is a row of its own,
+     its words beside its panel, in the kit's split card. */
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    .lp-steps > .card {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      grid-template-rows: 1fr auto auto auto 1fr;
+      column-gap: 40px;
+    }
+    .lp-steps > .card > :not(.panel) {
+      grid-column: 1;
+    }
+    .lp-steps > .card > .step-num {
+      grid-row: 2;
+      margin-bottom: var(--s-4);
+    }
+    .lp-steps > .card > h3 {
+      grid-row: 3;
+    }
+    .lp-steps > .card > p {
+      grid-row: 4;
+    }
+    .lp-steps > .card > .panel {
+      --p-h: clamp(272px, calc(66svh - 172px), 400px);
+      grid-column: 2;
+      grid-row: 1 / -1;
+      margin: calc(var(--c-gap) - var(--c-pad)) calc(var(--c-gap) - var(--c-pad)) calc(var(--c-gap) - var(--c-pad)) 0;
+      border-radius: calc(var(--c-r) - var(--c-gap));
+    }
+  }
   /* The lit panels hold the game's own dark parts: no vignette under them
      (cards.md, on a lit ground --calm-k is 0). */
   .lp-steps .panel,
   .lp-keeps__grid .panel {
     --calm-k: 0%;
+  }
+  /* the keeps head's link to every rule: its own line, as long as its words */
+  .lp-keeps__rules {
+    justify-self: start;
   }
   @media (max-width: 639px) {
     .lp-steps .panel {
@@ -752,9 +795,11 @@
     font-size: 13px;
     color: color-mix(in oklab, var(--ink) 66%, #141414);
   }
-  /* A phone lists the three largest moves; the moves page has every one. */
+  /* A phone lists the two largest moves (the moves page has every one), under
+     the heading that already names their window. */
   @media (max-width: 639px) {
-    .lp-moves [data-later] {
+    .lp-moves [data-later],
+    .lp-movelist__head {
       display: none;
     }
   }
@@ -781,6 +826,10 @@
   letter-spacing: -0.045em;
   max-width: none;
   margin-top: auto;
+  /* the line is set tighter than the face's own height: the kit's clip
+     stays on the sides only, so nothing of the letters is cut above */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 /* The close and the footer, footer.closing, as two screens: the close (the
@@ -799,8 +848,19 @@ footer.closing:has(.lp-close__word) > .wrap {
 footer.closing:has(.lp-close__word) > .wrap > .closing__links {
   align-self: start;
 }
-/* A phone has no room for a screen of the close alone: the links follow it. */
+/* A phone has no room for a screen of the close alone: the links follow it.
+   A tall tablet has room for both on one screen, and a screen of the close
+   alone would be mostly empty: there too the links follow it. */
 @media (max-width: 639px) {
+  footer.closing:has(.lp-close__word) > .wrap {
+    grid-template-rows: auto auto;
+    row-gap: var(--s-8);
+  }
+}
+@media (min-width: 640px) and (max-width: 1023px) and (min-height: 1100px) {
+  footer.closing:has(.lp-close__word) {
+    --h: 1;
+  }
   footer.closing:has(.lp-close__word) > .wrap {
     grid-template-rows: auto auto;
     row-gap: var(--s-8);

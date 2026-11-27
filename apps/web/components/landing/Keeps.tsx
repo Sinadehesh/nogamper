@@ -29,12 +29,11 @@ export function Keeps({ rules }: { rules: GameRules | null }) {
       <div className="wrap">
         <div className="section-head">
           <h2 id="keeps-h">{landing.keepsTitle}</h2>
-          <p>
-            {landing.keepsIntro(rules)}{" "}
-            <a className="link" href="/about#rules">
-              {landing.keepsRules}
-            </a>
-          </p>
+          <p>{landing.keepsIntro(rules)}</p>
+          {/* Every rule in full, on the how-it-works page. */}
+          <a className="link lp-keeps__rules" href="/about#rules">
+            {landing.keepsRules}
+          </a>
         </div>
         <div className="grid lp-keeps__grid">
           <article className="card card--open span-4">
