@@ -39,7 +39,8 @@ export default async function HelpPage() {
 
   return (
     <>
-      <SiteHeader />
+      {/* Somebody here may need to step away: the header offers no game. */}
+      <SiteHeader quiet />
 
       <main id="main" className="flex-1">
         <div className="wrap dp rd">

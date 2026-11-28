@@ -6,7 +6,6 @@ import { MovesKey, MovesSection, asPercentagePoints } from "@/components/questio
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { PRICE_SOURCE, movesPage } from "@/lib/content";
 import { t } from "@/lib/copy";
-import { dateTimeUtc } from "@/lib/format";
 import { breadcrumbLd, listLd, pageMetadata } from "@/lib/seo";
 import { keepEarlierCopy } from "@/lib/server/public";
 import { getMoves } from "@/lib/server/questions";
@@ -71,14 +70,9 @@ export default async function MovesPage() {
               <h1>{movesPage.title}</h1>
               <p className="dp-lede">{movesPage.lede}</p>
               <p className="dp-sub">{movesPage.notATipLine}</p>
-              {moves ? (
-                <div className="flex flex-col gap-1">
-                  {measuredAt ? (
-                    <p className="dp-small">{movesPage.measured(dateTimeUtc(measuredAt))}</p>
-                  ) : null}
-                  <AsOf at={moves.as_of} changing />
-                </div>
-              ) : null}
+              {/* One time here: what "now" means in every row. Where each list
+                  counts back from ("then") is said over that list. */}
+              {moves ? <AsOf at={moves.as_of} changing /> : null}
             </header>
             {moves ? <MovesKey moves={moves} /> : null}
           </div>

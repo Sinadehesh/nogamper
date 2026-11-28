@@ -34,7 +34,7 @@ export default async function ArticlesPage() {
       <JsonLd
         data={breadcrumbLd([
           { name: t.appName, path: "/" },
-          { name: t.navArticles, path: "/articles" },
+          { name: t.navGuides, path: "/articles" },
         ])}
       />
       <JsonLd

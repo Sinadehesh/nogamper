@@ -230,7 +230,7 @@ export default async function QuestionPage({ params }: Props) {
                     {questionPage.playBand(pct(band.min), pct(band.max), game.yes, game.no)}
                   </p>
                 ) : null}
-                <Link href="/play" className="btn btn--secondary">
+                <Link href={`/play?question=${question.slug}`} prefetch={false} className="btn btn--secondary">
                   {questionPage.playCta}
                 </Link>
               </section>

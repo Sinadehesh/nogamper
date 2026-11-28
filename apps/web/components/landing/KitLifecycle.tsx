@@ -34,6 +34,23 @@ type MotionModule = { default: { refresh(): void } };
 const kit = <T,>(path: string): Promise<T> =>
   import(/* webpackIgnore: true */ /* turbopackIgnore: true */ path) as Promise<T>;
 
+/**
+ * The margin statement, read once by a screen reader. The statement moment
+ * (word-highlight) wraps each word in a span of its own, hides the spans and
+ * names the paragraph with the whole sentence instead, as its library does
+ * for any split text. A paragraph takes no name, so the sentence would not be
+ * read at all: the words are given back and the name taken away, so the
+ * paragraph reads as written. The moment only colours the spans as the page
+ * scrolls; it never reads these attributes again.
+ */
+function readStatementAloud(root: Document) {
+  for (const statement of Array.from(root.querySelectorAll(".mo-wh__text"))) {
+    if (!statement.querySelector(".mo-w")) continue;
+    statement.removeAttribute("aria-label");
+    for (const word of Array.from(statement.querySelectorAll(".mo-w"))) word.removeAttribute("aria-hidden");
+  }
+}
+
 export function KitLifecycle() {
   useEffect(() => {
     const html = document.documentElement;
@@ -60,8 +77,14 @@ export function KitLifecycle() {
         // context freed (ui.grounds, as system.js does for a still ground).
         const ground = document.querySelector<HTMLElement>(".lp-hero__fx[data-fx]");
         const drawn = ground ? uiModule.default.grounds(ground, fx).catch(() => undefined) : Promise.resolve();
-        // The two moments, through their own loader (it mounts each once).
-        const mounted = moments.mountAll(document).catch(() => undefined);
+        // The two moments, through their own loader (it mounts each once),
+        // then the statement's words given back to screen readers.
+        const mounted = moments
+          .mountAll(document)
+          .then(() => {
+            if (live) readStatementAloud(document);
+          })
+          .catch(() => undefined);
 
         undo = () => {
           moments.unmountAll(document);

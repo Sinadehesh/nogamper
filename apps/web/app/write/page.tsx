@@ -19,7 +19,9 @@ export default async function WritePage() {
 
   return (
     <>
-      <SiteHeader />
+      {/* A guest is asked to create an account here, and that is the one
+          action on the page: the header offers no game beside it. */}
+      <SiteHeader quiet={viewer.is_guest} />
       <main id="main" className="flex-1">
         <div className="wrap dp rd">
           <Writer displayName={viewer.display_name} />

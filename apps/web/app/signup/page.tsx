@@ -50,9 +50,9 @@ export default async function SignupPage({
 
   return (
     <>
-      <SiteHeader />
+      <SiteHeader quiet />
       <main id="main" className="gm flex-1">
-        <div className="wrap gm-auth">
+        <div className="wrap dp gm-auth">
           {/* A guest filling in this form keeps the account they have been
               playing on; the page says so, because "create an account" reads
               like starting again. */}

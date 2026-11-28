@@ -2,6 +2,7 @@ import { SplitBar } from "@/components/viz";
 import { Figure } from "@/components/viz/Figure";
 import { landing } from "@/lib/content";
 import { categoryLabel, t } from "@/lib/copy";
+import { getEditorial } from "@/lib/server/editorial";
 import type { GameRules, Move } from "@/lib/types";
 import { closesOn, pctDigits, pctHeld, priceBand } from "@/lib/viz";
 
@@ -38,6 +39,9 @@ export function GameSteps({
   // A move's "now" is the game's price, held on its band: printed so that
   // it is never false (data.ts keeps these questions 5 points clear anyway).
   const band = priceBand(rules);
+  // "a real market" opens the guide to prediction markets, while it exists.
+  const intro = landing.gameIntro;
+  const introGuide = getEditorial(intro.guide) ? `/articles/${intro.guide}` : null;
 
   return (
     // Two screens on a phone, where the three steps stack (--hm, layout-v4.md).
@@ -49,7 +53,17 @@ export function GameSteps({
           <h2 id="game-h" className="span-5">
             {landing.gameTitle}
           </h2>
-          <p className="t-lead span-6 start-7">{landing.gameIntro}</p>
+          <p className="t-lead span-6 start-7">
+            {intro.before}
+            {introGuide ? (
+              <a className="dp-link" href={introGuide}>
+                {intro.link}
+              </a>
+            ) : (
+              intro.link
+            )}
+            {intro.after}
+          </p>
         </div>
         <div className="grid lp-steps">
           <article className="card card--row span-4">

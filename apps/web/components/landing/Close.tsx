@@ -18,12 +18,8 @@ export function Close({ rules }: { rules: GameRules | null }) {
           <h2 id="close-h">{landing.closeTitle(rules)}</h2>
           <p className="t-lead">{landing.closeLine}</p>
         </div>
-        <MainAction fallback={<NotOpenYet />}>
-          <svg className="m-arrow" viewBox="0 0 12 12" aria-hidden="true">
-            <path className="m-arrow__stem" d="M1 6h8" />
-            <path className="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5" />
-          </svg>
-        </MainAction>
+        {/* The main action as the nav and the hero draw it: its words alone. */}
+        <MainAction fallback={<NotOpenYet />} />
       </div>
       <p className="close__word mo-lt__type lp-close__word" data-moment="liquid-type" aria-hidden="true">
         {t.appName}

@@ -81,6 +81,28 @@ const config: NextConfig = {
           },
         ],
       },
+      // The self-hosted fonts are fetched before the first line of text on
+      // every page, so a returning visitor's browser keeps them for a year
+      // and never asks again. That is only right while a file's name
+      // changes with its contents: a changed font must get a new file name
+      // (and the new name in app/globals.css and the preloads in
+      // app/layout.tsx), or visitors keep the old one.
+      {
+        source: "/fonts/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      // The design kit's stylesheets and scripts keep their names when a
+      // newer copy of the kit replaces them, so they are kept for a day and
+      // then checked again, the old copy serving meanwhile for up to a week.
+      {
+        source: "/assets/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
     ];
   },
 };

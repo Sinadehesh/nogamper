@@ -2,7 +2,7 @@ import "./viz.css";
 
 import { viz } from "@/lib/copy";
 import type { Side } from "@/lib/types";
-import { count } from "@/lib/format";
+import { count, sideChance } from "@/lib/format";
 import { gameFigures, type SlipLegInput, type SlipRules, slipFigures } from "@/lib/viz";
 
 import { Figure } from "./Figure";
@@ -113,15 +113,20 @@ export function SlipFiguresView({ legs, stakeMinor = EXAMPLE_STAKE, rules, class
       <ol className="viz-slip__steps">
         {figures.picks.map((pick, index) => {
           const step = figures.steps[index] ?? 0;
+          // A pick's own chance prints as its question prints the pair, the
+          // figure on its card and on its line in the slip (a No at 33.5%
+          // is "33%" beside a Yes at "67%"). From the second pick on, the
+          // running figure is a combined chance, printed as chance() does.
+          const own = sideChance(pick.probability, pick.side);
           return (
             <li key={index} className="viz-slip__step" data-last={index === count - 1 ? "" : undefined}>
               <span className="viz-slip__label">
-                {viz.stepPick(index + 1, pick.side === "YES" ? viz.yes : viz.no, chance(pick.probability))}
+                {viz.stepPick(index + 1, pick.side === "YES" ? viz.yes : viz.no, own)}
               </span>
               <span className="viz-slip__track" aria-hidden="true">
                 <span className="viz-slip__fill" style={vars({ "--viz-p": at(step) })} />
               </span>
-              <span className="viz-slip__value">{chance(step)}</span>
+              <span className="viz-slip__value">{index === 0 ? own : chance(step)}</span>
             </li>
           );
         })}

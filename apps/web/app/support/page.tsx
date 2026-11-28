@@ -61,6 +61,9 @@ export default async function SupportPage() {
   const rules = await getRules();
   const shop = rules?.shop.open ? rules.shop : null;
   const donations = DONATE_URL !== "";
+  // With no way to give, the page says who pays and leaves out what money
+  // would be for, so it does not ask for what it cannot take.
+  const giving = donations || shop !== null;
 
   return (
     <>
@@ -76,25 +79,27 @@ export default async function SupportPage() {
         <div className="wrap dp rd">
           <header className="dp-head">
             <h1>{support.title}</h1>
-            <p className="dp-lede">{support.lede}</p>
+            <p className="dp-lede">{giving ? support.lede : support.ledeClosed}</p>
           </header>
 
-          {!donations && !shop ? <p className="rd-state mt-8">{support.nothingYet}</p> : null}
+          {giving ? null : <p className="rd-state mt-8">{support.nothingYet}</p>}
 
-          <section className="rd-section" aria-labelledby="costs">
-            <div className="rd-section__head">
-              <h2 id="costs" className="dp-h2">
-                {support.costsTitle}
-              </h2>
-            </div>
-            <ol className="rd-costs" role="list">
-              {support.costs.map((cost) => (
-                <li key={cost.slice(0, 24)}>{cost}</li>
-              ))}
-            </ol>
-          </section>
+          {giving ? (
+            <section className="rd-section" aria-labelledby="costs">
+              <div className="rd-section__head">
+                <h2 id="costs" className="dp-h2">
+                  {support.costsTitle}
+                </h2>
+              </div>
+              <ol className="rd-costs" role="list">
+                {support.costs.map((cost) => (
+                  <li key={cost.slice(0, 24)}>{cost}</li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
 
-          {donations || shop ? (
+          {giving ? (
             <div className="rd-section rd-give">
               {donations ? (
                 <section className="rd-give__card" aria-labelledby="donate">
@@ -172,7 +177,7 @@ export default async function SupportPage() {
             </section>
           ) : null}
 
-          {donations || shop ? (
+          {giving ? (
             <section className="rd-section rd-measure" aria-labelledby="refunds">
               <h2 id="refunds" className="dp-h2">
                 {support.refundsTitle}

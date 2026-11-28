@@ -85,11 +85,12 @@ function countWord(count: number): string {
   return words[count] ?? String(count);
 }
 
-/** A break's length as the game offers it: "1 day", "3 days", "1 week", "30 days". */
+/**
+ * A break's length in the game's own words ("24 hours", "3 days", "1 week",
+ * "30 days"): the label its break buttons carry (lib/format.ts, duration).
+ */
 export function breakLength(hours: number): string {
-  if (hours === 168) return "1 week";
-  if (hours % 24 === 0) return hours === 24 ? "1 day" : `${hours / 24} days`;
-  return hours === 1 ? "1 hour" : `${hours} hours`;
+  return duration(hours);
 }
 
 /**
@@ -163,9 +164,15 @@ export const landing = {
 
   // The game, in three steps.
   gameTitle: "The same questions a real market is trading",
-  gameIntro:
-    "Each question shows the chance a real market puts on it, read from Polymarket. " +
-    "Back the side you think is right and see your points before you confirm.",
+  // "a real market" opens the guide to what a prediction market is.
+  gameIntro: {
+    before: "Each question shows the chance ",
+    link: "a real market",
+    after:
+      " puts on it, read from Polymarket. Back the side you think is right and see your points " +
+      "before you confirm.",
+    guide: "what-is-a-prediction-market",
+  },
   steps: (rules: Rules, chance: number) => [
     {
       title: "Pick a question",
@@ -243,6 +250,12 @@ export const landing = {
 
   // The margin, said once, large.
   marginLabel: "What a bookmaker's margin takes",
+  // Under the figures: why a slip of many picks costs most, and the first
+  // steps for anyone who wants to stop betting.
+  marginGuides: [
+    { label: "Read why parlays cost more", guide: "why-parlays-are-a-bad-bet" },
+    { label: "Read how to stop gambling", guide: "how-to-stop-gambling" },
+  ],
   marginStatement: (figures: { legs: number; margin: string; take: string } | null) =>
     figures
       ? {
@@ -513,9 +526,14 @@ export const about = {
       note: "Odds are 1 ÷ the chance of the pick.",
     },
     {
-      label: "Open to forecasts",
+      // The game's own price for a pick, which the API holds inside this
+      // band: a question the market has beyond it is dealt at the edge.
+      label: "Price range",
       value: `${percent(rules.min_prob)} to ${percent(rules.max_prob)}`,
-      note: "Questions priced outside this are closed to forecasts.",
+      note:
+        `A question the market puts below ${percent(rules.min_prob)} is priced at ` +
+        `${percent(rules.min_prob)}, one above ${percent(rules.max_prob)} at ` +
+        `${percent(rules.max_prob)}.`,
     },
     {
       label: "Daily limit",
@@ -587,11 +605,11 @@ export const about = {
       title: "Long shots are capped",
       body:
         (rules
-          ? `A slip can carry at most ${oddsCeiling(rules)} to 1, and questions the market ` +
-            `already has above ${percent(rules.max_prob)} or below ${percent(rules.min_prob)} ` +
-            "are closed to forecasts. "
-          : "The longest price a slip can carry is capped, and questions that are all but " +
-            "settled are closed to forecasts. ") +
+          ? `A slip can carry at most ${oddsCeiling(rules)} to 1, and no pick is priced ` +
+            `below ${percent(rules.min_prob)} or above ${percent(rules.max_prob)}: a question ` +
+            "the market puts beyond those is priced at the nearer one. "
+          : "The longest price a slip can carry is capped, and so is a single pick's: a " +
+            "question the market has all but settled is priced at a set floor or ceiling. ") +
         "Without that the quickest way up the leaderboard would be a lottery ticket, and " +
         "this is not a lottery.",
     },
@@ -1134,15 +1152,18 @@ export const movesPage = {
     "The questions whose chance of yes changed most in the last day and the last week, " +
     "read from Polymarket.",
   notATipLine: "Each change is reported here, not explained, and none of it is a tip.",
-  measured: (time: string) => `Change figures read at ${time}.`,
+  // Over each list: when its "then" is, a day or a week before the change
+  // figures were read. "Now" is the page's own time, in its "As of" line.
+  sectionFrom: (start: string) => `Each change is measured from ${start} to now.`,
 
   dayTitle: "In the last day",
   weekTitle: "In the last week",
   count: (shown: number) =>
     shown === 1 ? "1 question, the largest move first" : `${shown} questions, the largest move first`,
   windowWords: { day: "in a day", week: "in a week" },
-  // A move whose own figure was read at another time than the rest of the list.
-  readAt: (time: string) => `Read at ${time}`,
+  // A move whose own figure was read at another time than the rest of the
+  // list, so its "then" is another moment: its own start.
+  rowFrom: (start: string) => `Measured from ${start}`,
   emptyDay: (size: string) =>
     `Nothing has moved by ${size} percentage points or more in the last day.`,
   emptyWeek: (size: string) =>
@@ -1276,6 +1297,8 @@ export const questionPage = {
     sentence: (from: string, to: string) => (low: string, high: string, nowWord: string, now: string) =>
       `From ${from} to ${to}: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
   },
+  // Over the one figure of a range whose lowest and highest print the same.
+  rangeFlat: "Unchanged at",
   rangeRecorded: {
     title: (since: string) => `Lowest and highest recorded since ${since}`,
     sentence: (since: string) => (low: string, high: string, nowWord: string, now: string) =>
@@ -1362,7 +1385,8 @@ export const articlesPage = {
     "Plain-English guides to how betting odds and prediction markets really work, and to " +
     "stepping back from gambling — with sources, and no affiliate links.",
 
-  title: "Plain answers, no sales pitch",
+  // The page's name, the word the header and every guide's trail use for it.
+  title: "Guides",
   lede:
     "How odds and prediction markets really work, and how to step back from gambling when " +
     "it stops being fun. Each guide lists its sources at the end.",
@@ -1439,11 +1463,15 @@ export const support = {
     "There is no advertising here and no money from gambling companies. That is the point of " +
     "the place, and it means the bills are paid by the person who built it and by the " +
     "people who use it. If it has been useful to you, this is how to help it continue.",
+  // The lede while there is no way to give: donations not open, nothing on
+  // sale. The page then leaves out what the money is for.
+  ledeClosed:
+    "There is no advertising here and no money from gambling companies. That is the point of " +
+    "the place, and for now it means the person who built it pays all the bills.",
 
   nothingYet:
     "Right now there is nothing to pay for: donations are not open and nothing is for sale. " +
-    "The site is paid for by the person who built it. If that changes, this page is where " +
-    "it will say so — and the game will stay free either way.",
+    "If that changes, this page will say so first, and the game will stay free either way.",
 
   costsTitle: "What the money is for",
   costs: [
@@ -1516,10 +1544,11 @@ export const support = {
     {
       title: "Tell one person",
       body:
-        "Somebody you know likes calling the football, or is trying to bet less. A link from " +
-        "a friend does more than any advertisement this site will never buy.",
+        "Somebody you know likes calling elections or the price of Bitcoin, or is trying to " +
+        "bet less. A link from a friend does more than any advertisement this site will " +
+        "never buy.",
       href: "/",
-      cta: "The front page",
+      cta: "Go to the front page",
     },
     {
       title: "Check our work",

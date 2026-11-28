@@ -100,8 +100,9 @@
     text-decoration-color: currentColor;
   }
 
-  /* A small control that keeps a 44px target: the visible part is 36px and
-     a transparent edge takes the rest. */
+  /* The site's one chip (as /questions draws its filter): 36px tall, a
+     strong hairline on nothing; the chosen one solid ink with dark words,
+     never the accent. A transparent edge makes the target 44px. */
   .gm-chip {
     position: relative;
     display: inline-flex;
@@ -134,9 +135,9 @@
   }
 
   .gm-chip[aria-pressed="true"] {
-    color: var(--ink);
-    border-color: color-mix(in oklab, var(--ink) 55%, transparent);
-    background: color-mix(in oklab, var(--ink) 12%, transparent);
+    color: #0f0f0f;
+    border-color: var(--ink);
+    background: var(--ink);
   }
 
   .gm-chip:focus-visible {
@@ -146,6 +147,12 @@
   .gm-chip:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  @media (max-width: 399px) {
+    .gm-chip {
+      padding: 0 12px;
+    }
   }
 
   .gm-chips {
@@ -353,9 +360,25 @@
     }
   }
 
-  /* The page leaves room at its foot for what is fixed there. */
+  /* The page leaves room at its foot for what is fixed there, and a control
+     brought into view by the keyboard stops above it, never under it. */
   body:has(.gm-tabbar) {
     padding-bottom: var(--gm-tabbar-room, 0px);
+  }
+
+  @media (max-width: 1023px) {
+    html:has(.gm-tabbar) {
+      scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + var(--s-5));
+    }
+    html:has(.gm-tabbar):has(.gm-slipbar) {
+      scroll-padding-bottom: calc(64px + 68px + env(safe-area-inset-bottom, 0px) + var(--s-5));
+    }
+  }
+
+  @media (min-width: 1024px) {
+    html:has(.gm-slipbar) {
+      scroll-padding-bottom: calc(68px + var(--s-5));
+    }
   }
 
   @media (max-width: 1023px) {
@@ -428,12 +451,6 @@
 
   .gm-strip__cells > .gm-stat:nth-child(3) {
     grid-column: 1 / -1;
-  }
-
-  @media (max-width: 379px) {
-    .gm-strip__cells {
-      grid-template-columns: minmax(0, 1fr);
-    }
   }
 
   @media (min-width: 768px) {
@@ -559,6 +576,70 @@
     gap: var(--s-2) var(--s-5);
   }
 
+  /* Words for one width only: the long form from a tablet up, the short one
+     on a phone. */
+  .gm-narrow-only {
+    display: none;
+  }
+
+  /* A phone: the strip is one row, the balance and the free points' button,
+     with the guest's link under it, so the first question's picks are on the
+     first screen. A limit or a break still gets its own row. */
+  @media (max-width: 639px) {
+    .gm-wide-only {
+      display: none;
+    }
+    .gm-narrow-only {
+      display: block;
+    }
+    .gm-strip {
+      gap: var(--s-3);
+      padding: var(--s-3) var(--s-4);
+    }
+    .gm-strip__cells {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--s-3);
+      align-items: center;
+    }
+    .gm-strip__cells > .gm-stat {
+      gap: 2px;
+    }
+    .gm-strip__cells > .gm-stat:nth-child(2) {
+      justify-items: end;
+      max-width: 11.5rem;
+      text-align: right;
+    }
+    .gm-strip__cells > .gm-stat:nth-child(2) > :is(.gm-label, .gm-stat__figure) {
+      display: none;
+    }
+    .gm-strip__cells > .gm-stat:nth-child(2) .gm-stat__action {
+      margin-top: 0;
+    }
+    .gm-strip__cells > .gm-stat:nth-child(3) {
+      padding-top: var(--s-3);
+      border-top: 1px solid var(--line);
+    }
+    .gm-balance__figure {
+      font-size: 32px;
+    }
+    .gm-strip__foot {
+      padding-top: var(--s-2);
+    }
+    /* The view's line: its second sentence only (Dashboard). */
+    .gm-lede__more {
+      display: none;
+    }
+  }
+
+  /* A link alone on its line keeps a 44px target on a touch screen. */
+  @media (max-width: 1023px) {
+    .gm-tap {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+  }
+
   /* ----- the questions view: the feed and, on a wide screen, the slip ------- */
 
   .gm-market {
@@ -583,6 +664,47 @@
     display: none;
   }
 
+  /* The questions view on a wide screen: the slip's rail runs from the top
+     of the page column, beside the strip and the view's title, rather than
+     starting under them. Its foot (what a stake pays and the button) is then
+     on the first screen from the first pick, at 1440 by 800 as well. */
+  @media (min-width: 1024px) {
+    .gm-page[data-view="markets"] {
+      grid-template-columns: minmax(0, 1fr) var(--gm-rail);
+      align-items: start;
+    }
+    .gm-page[data-view="markets"] > * {
+      grid-column: 1;
+    }
+    .gm-page[data-view="markets"] > .gm-market {
+      display: contents;
+    }
+    .gm-page[data-view="markets"] .gm-feed {
+      grid-column: 1;
+    }
+    .gm-page[data-view="markets"] .gm-rail {
+      grid-column: 2;
+      grid-row: 1 / span 3;
+    }
+    .gm-page[data-view="markets"]:has(> .gm-note) .gm-rail {
+      grid-row: 1 / span 4;
+    }
+    /* In the narrower column the strip's foot goes under its figures. */
+    .gm-page[data-view="markets"] .gm-strip {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .gm-page[data-view="markets"] .gm-strip .gm-strip__foot {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      justify-self: stretch;
+      max-width: none;
+      padding: var(--s-4) 0 0;
+      border-top: 1px solid var(--line);
+      border-left: 0;
+    }
+  }
+
   /* The rail stays beside the feed; its panel scrolls when the slip is
      longer than the window, with the receipt and the button held at its
      foot (.gm-slip__actions). */
@@ -597,7 +719,7 @@
       max-height: calc(100dvh - var(--nav) - var(--s-7));
       overflow-y: auto;
       overscroll-behavior: contain;
-      scroll-padding-bottom: 13rem;
+      scroll-padding-bottom: calc(var(--gm-foot, 13rem) + var(--s-4));
     }
   }
 
@@ -739,6 +861,29 @@
   .gm-card__bar {
     display: block;
     margin-top: -4px;
+  }
+
+  /* The line under a price that is not the market's chance now: one on the
+     game's edge, one read hours ago. */
+  .gm-card__line {
+    margin: -4px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--gm-ink-2);
+  }
+
+  /* A stale price: in place of the figure, that a new one is on its way; the
+     old figure only in the line under it, with when it was read. */
+  .gm-card__stale {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--ink);
+  }
+
+  .gm-card[data-stale] .gm-card__bar {
+    opacity: 0.5;
   }
 
   .gm-card__note {
@@ -1043,9 +1188,10 @@
     --viz-ground: var(--surface);
   }
 
-  /* The steps' own return line repeats the receipt under the stake, which
-     says it in the front page's words; the slip shows it once. */
-  .gm-slip .viz-slip__return {
+  /* The steps' own return line, their total and their notes (the cap, the
+     1,000× limit) repeat what the receipt and the refusal beside the button
+     say in the front page's words; the slip says each thing once, there. */
+  .gm-slip :is(.viz-slip__return, .viz-slip__total, .viz-slip__note) {
     display: none;
   }
 
@@ -1207,7 +1353,7 @@
     max-height: 92dvh;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scroll-padding-bottom: 13rem;
+    scroll-padding-bottom: calc(var(--gm-foot, 13rem) + var(--s-4));
     padding: var(--s-5) var(--s-5) calc(var(--s-5) + env(safe-area-inset-bottom, 0px));
     border: 1px solid var(--line);
     border-bottom: 0;
@@ -1218,6 +1364,12 @@
 
   .gm-sheet__panel:focus {
     outline: none;
+  }
+
+  /* With a slip in it, the sheet ends at its sticky foot, which already
+     leaves room for the home indicator: nothing scrolls by underneath it. */
+  .gm-sheet__panel:has(.gm-slip__actions) {
+    padding-bottom: 0;
   }
 
   .gm-sheet__grip {
@@ -1745,25 +1897,24 @@
 
   /* ----- signed out: the welcome at /play --------------------------------------- */
 
+  /* Like the sign-in pages, on the shared .dp column: the heading starts at
+     the top every app page's does, and the picture beside it starts there too. */
   .gm-welcome {
     display: grid;
     gap: var(--s-8);
-    padding-block: var(--s-8) var(--s-9);
   }
 
   @media (min-width: 1024px) {
     .gm-welcome {
       grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
       gap: var(--s-9);
-      align-items: center;
-      padding-block: var(--s-9);
+      align-items: start;
     }
   }
 
   @media (max-width: 639px) {
     .gm-welcome {
       gap: var(--s-7);
-      padding-block: var(--s-6) var(--s-8);
     }
   }
 
@@ -1921,10 +2072,11 @@
 
   /* ----- sign in and create an account ---------------------------------------- */
 
+  /* The page column's top and foot are the shared .dp's, so the heading
+     starts where every app page's does. */
   .gm-auth {
     display: grid;
     gap: var(--s-7);
-    padding-block: var(--s-7) var(--s-9);
   }
 
   @media (min-width: 1024px) {
@@ -1932,14 +2084,12 @@
       grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
       gap: var(--s-9);
       align-items: start;
-      padding-block: var(--s-8) var(--s-9);
     }
   }
 
   @media (max-width: 639px) {
     .gm-auth {
       gap: var(--s-6);
-      padding-block: var(--s-5) var(--s-8);
     }
   }
 
@@ -1962,6 +2112,12 @@
   .gm-form {
     display: grid;
     gap: var(--s-5);
+  }
+
+  /* Working: it keeps the focus, and a second press does nothing. */
+  .gm-form .btn[aria-disabled="true"] {
+    opacity: 0.6;
+    cursor: progress;
   }
 
   .gm-field {

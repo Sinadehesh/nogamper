@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { preload } from "react-dom";
 import type {
   FocusEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -40,6 +41,27 @@ import { GAME_OPEN } from "@/lib/site";
  * not fetch every page ahead of a click.
  */
 
+/**
+ * The two Latin faces every page draws first (app/globals.css), asked for
+ * before the stylesheets are read. React's preload, called while the server
+ * renders the page, names each one once: in the response's Link header on a
+ * page rendered on request, as a <link rel="preload"> at the top of the head
+ * on a page built ahead. (The same link written into the layout's head by
+ * hand went out twice in a production build.) Rendered once, in
+ * app/layout.tsx; draws nothing, and does nothing in the browser, where the
+ * fonts are already on their way.
+ */
+const FIRST_FONTS = ["/fonts/schibsted-grotesk-latin.woff2", "/fonts/jetbrains-mono-latin.woff2"];
+
+export function FontPreloads() {
+  if (typeof window === "undefined") {
+    for (const href of FIRST_FONTS) {
+      preload(href, { as: "font", type: "font/woff2", crossOrigin: "anonymous" });
+    }
+  }
+  return null;
+}
+
 /** The dealt mark: a row of three dots, the middle one lit. */
 export function Mark() {
   return <span className="mark" data-mark="dots" aria-hidden="true" />;
@@ -67,24 +89,22 @@ export function Wordmark({ href = "/" }: { href?: string }) {
  * The site's one main action, worded the same wherever it appears: "Start
  * playing free" for everybody, "Open the game" once the browser knows the
  * visitor is signed in. Where there is no game to open (GAME_OPEN is false),
- * it is not offered at all and `fallback` stands in its place. `children`
- * follow the words (the kit's drawn arrow, svg.m-arrow).
+ * it is not offered at all and `fallback` stands in its place. It looks the
+ * same everywhere, the kit's hero button: the words alone, no arrow after
+ * them, so it is one button at one width wherever it is met.
  */
 export function MainAction({
   className = "btn btn--primary",
   fallback = null,
-  children,
 }: {
   className?: string;
   fallback?: ReactNode;
-  children?: ReactNode;
 }) {
   const signedIn = useSignedIn();
   if (!GAME_OPEN) return <>{fallback}</>;
   return (
     <Link className={className} href="/play" prefetch={false}>
       {signedIn ? t.navOpenGame : t.navStart}
-      {children}
     </Link>
   );
 }
@@ -161,22 +181,44 @@ function MenuIcon({ open }: { open: boolean }) {
   );
 }
 
-/** Sign in and the main action, at the right end of the bar (in the sheet, at its foot). */
-function NavActions() {
+/**
+ * Sign in and the main action, at the right end of the bar (in the sheet, at
+ * its foot). The bar shows Sign in before the button and the sheet shows it
+ * under the button, the kit's two orders, so there is one Sign in for each
+ * place (data-place), only one of them ever shown: the Tab key meets the two
+ * in the order the eye does.
+ *
+ * `quiet` leaves the main action out, for a page whose own action is the one
+ * action on it (signing in, creating an account) and for the pages written
+ * for somebody who should step away from betting (help, the stepping-back
+ * guides), where nothing may invite them to play. Sign in stays, as words.
+ */
+function NavActions({ quiet }: { quiet: boolean }) {
   const signedIn = useSignedIn();
+  const signIn = (place: "bar" | "sheet") =>
+    GAME_OPEN && !signedIn ? (
+      <Link
+        className="nav__link"
+        href="/login"
+        prefetch={false}
+        data-place={place}
+        // A small laptop's bar has room for Sign in only when no button
+        // stands beside it.
+        data-wide-only={place === "bar" && !quiet ? "" : undefined}
+      >
+        {t.navSignIn}
+      </Link>
+    ) : null;
   return (
     <div className="nav__actions" id="site-nav-actions">
-      {GAME_OPEN && !signedIn ? (
-        <Link className="nav__link" href="/login" prefetch={false} data-wide-only="">
-          {t.navSignIn}
-        </Link>
-      ) : null}
-      <MainAction />
+      {signIn("bar")}
+      {quiet ? null : <MainAction />}
+      {signIn("sheet")}
     </div>
   );
 }
 
-export function SiteHeader() {
+export function SiteHeader({ quiet = false }: { quiet?: boolean }) {
   const path = usePathname() ?? "";
   // The phone's and the tablet's full-screen sheet.
   const [sheet, setSheet] = useState(false);
@@ -396,7 +438,7 @@ export function SiteHeader() {
             );
           })}
         </nav>
-        <NavActions />
+        <NavActions quiet={quiet} />
         <button
           ref={toggle}
           type="button"
@@ -502,9 +544,13 @@ export function SiteFooter({ close }: { close?: ReactNode }) {
                 </Link>
               </p>
             </div>
+            {/* Each column's name is an h2: the footer's parts stand beside
+                the page's own sections, not inside its last one, and a page
+                with no h2 of its own (the 404) skips no level. Styled as the
+                kit styles its h3 here (app/globals.css). */}
             {FOOTER.map((group) => (
               <div key={group.title} className="span-2 footer__col">
-                <h3>{group.title}</h3>
+                <h2>{group.title}</h2>
                 <ul>
                   {group.links.map((link) => (
                     <li key={link.href}>

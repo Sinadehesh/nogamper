@@ -251,6 +251,20 @@
     }
   }
 
+  /* Sign in comes twice in the markup, once where the bar shows it (before
+     the button) and once where the phone's sheet does (under it), so the Tab
+     key always meets it where the eye does. Only one is ever shown. */
+  @media (min-width: 1024px) {
+    .nav__actions > [data-place="sheet"] {
+      display: none;
+    }
+  }
+  @media (max-width: 1023px) {
+    .nav__actions > [data-place="bar"] {
+      display: none;
+    }
+  }
+
   /* A narrow phone: the kit fits the name, the button and the menu button in
      342px (390 wide). Below that the three sit closer, and below 360 the
      button leaves the bar for the sheet's foot, where it always is, rather
@@ -359,6 +373,28 @@
   }
   .footer__legal a:hover {
     color: var(--ink);
+  }
+  /* A column's name is an h2 (components/SiteChrome.tsx), in the look the
+     kit gives the footer's h3. */
+  .footer .footer__col > h2 {
+    font: 500 var(--t-small) / 1.4 var(--font-text);
+    letter-spacing: 0;
+    color: var(--muted);
+    margin-bottom: var(--s-4);
+  }
+  /* A touch screen, a tablet's included: every link in a column is a 44px
+     target made of the same padding round its words, so a name on two lines
+     ("Stepping back from gambling") keeps the space the others have instead
+     of filling its box. */
+  @media (max-width: 1023px) {
+    .footer .footer__col ul {
+      gap: 0;
+    }
+    .footer .footer__col ul a {
+      display: block;
+      min-height: 0;
+      padding-block: 12px;
+    }
   }
 
   /* ----- the kit's 12-column .grid and Tailwind's `grid` ------------------
@@ -494,6 +530,14 @@
   }
   :is(input, select, textarea).field[aria-invalid="true"] {
     border: 2px solid var(--danger);
+  }
+  /* A field that is wrong keeps its one colour while it has the focus: the
+     ring turns red too, rather than red inside a lime halo. */
+  :is(input, select, textarea).field[aria-invalid="true"]:focus {
+    border-color: var(--danger);
+    box-shadow:
+      0 0 0 1px var(--danger),
+      0 0 0 4px color-mix(in oklab, var(--danger) 20%, transparent);
   }
   .label {
     display: block;

@@ -105,6 +105,11 @@ export const t = {
   fieldPasswordHint: (min: number) =>
     `At least ${min} characters. A long phrase you will remember beats a short clever one.`,
   fieldDisplayName: "Display name",
+  // Said under a field left empty, before anything is sent.
+  fieldDisplayNameMissing: "Enter a display name.",
+  fieldEmailMissing: "Enter your email.",
+  fieldPasswordMissing: "Enter your password.",
+  fieldPasswordChoose: "Choose a password.",
   fieldDisplayNameHint: "2 to 24 characters. Only its first letter is shown on the leaderboard.",
   noResetNote:
     "There is no password reset yet, because nothing here sends email. Keep your password " +
@@ -119,8 +124,8 @@ export const t = {
   playAsGuest: "Play as a guest",
   guestExplainer: "No sign-up. You can create an account later and keep everything.",
   adultsConfirm: "By playing you confirm you are 18 or over.",
-  showPassword: "Show",
-  hidePassword: "Hide",
+  showPassword: "Show password",
+  hidePassword: "Hide password",
   // The guest option on the sign-in and sign-up pages: above the form on a
   // phone, under it beside the picture of the game on a wide screen.
   guestOptionTitle: "No form needed",
@@ -179,6 +184,7 @@ export const t = {
   dailyAmount: (amount: string) => `+${amount}`,
   dailyAdd: (amount: string) => `Add today's ${amount}`,
   dailyDone: (when: string) => `Added today. The next are free from ${when}.`,
+  dailyNext: (amount: string, when: string) => `Next ${amount} free from ${when}`,
   limitLabel: "Your daily limit",
   limitOf: (spent: string, limit: string) => `${spent} of ${limit}`,
   limitTodayLine: "points staked today",
@@ -190,6 +196,7 @@ export const t = {
   saferLink: "Limits and breaks",
   guestBanner: "You are playing as a guest, so this record lives only in this browser.",
   guestBannerAction: "Create an account to keep it",
+  guestBannerShort: "Create an account to keep your points",
   breakBanner: (until: string) =>
     `You are taking a break until ${until}. You can look around; forecasting is paused.`,
   limitBanner: (spent: string, limit: string) =>
@@ -201,14 +208,15 @@ export const t = {
   // bottom on a phone (where the shorter word is used).
   viewsLabel: "Game",
   tabMarkets: "Questions",
+  tabMarketsName: "Questions to forecast",
   tabHistory: "Your forecasts",
   tabHistoryShort: "Forecasts",
   tabLeaderboard: "Leaderboard",
   tabSafer: "Safer play",
   tabAccount: "Account",
-  marketsLede: (max: number) =>
-    "Each question shows the chance a real market gives it. Pick yes or no on up to " +
-    `${max} questions, then choose a stake.`,
+  // The questions view's line, in two sentences: a phone shows the second.
+  marketsLedeSource: "Each question shows the chance a real market gives it.",
+  marketsLedeHow: (max: number) => `Pick yes or no on up to ${max} questions, then choose a stake.`,
   historyLede:
     "Every forecast you have placed: open ones with their chance now where it is known, " +
     "settled ones with what they paid.",
@@ -229,6 +237,13 @@ export const t = {
   marketsEmptyAll:
     "No open questions right now. The list is read from the market every hour.",
   loadMore: "Show more questions",
+  // The list's heading, for a screen reader's outline (the view's title is
+  // "Questions", each card's question is the next level down).
+  cardsHeading: "Open questions",
+  // A question's page sent somebody here for a question the game does not
+  // have open: one outside the game's band, or one that has closed.
+  askedMissing: "The question you came from is not open in the game right now.",
+  askedMissingLink: "Back to its page",
   closesOn: (when: string) => `Closes ${when}`,
   priceUpdating: "Price updating",
   marketSays: "The market says",
@@ -241,7 +256,16 @@ export const t = {
   settledAlreadyHint: "This is too close to certain to forecast.",
   blockedSameEvent: "You already have a pick from this event on your slip.",
   blockedFull: (max: number) => `A slip holds at most ${max} picks.`,
-  blockedStale: "This price is updating. Try again in a moment.",
+  blockedStale: "Picks open again once the new price is in.",
+  // A price the API marks stale: when it was read, never shown as the chance now.
+  staleTitle: "New price on its way",
+  staleLine: (chance: string, when: string) => `Yes was at ${chance} when last read, ${when}.`,
+  // A price on the edge of the game's band: the game deals at it, and the
+  // market itself may be further out (its page shows where).
+  heldLow: "for yes, the game's lowest price",
+  heldHigh: "for yes, the game's highest price",
+  heldMarketLow: (edge: string) => `The market itself has yes at ${edge} or lower.`,
+  heldMarketHigh: (edge: string) => `The market itself has yes at ${edge} or higher.`,
   onBreakNoPicks: "Forecasting is paused while you are on a break.",
   limitReachedNoPicks:
     "You have reached the daily limit you set, so forecasting is paused until tomorrow.",
@@ -263,21 +287,30 @@ export const t = {
   slipChanceLine: (chance: string) => `${chance} chance of being right`,
   removeLeg: "Remove pick",
   removeLegOf: (question: string) => `Remove this pick: ${question}`,
-  slipAllMustWin: (count: number) => `All ${count} picks have to be right for this to pay.`,
+  slipAllMustWin: (count: number) =>
+    count === 2
+      ? "Both picks have to be right for this to pay."
+      : `All ${count} picks have to be right for this to pay.`,
   stake: "Stake",
   stakeUnit: "points",
   stakeHint: (min: string, max: string) => `From ${min} to ${max} points.`,
   stakeHave: (balance: string) => `You have ${balance}.`,
   quickStakes: "Quick amounts",
   stakeTooSmall: (min: string) => `The smallest stake is ${min} points.`,
+  // A stake field holding nothing, nothing but 0, or something that is not
+  // a number; and one with a decimal point, which is never rounded away.
+  stakeEnter: (min: string, max: string) => `Enter a stake in whole points, from ${min} to ${max}.`,
+  stakeWhole: (min: string, max: string) =>
+    `Points are whole numbers. Enter a stake from ${min} to ${max}.`,
   stakeTooLarge: (max: string) => `The largest stake is ${max} points.`,
   balance: "Balance",
   combinedOdds: "Combined odds",
   winChance: "Chance it comes in",
   toWin: "If you are right",
   cappedAt: (amount: string) => `Payouts are capped at ${amount} points.`,
-  noMargin: "Fair odds: 1 ÷ probability. Nothing is taken out.",
+  noMargin: "Fair odds: 1 ÷ the chance. Nothing is taken out.",
   placeForecast: (amount: string) => `Place forecast · ${amount} points`,
+  placeForecastBare: "Place forecast",
   placing: "Placing…",
   placed: "Forecast placed.",
   placedTitle: "Forecast placed",
@@ -565,7 +598,7 @@ export const t = {
   articleHelpPrompt: "If gambling is costing you more than you want it to,",
   articleHelpLink: "free, confidential help is here.",
   articleMore: "Keep reading",
-  articleBack: "All articles",
+  articleBack: "All guides",
   articleTryTitle: "See what forecasting is like with no money in it",
   articleTryBody: "Real questions, live odds, and points that can never be cashed out.",
 

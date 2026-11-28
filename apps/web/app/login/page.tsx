@@ -52,9 +52,9 @@ export default async function LoginPage({
 
   return (
     <>
-      <SiteHeader />
+      <SiteHeader quiet />
       <main id="main" className="gm flex-1">
-        <div className="wrap gm-auth">
+        <div className="wrap dp gm-auth">
           <AuthForm mode="login" next={next} />
           <AuthAside rules={rules} moves={moves} />
         </div>

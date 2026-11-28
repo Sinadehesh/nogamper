@@ -65,6 +65,9 @@ function ViewLink({
       href={viewHref(tab)}
       className={className}
       aria-current={current ? "page" : undefined}
+      // The site's footer links "Questions" to /questions; this one is the
+      // game's own list, and says so to a screen reader's list of links.
+      aria-label={tab === "markets" ? t.tabMarketsName : undefined}
       onClick={open}
     >
       {children}
@@ -100,7 +103,7 @@ export function GameBar({ view = null, onView }: { view?: Tab | null; onView?: (
               {t.navSignIn}
             </Link>
           )}
-          <Link className="nav__link" href="/help" prefetch={false}>
+          <Link className="nav__link gm-tap" href="/help" prefetch={false}>
             {t.navHelp}
           </Link>
         </div>

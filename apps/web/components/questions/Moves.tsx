@@ -8,7 +8,7 @@ import { Figure } from "@/components/viz/Figure";
 import { FETCHING, FETCHING_SLOWLY, movesPage } from "@/lib/content";
 import { categoryLabel } from "@/lib/copy";
 import type { Move, Moves } from "@/lib/types";
-import { closesOn, fromToArrow, GAME_BAND, groupByEvent, type PriceBand, shortDateTimeUtc } from "@/lib/viz";
+import { closesOn, fromToArrow, GAME_BAND, groupByEvent, MS, type PriceBand, shortDateTimeUtc } from "@/lib/viz";
 
 const sameText = (one: string, other: string) =>
   one.trim().toLowerCase() === other.trim().toLowerCase();
@@ -16,6 +16,19 @@ const sameText = (one: string, other: string) =>
 // A move whose own figure was read this much earlier or later than the list's
 // says so: "a day ago" then counts back from another moment.
 const READ_APART_MS = 30 * 60_000;
+
+/** How far back a window's "then" is from the moment its change figures were read. */
+const WINDOW_MS = { day: MS.DAY, week: 7 * MS.DAY } as const;
+
+/**
+ * Where a window's changes are measured from: a day or a week before the
+ * change figures were read (the market's own arithmetic, `reference −
+ * change`), or null when that moment is not known.
+ */
+function measuredFrom(measuredAt: string | null, window: "day" | "week"): string | null {
+  const at = measuredAt ? Date.parse(measuredAt) : Number.NaN;
+  return Number.isFinite(at) ? shortDateTimeUtc(at - WINDOW_MS[window]) : null;
+}
 
 /** A threshold in percentage points, as the rules print it: "0.0500" is "5". */
 export function asPercentagePoints(probability: string): string {
@@ -101,7 +114,8 @@ function MoveRow({
         </Link>
         <p className="mv-row__meta">
           {closesOn(move.closes_at, reference)}
-          {apart ? ` · ${movesPage.readAt(shortDateTimeUtc(move.measured_at))}` : null}
+          {/* Its own start, where it differs from the list's (see MovesSection). */}
+          {apart ? ` · ${movesPage.rowFrom(measuredFrom(move.measured_at, window) ?? "")}` : null}
         </p>
       </div>
       {/* A move's "now" is the game's price, which the API holds on the
@@ -146,6 +160,10 @@ export function MovesSection({
   band?: PriceBand;
 }) {
   const groups = groupByEvent(moves);
+  // When "then" is, said once for the list, beside it: the hollow marks are
+  // where each question stood at this moment. "Now" is the page's own time,
+  // in the "As of" line at the top.
+  const from = measuredFrom(measuredAt, window);
   return (
     <section className="mv-section" aria-labelledby={id}>
       <div className="mv-section__head">
@@ -154,6 +172,7 @@ export function MovesSection({
         </h2>
         {moves.length > 0 ? <p>{movesPage.count(moves.length)}</p> : null}
       </div>
+      {moves.length > 0 && from ? <p className="mv-section__from">{movesPage.sectionFrom(from)}</p> : null}
       {moves.length === 0 ? (
         <p className="dp-empty">{empty}</p>
       ) : (

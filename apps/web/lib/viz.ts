@@ -1438,13 +1438,16 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
     { id: "weekAgo", window: windows?.week ?? null, word: viz.chartWeekAgo },
   ];
   const refPoints: ChartPoint[] = [];
+  let weekMark: ChartPoint | null = null;
   for (const ref of refs) {
     if (!ref.window) continue;
     const at = Date.parse(ref.window.at);
     if (!Number.isFinite(at) || at < start || at > end) continue;
     markers.push({ kind: "ref", fx: fx(at), v: ref.window.was, r: 6 });
     labels.push({ id: ref.id, word: ref.word, value: pct(ref.window.was), fx: fx(at), v: ref.window.was, mode: "point" });
-    refPoints.push({ t: at, v: ref.window.was });
+    const mark = { t: at, v: ref.window.was };
+    refPoints.push(mark);
+    if (ref.id === "weekAgo") weekMark = mark;
   }
 
   // The lowest and the highest of everything the chart draws: the line with
@@ -1546,13 +1549,26 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
     return { t: point.t, v: point.v, note: note || null, ...(held.has(point) ? { text: printed(point) } : {}) };
   });
 
-  // The same, said in words.
+  // The same, said in words. Where the chart marks where the question stood
+  // a week ago, the sentence starts there, with the mark's own figure: the
+  // label beside it and the week's change above the chart print that figure,
+  // and the line's first reading, a few minutes off it, can print another
+  // ("A week ago 34%" beside "From 35% on Nov 21"). Otherwise it starts at
+  // whichever comes first, the day-ago mark or the line.
+  const earliestMark = refPoints.reduce<ChartPoint | null>(
+    (soonest, mark) => (!soonest || mark.t < soonest.t ? mark : soonest),
+    null,
+  );
+  const openingMark = weekMark ?? (earliestMark && earliestMark.t < first.t ? earliestMark : null);
+  const opening = openingMark
+    ? { text: pct(openingMark.v), t: openingMark.t }
+    : { text: printed(first), t: first.t };
   const summary =
-    points.length === 1
+    points.length === 1 && opening.t === first.t
       ? viz.chartOne(printedEnd, shortDateUtc(last.t, reference))
       : viz.chartSummary(
-          printed(first),
-          shortDateUtc(first.t, reference),
+          opening.text,
+          shortDateUtc(opening.t, reference),
           printedEnd,
           shortDateUtc(last.t, reference),
           printed(range?.low ?? last),
@@ -1856,18 +1872,28 @@ export function inHundred(probability: number | string): number | "under1" | "ov
  * Which plain description fits a chance of yes: how far it is from even, and
  * which way, in bands that mirror each other about 50%. Taken from the figure
  * as printed, so the words and the number beside them agree at every edge.
+ *
+ * Each band's words are true at both its edges:
+ * - "close to ruled out" below 2%, at most about 1 in 50 (at 4.9%, one in
+ *   twenty, it would not be), and "close to certain" above 98%;
+ * - "very unlikely" from 2% to 19%, "very likely" from 81% to 98%;
+ * - "unlikely, though far from ruled out" from 20% (one in five) to 39%,
+ *   "likely, though far from certain" from 61% to 80%;
+ * - "a little less than even" from 40% to 44%, "a little better than even"
+ *   from 56% to 60% (at 35%, nearly two to one against, it would not be a
+ *   little), and "close to even" from 45% to 55%.
  */
 export function chanceBand(probability: number | string): ChanceBand {
   const shown = inHundred(probability);
   const value = shown === "under1" ? 0.5 : shown === "over99" ? 99.5 : shown;
   if (!Number.isFinite(value)) return "even";
-  if (value < 5) return "noAlmost";
+  if (value < 2) return "noAlmost";
   if (value < 20) return "noVery";
-  if (value < 35) return "no";
+  if (value < 40) return "no";
   if (value < 45) return "noLean";
   if (value <= 55) return "even";
-  if (value <= 65) return "yesLean";
+  if (value <= 60) return "yesLean";
   if (value <= 80) return "yes";
-  if (value <= 95) return "yesVery";
+  if (value <= 98) return "yesVery";
   return "yesAlmost";
 }

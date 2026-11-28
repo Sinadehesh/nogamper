@@ -136,6 +136,14 @@
     color: var(--muted);
   }
 
+  /* When the list's "then" is: under its title, in the second ink. */
+  .mv-section__from {
+    margin-top: var(--s-2);
+    font-size: var(--t-small);
+    line-height: 1.5;
+    color: var(--dp-ink-2);
+  }
+
   .mv-events {
     display: grid;
     gap: var(--s-3);
@@ -279,28 +287,31 @@
 
   /* ----- Every question ------------------------------------------------------ */
 
+  /* The counts, as a line of text: each subject's count is a plain link to
+     its section (the way there without a script). Set as text, not as the
+     filter's chips just below, so nothing here reads as a choice that
+     filters. Each link keeps a 44px target in its line's height. */
   .qx-counts {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--s-2);
+    align-items: center;
+    column-gap: var(--s-5);
     margin-top: var(--s-2);
+    font-size: var(--t-small);
+    line-height: 20px;
   }
 
   .qx-count {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.4em;
-    min-height: 44px;
-    padding: 0.7rem var(--s-4) 0;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--surface);
-    font-size: var(--t-small);
-    line-height: 1.4;
+    display: inline-block;
+    padding-block: 12px;
     color: var(--dp-ink-2);
+    text-decoration: underline;
+    text-decoration-color: var(--line-strong);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.22em;
     transition:
-      border-color var(--dur) var(--ease),
-      color var(--dur) var(--ease);
+      color var(--dur) var(--ease),
+      text-decoration-color var(--dur) var(--ease);
   }
 
   .qx-count b {
@@ -310,16 +321,15 @@
   }
 
   .qx-count:hover {
-    border-color: var(--line-strong);
     color: var(--ink);
+    text-decoration-color: currentColor;
   }
 
   .qx-count--lead {
-    border-color: transparent;
-    background: none;
-    padding-left: 0;
     color: var(--ink);
+    text-decoration: none;
   }
+
 
   .qx-filter {
     display: grid;
@@ -368,30 +378,61 @@
     color: var(--ink);
   }
 
+  /* As tall as the search box beside them, so the chips sit on its middle
+     and the three names above line up. */
   .qx-group__options {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--s-2);
+    min-height: 44px;
   }
 
-  .qx-option {
-    min-height: 44px;
-    padding: 0 var(--s-4);
+  /* The site's one filter chip, as the game's (.gm-chip): 36px to see, with a
+     44px target made of a transparent edge above and below (the rows of
+     chips are 8px apart, so no two targets overlap). Not chosen, a strong
+     hairline on nothing; chosen, solid ink with dark words. Never lime:
+     lime is Yes. The question chips below are drawn the same way. */
+  .qx-option,
+  .qx-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
     border: 1px solid var(--line-strong);
     border-radius: 999px;
     background: transparent;
-    font-size: var(--t-small);
-    font-weight: 500;
-    line-height: 1;
-    color: var(--ink);
-    cursor: pointer;
+    font: 500 var(--t-small) / 1 var(--font-text);
+    color: var(--dp-ink-2);
     transition:
       background-color var(--dur) var(--ease),
-      border-color var(--dur) var(--ease);
+      border-color var(--dur) var(--ease),
+      color var(--dur) var(--ease);
   }
 
-  .qx-option:hover {
-    border-color: color-mix(in oklab, var(--ink) 48%, transparent);
+  /* -5px from the padding box, inside the 1px border: 36px + 2 × 4px = 44px. */
+  .qx-option::after,
+  .qx-chip::after {
+    content: "";
+    position: absolute;
+    inset: -5px 0;
+  }
+
+  .qx-option:hover,
+  .qx-chip:hover {
+    border-color: color-mix(in oklab, var(--ink) 40%, transparent);
+    color: var(--ink);
+  }
+
+  .qx-option:focus-visible,
+  .qx-chip:focus-visible {
+    border-radius: 999px;
+  }
+
+  .qx-option {
+    height: 36px;
+    padding: 0 14px;
+    white-space: nowrap;
+    cursor: pointer;
   }
 
   .qx-option[aria-pressed="true"] {
@@ -495,39 +536,22 @@
     white-space: nowrap;
   }
 
+  /* 8px between rows of chips, so each one's 44px target (.qx-chip::after)
+     meets the next row's and never covers it. */
   .qx-members {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--s-2) 6px;
     margin-top: var(--s-3);
   }
 
+  /* The filter chip's look (.qx-option, above); a part that runs to two
+     lines on a narrow screen grows rather than spills. */
   .qx-chip {
-    display: inline-flex;
-    align-items: center;
     gap: var(--s-2);
     min-height: 36px;
-    padding: 0 var(--s-3);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--surface);
-    font-size: var(--t-small);
+    padding: 0.4rem 14px;
     line-height: 1.25;
-    color: var(--ink);
-    transition:
-      border-color var(--dur) var(--ease),
-      background-color var(--dur) var(--ease);
-  }
-
-  .qx-chip:hover {
-    border-color: color-mix(in oklab, var(--ink) 40%, transparent);
-    background: color-mix(in oklab, var(--surface) 86%, var(--ink));
-  }
-
-  @media (pointer: coarse) {
-    .qx-chip {
-      min-height: 44px;
-    }
   }
 
   .qx-others {
@@ -914,6 +938,11 @@
 
   .qp-rules summary:hover {
     border-color: color-mix(in oklab, var(--ink) 48%, transparent);
+  }
+
+  /* The ring follows the pill (the kit's ring squares it to 2px). */
+  .qp-rules summary:focus-visible {
+    border-radius: 999px;
   }
 
   .qp-rules summary::after {

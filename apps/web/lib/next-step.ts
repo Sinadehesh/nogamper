@@ -7,7 +7,12 @@
  */
 const AFTER_SIGN_IN = new Set(["/play", "/write"]);
 
+/** The game opened on one question, as a question's "Make a forecast" asks: its address only. */
+const PLAY_QUESTION = /^\/play\?question=[a-z0-9]+(-[a-z0-9]+)*$/;
+
 export function nextStep(requested: string | string[] | undefined): string {
   const value = Array.isArray(requested) ? requested[0] : requested;
-  return value && AFTER_SIGN_IN.has(value) ? value : "/play";
+  if (!value) return "/play";
+  if (AFTER_SIGN_IN.has(value)) return value;
+  return value.length <= 220 && PLAY_QUESTION.test(value) ? value : "/play";
 }

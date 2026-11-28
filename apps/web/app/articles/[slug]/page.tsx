@@ -70,7 +70,7 @@ function Trail({ section, sectionId }: { section: string; sectionId: string }) {
   return (
     <nav aria-label={t.articleBack} className="rd-trail">
       <Link href="/articles" prefetch={false}>
-        {t.navArticles}
+        {t.navGuides}
       </Link>
       <span aria-hidden="true" className="rd-trail__sep">
         /
@@ -82,8 +82,13 @@ function Trail({ section, sectionId }: { section: string; sectionId: string }) {
   );
 }
 
-/** What every article ends with: where real help is, and the game, once. */
-function Closing() {
+/**
+ * What every article ends with: where real help is, and the game, once. A
+ * guide about stepping back from gambling ends with the help alone (`quiet`):
+ * it may have just asked its reader to close the tab, and nothing after that
+ * invites them to play.
+ */
+function Closing({ quiet = false }: { quiet?: boolean }) {
   return (
     <>
       <p className="rd-note">
@@ -93,21 +98,18 @@ function Closing() {
         </Link>
       </p>
 
-      <aside className="rd-try" aria-labelledby="try">
-        <h2 id="try">{t.articleTryTitle}</h2>
-        <p>{t.articleTryBody}</p>
-        <div className="rd-try__actions">
-          <MainAction fallback={<NotOpenYet />}>
-            <svg className="m-arrow" viewBox="0 0 12 12" aria-hidden="true">
-              <path className="m-arrow__stem" d="M1 6h8" />
-              <path className="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5" />
-            </svg>
-          </MainAction>
-          <Link href="/mission" className="dp-link" prefetch={false}>
-            {articlesPage.tryOther}
-          </Link>
-        </div>
-      </aside>
+      {quiet ? null : (
+        <aside className="rd-try" aria-labelledby="try">
+          <h2 id="try">{t.articleTryTitle}</h2>
+          <p>{t.articleTryBody}</p>
+          <div className="rd-try__actions">
+            <MainAction fallback={<NotOpenYet />} />
+            <Link href="/mission" className="dp-link" prefetch={false}>
+              {articlesPage.tryOther}
+            </Link>
+          </div>
+        </aside>
+      )}
     </>
   );
 }
@@ -115,6 +117,9 @@ function Closing() {
 function Guide({ guide }: { guide: Editorial }) {
   const path = `/articles/${guide.slug}`;
   const topic = articlesPage.topics[guide.topic];
+  // Written for somebody who should step away: the header and the end of the
+  // page offer help, not the game.
+  const quiet = guide.topic === "stepping-back";
   const related = allEditorial()
     .filter((other) => other.slug !== guide.slug)
     .sort((a, b) => Number(b.topic === guide.topic) - Number(a.topic === guide.topic))
@@ -140,11 +145,11 @@ function Guide({ guide }: { guide: Editorial }) {
       <JsonLd
         data={breadcrumbLd([
           { name: t.appName, path: "/" },
-          { name: t.navArticles, path: "/articles" },
+          { name: t.navGuides, path: "/articles" },
           { name: guide.title, path },
         ])}
       />
-      <SiteHeader />
+      <SiteHeader quiet={quiet} />
 
       <main id="main" className="flex-1">
         <div className="wrap dp rd">
@@ -174,7 +179,7 @@ function Guide({ guide }: { guide: Editorial }) {
             end={
               <>
                 <Sources id="sources" title={t.articleSources} sources={guide.sources} />
-                <Closing />
+                <Closing quiet={quiet} />
               </>
             }
           >
@@ -229,7 +234,7 @@ function FromReader({ article }: { article: PublishedArticle }) {
       <JsonLd
         data={breadcrumbLd([
           { name: t.appName, path: "/" },
-          { name: t.navArticles, path: "/articles" },
+          { name: t.navGuides, path: "/articles" },
           { name: article.title, path },
         ])}
       />

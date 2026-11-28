@@ -1,6 +1,7 @@
 import { Analytics } from "@vercel/analytics/next";
 import type { Metadata, Viewport } from "next";
 
+import { FontPreloads } from "@/components/SiteChrome";
 import { landing } from "@/lib/content";
 import { t } from "@/lib/copy";
 import { SITE_URL } from "@/lib/site";
@@ -100,22 +101,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       data-tone="dark"
     >
       <head>
-        {/* The two Latin faces every page draws first, fetched alongside the
-            stylesheets rather than after them. */}
-        <link
-          rel="preload"
-          href="/fonts/schibsted-grotesk-latin.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
-        <link
-          rel="preload"
-          href="/fonts/jetbrains-mono-latin.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
         <style dangerouslySetInnerHTML={{ __html: KIT_STYLE }} />
       </head>
       <body className="flex min-h-dvh flex-col antialiased">
@@ -124,6 +109,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip-link" href="#main">
           {t.skipToContent}
         </a>
+        {/* Draws nothing: the two Latin faces every page draws first, asked
+            for at the top of the head beside the stylesheets. */}
+        <FontPreloads />
         {children}
         {/* Page views, counted by the host without cookies and without
             identifying anybody — see /privacy. Only where the host provides

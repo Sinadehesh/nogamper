@@ -36,8 +36,9 @@ import { Figure } from "@/components/viz/Figure";
 import { claimTopUp, getShop } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
 import { dateTimeUtc, points } from "@/lib/format";
-import type { Tab } from "@/lib/tabs";
+import { VIEW_TITLE, type Tab } from "@/lib/tabs";
 import type { MarketRules, MarketSummary, SlipQuote } from "@/lib/types";
+import { shortDateTimeUtc } from "@/lib/viz";
 
 /** Until the feed has answered, a slip may hold this many picks. */
 const FALLBACK_MAX_LEGS = 5;
@@ -45,22 +46,33 @@ const FALLBACK_MAX_LEGS = 5;
 /** How somebody arrived back from Stripe's payment page, if they did. */
 export type PurchaseReturn = "done" | "cancelled" | null;
 
+/** A question asked for by its page ("Make a forecast"), to open the game on. */
+export type AskedQuestion = { slug: string; question: string; category: string };
+
 export function Dashboard({
   initialTab,
   purchase = null,
   links = {},
+  asked = null,
 }: {
   initialTab: Tab;
   purchase?: PurchaseReturn;
   /** Each open question's public page, by its wording (see QuestionLinks). */
   links?: Readonly<Record<string, string>>;
+  asked?: AskedQuestion | null;
 }) {
   const [rules, setRules] = useState<MarketRules | null>(null);
 
   return (
     <QuestionLinks links={links}>
       <SlipProvider maxLegs={rules?.max_legs ?? FALLBACK_MAX_LEGS}>
-        <Screen initialTab={initialTab} purchase={purchase} rules={rules} onRules={setRules} />
+        <Screen
+          initialTab={initialTab}
+          purchase={purchase}
+          rules={rules}
+          onRules={setRules}
+          asked={asked}
+        />
       </SlipProvider>
     </QuestionLinks>
   );
@@ -141,11 +153,13 @@ function Screen({
   purchase,
   rules,
   onRules,
+  asked,
 }: {
   initialTab: Tab;
   purchase: PurchaseReturn;
   rules: MarketRules | null;
   onRules: (rules: MarketRules) => void;
+  asked: AskedQuestion | null;
 }) {
   const slip = useSlip();
   const wide = useWide();
@@ -175,8 +189,9 @@ function Screen({
     setTab(next);
     // Keep the address in step so a reload, or a link from the help page,
     // lands on the same view — without a navigation, which would refetch the
-    // whole page for what is a change of view.
+    // whole page for what is a change of view. The title follows it.
     window.history.replaceState(null, "", viewHref(next));
+    document.title = `${VIEW_TITLE[next]} · ${t.appName}`;
     // A new view starts at its top, and says so to a screen reader.
     window.scrollTo(0, 0);
     window.requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }));
@@ -229,8 +244,18 @@ function Screen({
     <>
       <GameBar view={tab} onView={select} />
 
+      {/* What is on the slip, said as it changes. In the page from the start
+          and empty until the first pick: a live region that arrives already
+          filled is not announced. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {hasPicks ? t.slipOpenBar(slip.legs.length) : ""}
+      </p>
+
       <main id="main" className="gm flex-1">
-        <div className="wrap gm-page">
+        {/* On the questions view of a wide screen the slip's rail runs from
+            the top of the column, beside the strip, so its button is on the
+            first screen as soon as there is a pick (game.css). */}
+        <div className="wrap gm-page" data-view={tab}>
           {purchase ? <PurchaseNotice outcome={purchase} /> : null}
 
           <Strip
@@ -242,16 +267,23 @@ function Screen({
             <h1 ref={heading} id="gm-view-title" tabIndex={-1} className="gm-title">
               {tab === "account" ? t.accountTitle : VIEW_LABEL[tab]}
             </h1>
-            <p className="gm-lede">
-              {tab === "markets" ? t.marketsLede(maxLegs) : VIEW_LEDE[tab]}
-            </p>
+            {tab === "markets" ? (
+              <p className="gm-lede">
+                {/* On a phone only the second sentence, so a question's
+                    picks are on the first screen. */}
+                <span className="gm-lede__more">{t.marketsLedeSource} </span>
+                {t.marketsLedeHow(maxLegs)}
+              </p>
+            ) : (
+              <p className="gm-lede">{VIEW_LEDE[tab]}</p>
+            )}
           </header>
 
           {tab === "markets" ? (
             <div className="gm-market">
               <QuotedPrices prices={quoted}>
                 <ReviewSlip onReview={reviewSlip}>
-                  <MarketFeed onRules={onRules} onMarkets={seen} />
+                  <MarketFeed onRules={onRules} onMarkets={seen} asked={asked} />
                 </ReviewSlip>
               </QuotedPrices>
               <aside className="gm-rail" aria-label={t.slipTitle}>
@@ -322,7 +354,7 @@ function SlipBar({
   return (
     <div className="gm-slipbar gm">
       <div className="wrap gm-slipbar__in">
-        <p className="gm-slipbar__text" aria-live="polite">
+        <p className="gm-slipbar__text">
           <b>{t.slipOpenBar(slip.legs.length)}</b>
           {last ? (
             <span>
@@ -441,7 +473,12 @@ function Strip({
               {claiming ? t.topUpClaiming : t.dailyAdd(player.daily_topup.display)}
             </button>
           ) : player.next_claim_at ? (
-            <p className="gm-stat__line">{t.dailyDone(dateTimeUtc(player.next_claim_at))}</p>
+            <>
+              <p className="gm-stat__line gm-wide-only">{t.dailyDone(dateTimeUtc(player.next_claim_at))}</p>
+              <p className="gm-stat__line gm-narrow-only">
+                {t.dailyNext(player.daily_topup.display, shortDateTimeUtc(player.next_claim_at))}
+              </p>
+            </>
           ) : null}
         </div>
 
@@ -486,12 +523,21 @@ function Strip({
       {foot ? (
         <div className="gm-strip__foot">
           {player.is_guest ? (
-            <p>
-              {t.guestBanner}{" "}
-              <Link href="/signup" prefetch={false} className="gm-link">
-                {t.guestBannerAction}
-              </Link>
-            </p>
+            <>
+              <p className="gm-wide-only">
+                {t.guestBanner}{" "}
+                <Link href="/signup" prefetch={false} className="gm-link">
+                  {t.guestBannerAction}
+                </Link>
+              </p>
+              {/* A phone has room for one line: the link, which says it. The
+                  Account view explains what a guest account is. */}
+              <p className="gm-narrow-only">
+                <Link href="/signup" prefetch={false} className="gm-link gm-tap">
+                  {t.guestBannerShort}
+                </Link>
+              </p>
+            </>
           ) : (
             <span />
           )}

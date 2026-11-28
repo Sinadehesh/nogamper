@@ -53,9 +53,16 @@ export function Keeps({ rules }: { rules: GameRules | null }) {
                       {t.balanceLabel}
                     </span>
                     {rules ? <Figure className="lp-balance__fig" text={rules.signup_bonus.display} /> : null}
-                    <span className="lp-balance__topup" aria-hidden="true">
-                      {rules ? <span>{t.topUpReady(rules.daily_topup.display)}</span> : null}
-                      <span className="lp-balance__claim">{t.topUpClaim}</span>
+                    {/* The free daily points as the game's strip shows them:
+                        the label, the amount and its outlined button. */}
+                    <span className="lp-balance__daily" aria-hidden="true">
+                      <span className="lp-muted">{t.dailyLabel}</span>
+                      {rules ? (
+                        <span className="lp-balance__row">
+                          <Figure className="lp-balance__amount" text={t.dailyAmount(rules.daily_topup.display)} />
+                          <span className="lp-balance__add">{t.dailyAdd(rules.daily_topup.display)}</span>
+                        </span>
+                      ) : null}
                     </span>
                   </div>
                 </div>

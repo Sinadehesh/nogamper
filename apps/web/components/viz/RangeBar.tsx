@@ -28,6 +28,13 @@ type RangeBarProps = {
    * the dates it covers instead.
    */
   describe?: (low: string, high: string, nowWord: string, now: string) => string;
+  /**
+   * The word over the one figure drawn when the lowest and the highest print
+   * the same ("Unchanged at" over "0.1%"): a flat week is one label, not a
+   * Low, a High and a Now that all say "0.1%". Without it, the price's own
+   * word ("Now", "Last price") stands over that figure.
+   */
+  flat?: string;
   className?: string;
 };
 
@@ -54,6 +61,7 @@ export function RangeBar({
   size = "row",
   held,
   describe = viz.rangeSentence,
+  flat,
   className,
 }: RangeBarProps) {
   const lo = Math.min(1, Math.max(0, Number(low)));
@@ -62,6 +70,9 @@ export function RangeBar({
   const nowWord = kind === "last" ? viz.rangeLast : viz.rangeNow;
   const figure = (value: number) => (held ? pctHeld(value, held) : pct(value));
   const sentence = describe(figure(lo), figure(hi), nowWord, figure(current));
+  // Lowest, highest and the price shown all print alike (the price sits
+  // between the two): one figure says all three.
+  const same = figure(lo) === figure(hi);
   const position = vars({ "--viz-low": at(lo), "--viz-high": at(hi), "--viz-now": at(current) });
 
   const rail = (children?: ReactNode) => (
@@ -87,9 +98,11 @@ export function RangeBar({
         <span className="viz-sr">{sentence}</span>
         {rail(
           <>
-            <span className="viz-range__end viz-range__end--low">
-              <span className="viz-range__fig">{figure(lo)}</span>
-            </span>
+            {same ? null : (
+              <span className="viz-range__end viz-range__end--low">
+                <span className="viz-range__fig">{figure(lo)}</span>
+              </span>
+            )}
             <span className="viz-range__end viz-range__end--high">
               <span className="viz-range__fig">{figure(hi)}</span>
             </span>
@@ -99,21 +112,26 @@ export function RangeBar({
     );
   }
 
-  const labels = [
-    { key: "low", x: lo, word: viz.low, figure: figure(lo) },
-    { key: "high", x: hi, word: viz.high, figure: figure(hi) },
-  ].map((label) => ({
+  const labels = (
+    same
+      ? [{ key: "flat", x: current, word: flat ?? nowWord, figure: figure(current) }]
+      : [
+          { key: "low", x: lo, word: viz.low, figure: figure(lo) },
+          { key: "high", x: hi, word: viz.high, figure: figure(hi) },
+        ]
+  ).map((label) => ({
     ...label,
     r: 6,
     width: Math.ceil(Math.max(monoWidth(label.word, WORD_PX), figureWidth(label.figure, FIGURE_PX))) + 4,
   }));
   const nowText = `${nowWord} ${figure(current)}`;
-  const nowWidth = Math.ceil(monoWidth(nowText, WORD_PX)) + 8;
+  const nowWidth = same ? 0 : Math.ceil(monoWidth(nowText, WORD_PX)) + 8;
   // The line under the track names the price now, and near an end it needs
   // room beside the track. That room is kept first, and the labels above are
   // laid out on the rail that is left, never on a wider one than is drawn.
-  const nowLeft = Math.max(0, nowWidth / 2 - current * NARROWEST + 2);
-  const nowRight = Math.max(0, nowWidth / 2 - (1 - current) * NARROWEST + 2);
+  // A flat range has no such line: its one label says it.
+  const nowLeft = same ? 0 : Math.max(0, nowWidth / 2 - current * NARROWEST + 2);
+  const nowRight = same ? 0 : Math.max(0, nowWidth / 2 - (1 - current) * NARROWEST + 2);
   const layout = layoutTrackLabels(
     labels.map(({ x, width, r }) => ({ x, width, r })),
     NARROWEST - nowLeft - nowRight,
@@ -125,6 +143,7 @@ export function RangeBar({
   return (
     <span
       className={cx("viz-range", "viz-range--large", className)}
+      data-flat={same ? "" : undefined}
       style={{
         ...position,
         ...vars({ "--viz-now-w": `${nowWidth}px`, "--viz-pl": `${Math.ceil(padLeft)}px`, "--viz-pr": `${Math.ceil(padRight)}px` }),
@@ -156,7 +175,7 @@ export function RangeBar({
               </span>
             );
           })}
-          <span className="viz-range__nowlabel">{nowText}</span>
+          {same ? null : <span className="viz-range__nowlabel">{nowText}</span>}
         </>,
       )}
     </span>

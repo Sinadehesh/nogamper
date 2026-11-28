@@ -4,13 +4,14 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { usePlayer } from "@/components/PlayerProvider";
 import { useSlip } from "@/components/SlipProvider";
+import { quotedPrices } from "@/components/game/context";
 import { Wording } from "@/components/game/Pick";
 import { useFocusTrap } from "@/components/game/trap";
 import { SlipFigures } from "@/components/viz";
 import { Figure } from "@/components/viz/Figure";
 import { placeSlip, quoteSlip, type SlipBody } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
-import { chance, parsePoints, points, sideChance } from "@/lib/format";
+import { chance, points, readPoints, sideChance } from "@/lib/format";
 import type { MarketRules, MarketSummary, Side, SlipQuote } from "@/lib/types";
 import type { SlipLegInput } from "@/lib/viz";
 
@@ -90,9 +91,28 @@ export function SlipSheet(props: SlipProps) {
   useFocusTrap(panel, isOpen);
   useEffect(() => {
     if (!isOpen) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The page itself is no opener: the folded bar's button has already gone
+    // by now when the sheet was opened from it.
+    const active = document.activeElement;
+    const opener = active instanceof HTMLElement && active !== document.body ? active : null;
     panel.current?.focus({ preventScroll: true });
-    return () => opener?.focus({ preventScroll: true });
+    return () => {
+      if (opener?.isConnected) {
+        opener.focus({ preventScroll: true });
+        return;
+      }
+      // The opener has gone: the folded slip bar is not drawn while the sheet
+      // is open, and a card's "Review slip" goes with its pick. Once the page
+      // has drawn again, the bar's button if it is back, else the view's
+      // heading, unless something has taken the focus by then.
+      window.requestAnimationFrame(() => {
+        if (document.activeElement && document.activeElement !== document.body) return;
+        const target =
+          document.querySelector<HTMLElement>(".gm-slipbar .btn") ??
+          document.getElementById("gm-view-title");
+        target?.focus({ preventScroll: true });
+      });
+    };
   }, [isOpen]);
 
   if (!slip.isOpen) return null;
@@ -129,7 +149,8 @@ function SlipPanel({
   const ownTitleId = useId();
   const headingId = titleId ?? ownTitleId;
   const stakeId = useId();
-  const stakeNoteId = useId();
+  const stakeHintId = useId();
+  const stakeErrorId = useId();
   const discardTitleId = useId();
   const discardBodyId = useId();
   // The rail is on screen whenever it holds a pick; the sheet when it is open.
@@ -142,15 +163,35 @@ function SlipPanel({
   const allowance = limit ? Math.max(0, limit.minor - spent.minor) : null;
   const available = allowance === null ? balance : Math.min(balance, allowance);
 
-  const [stake, setStake] = useState(() => defaultStake(rules, available));
-  const [draft, setDraft] = useState(() => points(stake));
+  const legCount = slip.legs.length;
+
+  // The stake is the slip's, not this panel's (see SlipProvider): the field's
+  // text, read strictly. A new slip takes the default once, so it does not
+  // move with the balance while the slip is open.
+  const { stakeDraft, setStakeDraft } = slip;
+  const fallbackDraft = points(defaultStake(rules, available));
+  const draft = stakeDraft ?? fallbackDraft;
+  useEffect(() => {
+    if (stakeDraft === null && legCount > 0) setStakeDraft(fallbackDraft);
+  }, [stakeDraft, legCount, fallbackDraft, setStakeDraft]);
+  const entry = readPoints(draft);
+  const stake = entry.minor;
+  const typed = entry.problem === null && stake > 0;
+
   const [quote, setQuote] = useState<SlipQuote | null>(null);
+  // The last quote the server gave, kept while the stake is being retyped:
+  // the picks' prices do not depend on the stake, so they stay put while the
+  // field passes through "", "1" and "12" on the way to "120".
+  const [lastQuote, setLastQuote] = useState<SlipQuote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const discardBox = useRef<HTMLDivElement>(null);
   const clearButton = useRef<HTMLButtonElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const actions = useRef<HTMLDivElement>(null);
   useFocusTrap(discardBox, confirmClear);
 
   // Keeping the slip puts the question away and the focus back where it was.
@@ -158,8 +199,6 @@ function SlipPanel({
     setConfirmClear(false);
     window.requestAnimationFrame(() => clearButton.current?.focus());
   }, []);
-
-  const legCount = slip.legs.length;
 
   const body: SlipBody = useMemo(
     () => ({
@@ -183,9 +222,9 @@ function SlipPanel({
   // together rather than a minute apart.
   const feedPrices = slip.legs.map((leg) => prices.get(leg.marketId)?.probability.yes ?? "").join(" ");
 
-  // A stake outside the rules is said under the field, and the server would
-  // only refuse it, so it is not sent.
-  const inBounds = stake >= rules.min_stake.minor && stake <= rules.max_stake.minor;
+  // A stake outside the rules is said beside the button, and the server
+  // would only refuse it, so it is not sent.
+  const inBounds = typed && stake >= rules.min_stake.minor && stake <= rules.max_stake.minor;
 
   useEffect(() => {
     if (!active || legCount === 0 || !inBounds) {
@@ -204,6 +243,7 @@ function SlipPanel({
       setQuoting(false);
       if (result.ok) {
         setQuote(result.data);
+        setLastQuote(result.data);
         setError(null);
       } else {
         setQuote(null);
@@ -218,23 +258,38 @@ function SlipPanel({
     };
   }, [body, legCount, inBounds, active, refresh, feedPrices]);
 
-  // The cards follow the quote on screen, and let go of it when it goes.
-  useEffect(() => {
-    onQuote?.(quote);
-  }, [quote, onQuote]);
-  useEffect(() => () => onQuote?.(null), [onQuote]);
-
-  // Each pick's own side and chance: the server's quote once it is in, the
+  // Each pick's own side and chance: the last quote's once there is one, the
   // price the card showed until then. The two agree unless the price moved.
+  // A pick swapped to its other side since that quote reads that side from it.
+  const lastPrices = useMemo(() => quotedPrices(lastQuote), [lastQuote]);
   const priced: (SlipLegInput & { question: string; marketId: string })[] = slip.legs.map((leg) => {
-    const quoted = quote?.legs.find((entry) => entry.market_id === leg.marketId);
+    const held = lastPrices.get(leg.marketId);
     const market = prices.get(leg.marketId);
-    const probability =
-      quoted?.probability ??
-      (market ? (leg.side === "YES" ? market.probability.yes : market.probability.no) : "");
+    const probability = held
+      ? leg.side === "YES"
+        ? held.yes
+        : held.no
+      : market
+        ? leg.side === "YES"
+          ? market.probability.yes
+          : market.probability.no
+        : "";
     return { side: leg.side, probability, question: leg.question, marketId: leg.marketId };
   });
   const allPriced = priced.every((leg) => leg.probability !== "");
+
+  // The cards follow the same prices, for the questions still on the slip,
+  // and let go of them when the panel goes.
+  const onSlip = slip.legs.map((leg) => leg.marketId).join(" ");
+  const shownQuote = useMemo(() => {
+    if (!lastQuote) return null;
+    const ids = new Set(onSlip.split(" "));
+    return { ...lastQuote, legs: lastQuote.legs.filter((leg) => ids.has(leg.market_id)) };
+  }, [lastQuote, onSlip]);
+  useEffect(() => {
+    onQuote?.(shownQuote);
+  }, [shownQuote, onQuote]);
+  useEffect(() => () => onQuote?.(null), [onQuote]);
 
   const place = useCallback(async () => {
     if (!quote || placing) return;
@@ -264,6 +319,7 @@ function SlipPanel({
       };
       slip.clear();
       setQuote(null);
+      setLastQuote(null);
       await refresh();
       onPlaced(receipt);
       return;
@@ -273,45 +329,108 @@ function SlipPanel({
       // Show the new price and make them press the button again. Taking a
       // worse price on somebody's behalf is the one thing this must not do.
       const refreshed = await quoteSlip(body);
-      if (refreshed.ok) setQuote(refreshed.data);
+      if (refreshed.ok) {
+        setQuote(refreshed.data);
+        setLastQuote(refreshed.data);
+      }
     }
     if (result.code === "on_break" || result.status === 401) void refresh();
     setError(errorMessage(result.code));
   }, [body, quote, placing, slip, refresh, onPlaced]);
 
+  // The panel scrolls under its sticky foot, whose height changes with what
+  // it says. A field or a line brought into view stops above the foot, never
+  // under it: the panel's scroll padding follows the foot's height.
+  useEffect(() => {
+    const foot = actions.current;
+    const scroller = foot?.closest<HTMLElement>(".gm-sheet__panel, .gm-rail > .gm-panel");
+    if (!foot || !scroller) return;
+    const fit = () => scroller.style.setProperty("--gm-foot", `${Math.ceil(foot.offsetHeight)}px`);
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(foot);
+    return () => observer.disconnect();
+  }, [legCount]);
+
+  // Taking a pick off hands the focus on rather than dropping it: to the
+  // next pick's remove button, else the one before, else the slip's heading,
+  // else the card the pick came from.
+  const removePick = useCallback(
+    (marketId: string, side: Side, index: number) => {
+      slip.remove(marketId);
+      window.requestAnimationFrame(() => {
+        const buttons = Array.from(list.current?.querySelectorAll<HTMLElement>(".gm-x") ?? []);
+        const pick = document.querySelector<HTMLElement>(
+          `.gm-pick[data-market="${CSS.escape(marketId)}"][data-side="${side === "YES" ? "yes" : "no"}"]`,
+        );
+        // The first of them that can take the focus: on a phone the rail's
+        // empty slip is in the page but not drawn.
+        const candidates = [
+          buttons[index],
+          buttons[index - 1],
+          heading.current,
+          document.getElementById("gm-slip-empty"),
+          pick,
+          document.getElementById("gm-view-title"),
+        ];
+        for (const candidate of candidates) {
+          if (!candidate?.isConnected) continue;
+          candidate.focus();
+          if (document.activeElement === candidate) return;
+        }
+      });
+    },
+    [slip],
+  );
+
   if (legCount === 0) return null;
 
   const short = stake - balance;
   const overLimit = allowance !== null && stake > allowance;
-  // Said under the field, in the order a player would fix them.
+  const { min_stake: min, max_stake: max } = rules;
+  // Said beside the button it disables, in the order a player would fix them.
   const fieldError =
-    stake > 0 && stake < rules.min_stake.minor
-      ? t.stakeTooSmall(rules.min_stake.display)
-      : stake > rules.max_stake.minor
-        ? t.stakeTooLarge(rules.max_stake.display)
-        : short > 0
-          ? t.notEnough(points(short))
-          : overLimit
-            ? allowance
-              ? t.overLimit(points(allowance))
-              : t.overLimitNone
-            : null;
+    entry.problem === "fraction"
+      ? t.stakeWhole(min.display, max.display)
+      : !typed
+        ? t.stakeEnter(min.display, max.display)
+        : stake < min.minor
+          ? t.stakeTooSmall(min.display)
+          : stake > max.minor
+            ? t.stakeTooLarge(max.display)
+            : short > 0
+              ? t.notEnough(points(short))
+              : overLimit
+                ? allowance
+                  ? t.overLimit(points(allowance))
+                  : t.overLimitNone
+                : null;
 
   const single = legCount === 1;
-  const payout = quote ? points(quote.potential_payout.minor) : null;
-  const chanceRight = quote ? chance(quote.win_probability) : null;
+  const payout = quote && !fieldError ? points(quote.potential_payout.minor) : null;
+  // How likely the slip is to come in, beside what it pays: for one pick,
+  // its own chance as its line prints it; for several, the chance that all
+  // of them are right, the product the steps above end on.
+  const first = priced[0];
+  const chanceRight = !allPriced
+    ? null
+    : single
+      ? first
+        ? sideChance(first.probability, first.side)
+        : null
+      : chance(priced.reduce((all, leg) => all * Number(leg.probability), 1));
 
   return (
     <section className="gm-slip relative" aria-labelledby={headingId}>
       <header className="gm-slip__head">
-        <h2 id={headingId} className="gm-h">
+        <h2 ref={heading} id={headingId} tabIndex={-1} className="gm-h">
           {t.slipTitle}
         </h2>
         <span className="gm-slip__count">{t.slipLegCount(legCount, slip.maxLegs)}</span>
       </header>
 
-      <ul className="gm-legs">
-        {priced.map((leg) => (
+      <ul ref={list} className="gm-legs">
+        {priced.map((leg, index) => (
           <li key={leg.marketId} className="gm-leg">
             <div className="min-w-0">
               <p className="gm-leg__q">
@@ -320,7 +439,7 @@ function SlipPanel({
               <p className="gm-leg__pick">
                 <span className="gm-side" data-side={leg.side === "YES" ? "yes" : "no"} aria-hidden />
                 {leg.probability !== "" ? (
-                  <Figure text={t.slipPick(sideWord(leg.side), sideChance(leg.probability, leg.side === "NO" ? "NO" : "YES"))} />
+                  <Figure text={t.slipPick(sideWord(leg.side), sideChance(leg.probability, leg.side))} />
                 ) : (
                   sideWord(leg.side)
                 )}
@@ -329,7 +448,7 @@ function SlipPanel({
             <button
               type="button"
               className="gm-x"
-              onClick={() => slip.remove(leg.marketId)}
+              onClick={() => removePick(leg.marketId, leg.side, index)}
               aria-label={t.removeLegOf(leg.question)}
             >
               <svg viewBox="0 0 14 14" aria-hidden="true">
@@ -339,12 +458,6 @@ function SlipPanel({
           </li>
         ))}
       </ul>
-
-      {/* Two picks or more: the chance shrinking pick by pick. Its return line
-          is the receipt's below, in the front page's words. */}
-      {!single && allPriced ? (
-        <SlipFigures legs={priced} stakeMinor={stake} rules={rules} className="gm-slip__steps" />
-      ) : null}
 
       <div className="gm-stake">
         <label htmlFor={stakeId} className="label">
@@ -358,40 +471,30 @@ function SlipPanel({
             autoComplete="off"
             value={draft}
             aria-invalid={fieldError ? true : undefined}
-            aria-describedby={stakeNoteId}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setStake(parsePoints(event.target.value));
+            aria-describedby={fieldError ? `${stakeErrorId} ${stakeHintId}` : stakeHintId}
+            onChange={(event) => setStakeDraft(event.target.value)}
+            onBlur={() => {
+              // Tidied to "1,200" once typed, but never rewritten when it is
+              // not a number: the field keeps what was typed beside its error.
+              if (entry.problem === null) setStakeDraft(points(stake));
             }}
-            onBlur={() => setDraft(points(stake))}
           />
           <span className="gm-stake__unit" aria-hidden>
             {t.stakeUnit}
           </span>
         </div>
-        <div id={stakeNoteId}>
-          {fieldError ? (
-            <p role="alert" className="gm-error">
-              {fieldError}
-            </p>
-          ) : null}
-          <p className="gm-stake__hint">
-            {t.stakeHint(rules.min_stake.display, rules.max_stake.display)}{" "}
-            {t.stakeHave(points(balance))}
-            {allowance !== null ? ` ${t.limitLeft(points(allowance))}` : null}
-          </p>
-        </div>
+        <p id={stakeHintId} className="gm-stake__hint">
+          {t.stakeHint(min.display, max.display)} {t.stakeHave(points(balance))}
+          {allowance !== null ? ` ${t.limitLeft(points(allowance))}` : null}
+        </p>
         <div className="gm-chips" role="group" aria-label={t.quickStakes}>
           {quickStakes(rules, available).map((amount) => (
             <button
               key={amount}
               type="button"
               className="gm-chip"
-              aria-pressed={stake === amount}
-              onClick={() => {
-                setStake(amount);
-                setDraft(points(amount));
-              }}
+              aria-pressed={typed && stake === amount}
+              onClick={() => setStakeDraft(points(amount))}
             >
               <Figure text={points(amount)} />
             </button>
@@ -399,30 +502,44 @@ function SlipPanel({
         </div>
       </div>
 
-      {/* What the slip comes to, anything the game refuses, and the button:
-          kept in view at the foot of the rail or the sheet however long the
-          slip grows, so what a stake returns is never out of sight of the
+      {/* Two picks or more: the chance shrinking pick by pick, after the stake
+          so the stake stays near the top of a phone's sheet. Its total and its
+          return line are the receipt's below, beside the button. */}
+      {!single && allPriced ? (
+        <SlipFigures legs={priced} stakeMinor={stake} rules={rules} className="gm-slip__steps" />
+      ) : null}
+
+      {/* What the slip comes to, why the button is off when it is, and the
+          button: kept in view at the foot of the rail or the sheet however
+          long the slip grows, so what a stake returns, how likely that is,
+          and any reason it cannot be placed are never out of sight of the
           button that places it. */}
-      <div className="gm-slip__actions">
+      <div ref={actions} className="gm-slip__actions">
         <div className="gm-receipt" aria-live="polite" aria-atomic="true">
-          <p className="gm-receipt__line">
-            <Figure text={t.slipStakeLine(points(stake))} />
-          </p>
+          {typed ? (
+            <p className="gm-receipt__line">
+              <Figure text={t.slipStakeLine(points(stake))} />
+            </p>
+          ) : null}
           <p className="gm-receipt__big">
             {payout ? <Figure text={t.slipPaysLine(payout)} /> : quoting ? t.quoting : "—"}
           </p>
-          {single && chanceRight ? (
+          {chanceRight ? (
             <p className="gm-receipt__big">
               <Figure text={t.slipChanceLine(chanceRight)} />
             </p>
           ) : null}
-          {quote?.capped ? (
+          {quote?.capped && payout ? (
             <p className="gm-receipt__note">{t.cappedAt(quote.payout_cap.display)}</p>
           ) : null}
-          {!single && quote ? <p className="gm-receipt__note">{t.slipAllMustWin(legCount)}</p> : null}
+          {!single ? <p className="gm-receipt__note">{t.slipAllMustWin(legCount)}</p> : null}
         </div>
 
-        {error && !fieldError ? (
+        {fieldError ? (
+          <p id={stakeErrorId} role="alert" className="gm-error">
+            {fieldError}
+          </p>
+        ) : error ? (
           <p role="alert" className="gm-error">
             {error}
           </p>
@@ -434,7 +551,7 @@ function SlipPanel({
           disabled={!quote || quoting || placing || Boolean(fieldError)}
           onClick={() => void place()}
         >
-          {placing ? t.placing : t.placeForecast(points(stake))}
+          {placing ? t.placing : typed ? t.placeForecast(points(stake)) : t.placeForecastBare}
         </button>
       </div>
 
@@ -515,7 +632,7 @@ function SlipPanel({
 export function SlipEmpty({ maxLegs, paused = null }: { maxLegs: number; paused?: string | null }) {
   return (
     <section className="gm-slip-empty" aria-labelledby="gm-slip-empty">
-      <h2 id="gm-slip-empty" className="gm-h">
+      <h2 id="gm-slip-empty" tabIndex={-1} className="gm-h">
         {t.slipTitle}
       </h2>
       {paused ? (

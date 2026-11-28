@@ -16,9 +16,12 @@ import { timeUntil } from "@/lib/format";
 export function GuestButton({
   label,
   className = "btn btn-primary",
+  next = "/play",
 }: {
   label: string;
   className?: string;
+  /** Where the new game opens: the game, or the game on one question. */
+  next?: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -29,7 +32,7 @@ export function GuestButton({
     setError(null);
     const result = await startAsGuest();
     if (result.ok) {
-      router.push("/play");
+      router.push(next);
       return;
     }
     setBusy(false);

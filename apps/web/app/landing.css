@@ -261,11 +261,18 @@
   .lp-win__chart {
     margin: 0;
   }
-  /* the window's foot is cut by the frame only below 1280px, where it fades */
-  @media (min-width: 1280px) {
+  /* the window's foot is cut by the frame only from 640 to 1279px, where it
+     softens over the frame's last few pixels: below the chart's dates where
+     the chart fits (a tall tablet), so no line of words is half faded */
+  @media (min-width: 1280px), (max-width: 639px) {
     .lp-hero__stage.stage--fade-b {
       -webkit-mask: none;
       mask: none;
+    }
+  }
+  @media (min-width: 640px) and (max-width: 1279px) {
+    .lp-hero__stage {
+      --fade-h: 16px;
     }
   }
 
@@ -333,9 +340,9 @@
       display: none;
     }
     /* a phone's frame is what the first screen leaves (240px or so): the
-       window shows the question and its chance, and ends there, so no row
-       is cut through. The chance comes first, as on a market's card, so a
-       long question runs into the frame's fade and the number never does. */
+       window shows the question and its chance and ends there, whole, with
+       the printed ground below it and no fade, so every line reads in full.
+       It is set a little tighter, and a long question keeps to two lines. */
     .lp-win {
       height: auto;
     }
@@ -343,17 +350,91 @@
     .lp-win__chart {
       display: none;
     }
-    .lp-win__meta {
-      order: -3;
+    .lp-win__bar {
+      height: 36px;
     }
-    .lp-win__readout {
-      order: -2;
-    }
-    .lp-win__split {
-      order: -1;
+    .lp-win__open {
+      gap: 10px;
+      padding: 12px 16px 16px;
     }
     .lp-win__q {
-      margin-top: 0;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+  }
+
+  /* The week's chart, only where the frame holds it whole. The picture is a
+     container of its frame's size, so the window can ask how tall its frame
+     is. A frame too short for the chart (a portrait tablet, a laptop's short
+     screen) would cut it through its lines and dates: there the window leaves
+     the chart out and ends whole above the printed ground, with nothing cut
+     and nothing to fade. A long question keeps to two lines (to one beside
+     the chart on a tablet), so the room the chart needs is known. */
+  .lp-hero__pic {
+    container: lp-pic / size;
+  }
+  @media (min-width: 1024px) {
+    .lp-hero__pic .lp-win__q {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+  }
+  @media (min-width: 1280px) {
+    @container lp-pic (max-height: 639.98px) {
+      .lp-hero__pic .lp-win {
+        height: auto;
+      }
+      .lp-hero__pic .lp-win__chart {
+        display: none;
+      }
+    }
+  }
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    @container lp-pic (max-height: 627.98px) {
+      .lp-hero__pic .lp-win {
+        height: auto;
+      }
+      .lp-hero__pic .lp-win__chart {
+        display: none;
+      }
+      .lp-hero__pic .lp-hero__stage.stage--fade-b {
+        -webkit-mask: none;
+        mask: none;
+      }
+    }
+  }
+  @media (min-width: 640px) and (max-width: 1023px) {
+    @container lp-pic (min-height: 620px) {
+      .lp-hero__pic .lp-win {
+        top: 16px;
+      }
+      .lp-hero__pic .lp-win__q {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+    @container lp-pic (max-height: 619.98px) {
+      .lp-hero__pic .lp-win {
+        height: auto;
+      }
+      .lp-hero__pic .lp-win__chart {
+        display: none;
+      }
+      .lp-hero__pic .lp-win__q {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .lp-hero__pic .lp-hero__stage.stage--fade-b {
+        -webkit-mask: none;
+        mask: none;
+      }
     }
   }
 
@@ -598,24 +679,36 @@
     font-weight: 500;
     letter-spacing: -0.03em;
   }
-  .lp-balance__topup {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+  /* the free daily points, as the game's strip draws them: the label, the
+     amount, and the outlined button that adds them (no accent: it is not
+     the page's main action) */
+  .lp-balance__daily {
+    display: grid;
+    gap: 2px;
     margin-top: 8px;
     padding-top: 12px;
     border-top: 1px solid var(--u-line);
   }
-  .lp-balance__claim {
+  .lp-balance__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .lp-balance__amount {
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: 500;
+  }
+  .lp-balance__add {
     display: inline-flex;
     align-items: center;
-    height: 28px;
+    height: 30px;
     padding: 0 12px;
+    border: 1px solid color-mix(in oklab, var(--u-ink) 24%, transparent);
     border-radius: 999px;
-    background: var(--accent);
-    color: #0f0f0f;
     font-weight: 500;
+    white-space: nowrap;
   }
   .lp-at-fair {
     --ax: 28px;
@@ -675,20 +768,22 @@
     flex-wrap: wrap;
     gap: 6px;
   }
+  /* the break lengths as the site's one chip: outlined, the chosen one a
+     solid white fill with dark text (never the accent) */
   .lp-opt {
     display: inline-flex;
     align-items: center;
     height: 30px;
-    padding: 0 12px;
-    border: 1px solid color-mix(in oklab, var(--u-ink) 20%, transparent);
+    padding: 0 10px;
+    border: 1px solid color-mix(in oklab, var(--u-ink) 24%, transparent);
     border-radius: 999px;
-    font-weight: 400;
+    font-weight: 500;
+    white-space: nowrap;
   }
   .lp-opt[data-on] {
-    border-color: transparent;
-    background: var(--accent);
+    border-color: #ffffff;
+    background: #ffffff;
     color: #0f0f0f;
-    font-weight: 500;
   }
   .lp-limits__rule {
     font-size: 12px;
@@ -706,6 +801,13 @@
     margin-top: var(--s-8);
     max-width: 920px;
   }
+  /* the two guides under the figures, side by side where they fit */
+  .lp-margin__guides {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2) var(--s-6);
+    margin-top: var(--s-6);
+  }
 
   /* ----- the questions ------------------------------------------------------- */
 
@@ -714,6 +816,14 @@
   @media (max-width: 639px), (min-width: 1280px) and (max-height: 860px) {
     .lp-faq .faq__item[data-spare] {
       display: none;
+    }
+  }
+  /* Stacked (a tablet, a phone), the heading keeps the page's one
+     heading-to-content gap over the first question, as every other section's
+     does, so the two never read as one heading. */
+  @media (max-width: 1023px) {
+    .lp-faq .wrap > .span-5 {
+      margin-bottom: calc(var(--head-gap) - var(--card-gap));
     }
   }
   /* A small laptop's screen is short: the heading across, the answers in two
@@ -850,6 +960,52 @@
     }
   }
 
+  /* ----- a tablet, a tall tablet (820x1180 and the like) -------------------- */
+
+  /* On a tablet the margin's figures stand at the foot of the statement's
+     screen, so the screen holds the statement over its figures rather than
+     a statement over half a screen of bare ground. */
+  @media (min-width: 640px) and (max-width: 1023px) {
+    .lp-margin .lp-margin__bars {
+      margin-top: auto;
+    }
+  }
+
+  /* Every section stays one or two screens tall there (layout-v4.md), and its
+     content takes the room a tall screen gives, so no screen stands half bare
+     between two sections: the step and keeps panels grow to their two
+     screens' foot, the margin's figures stand at the foot of the statement's
+     screen, the questions take more air, and what moved lists all four. */
+  @media (min-width: 640px) and (max-width: 1023px) and (min-height: 1100px) {
+    .lp-steps .panel {
+      --p-h: calc(66.67svh - 300px);
+    }
+    .lp-keeps__grid .panel--top.panel--wide {
+      height: calc(66.67svh - 254px);
+    }
+    .lp-faq .faq > .faq__item {
+      padding-block: 40px;
+    }
+    .lp-faq .faq > .faq__item:first-child {
+      padding-top: 0;
+    }
+    .lp-moved .lp-moves .lp-moves__group[data-place="3"] {
+      display: block;
+    }
+    .lp-moved .lp-moves .lp-move[data-place="3"] {
+      display: grid;
+    }
+    /* the list's lit panel takes the rest of its screen, the list on it */
+    .lp-moved > .wrap {
+      grid-template-rows: auto minmax(0, 1fr);
+      align-content: stretch;
+    }
+    .lp-moved .lp-moved__panel {
+      display: grid;
+      align-content: center;
+    }
+  }
+
 }
 
 /* ----- the close --------------------------------------------------------------
@@ -886,8 +1042,11 @@ footer.closing:has(.lp-close__word) > .wrap {
   grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   row-gap: calc(var(--padt) + var(--padb) + var(--bar));
 }
+/* The links stand at the foot of the second screen, so the page ends on its
+   legal row as every other page does, and the room the two screens leave is
+   a pause after the name rather than an empty screen under the footer. */
 footer.closing:has(.lp-close__word) > .wrap > .closing__links {
-  align-self: start;
+  align-self: end;
 }
 /* A phone has no room for a screen of the close alone: the links follow it.
    A tall tablet has room for both on one screen, and a screen of the close
@@ -904,7 +1063,7 @@ footer.closing:has(.lp-close__word) > .wrap > .closing__links {
   }
   footer.closing:has(.lp-close__word) > .wrap {
     grid-template-rows: auto auto;
-    row-gap: var(--s-8);
+    row-gap: var(--s-7);
   }
 }
 

@@ -493,6 +493,16 @@
     padding-bottom: 24px;
   }
 
+  /* A flat range: one label over the marker, which is also the price now,
+     and no line under the track. */
+  .viz-range--large[data-flat] {
+    padding-bottom: 4px;
+  }
+
+  .viz-range--large[data-flat] .viz-range__fig {
+    color: var(--viz-ink);
+  }
+
   .viz-range__nowlabel {
     position: absolute;
     top: calc(100% + 6px);
@@ -1171,37 +1181,53 @@
     color: var(--viz-ink-2);
   }
 
+  /* The site's disclosure: an outlined pill, its chevron after the words,
+     pointing down while closed and up while open. The question page's
+     "Read the rest of the rules" is the same (.qp-rules summary). */
   .viz-lc__figures > summary {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
     min-height: 44px;
+    padding: 0 1rem;
+    border: 1px solid var(--viz-grid-strong);
+    border-radius: 999px;
     cursor: pointer;
     color: var(--viz-ink);
+    font-family: var(--font-text, var(--viz-font-figure));
+    font-size: 0.875rem;
     font-weight: 500;
     list-style: none;
+    transition: border-color 180ms var(--ease, ease);
   }
 
   .viz-lc__figures > summary::-webkit-details-marker {
     display: none;
   }
 
-  .viz-lc__figures > summary::before {
-    content: "";
-    width: 0.45rem;
-    height: 0.45rem;
-    border-right: 1.5px solid currentColor;
-    border-bottom: 1.5px solid currentColor;
-    transform: rotate(-45deg);
-    transition: transform 160ms ease;
+  .viz-lc__figures > summary:hover {
+    border-color: color-mix(in oklab, var(--viz-ink) 48%, transparent);
   }
 
-  .viz-lc__figures[open] > summary::before {
+  .viz-lc__figures > summary::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    margin-top: -3px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
     transform: rotate(45deg);
+    transition: transform 180ms var(--ease, ease);
+  }
+
+  .viz-lc__figures[open] > summary::after {
+    margin-top: 3px;
+    transform: rotate(-135deg);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .viz-lc__figures > summary::before {
+    .viz-lc__figures > summary,
+    .viz-lc__figures > summary::after {
       transition: none;
     }
   }
@@ -1209,7 +1235,7 @@
   .viz-lc__figures > summary:focus-visible {
     outline: 2px solid var(--viz-accent);
     outline-offset: 2px;
-    border-radius: 4px;
+    border-radius: 999px;
   }
 
   .viz-lc__keys {
@@ -1223,10 +1249,13 @@
     color: var(--viz-ink-2);
   }
 
+  /* Proportional: each line is a figure and a date in words, which line up
+     by their start, and Schibsted's tabular "," and ":" are digit-wide
+     ("Nov 28 , 8 : 08 AM"). */
   .viz-lc__keys dd {
     margin: 0;
     color: var(--viz-ink);
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: proportional-nums;
   }
 
   .viz-lc__tablewrap {

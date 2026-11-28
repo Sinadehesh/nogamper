@@ -9,7 +9,7 @@ import { Figure } from "@/components/viz/Figure";
 import { getSlips } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
 import { dateTimeUtc, points, sideChance } from "@/lib/format";
-import type { LegStatus, MarketSummary, SettledLeg, Slip, SlipStatus } from "@/lib/types";
+import type { LegStatus, MarketSummary, SettledLeg, Side, Slip, SlipStatus } from "@/lib/types";
 
 const FILTERS: { label: string; status?: SlipStatus }[] = [
   { label: t.historyAll },
@@ -45,6 +45,26 @@ const LEG_MARK: Record<LegStatus, { mark: string; label: string }> = {
 function placedAt(leg: SettledLeg): number | null {
   const odds = Number(leg.locked_odds);
   return odds > 0 ? Number((1 / odds).toFixed(4)) : null;
+}
+
+/**
+ * A pick's chance as its track is given it: the value whose figure is the one
+ * the pick's line prints (`sideChance`). A Yes is itself. A No prints as the
+ * rest of its question's Yes, so a No at 33.5% is "33%" (beside a Yes at
+ * "67%"), and the track would print the 33.5% itself as "34%": it is given
+ * the printed figure's own value instead, a hair inside 9.5% or 90.5% where
+ * that figure has a decimal. (The one figure the track cannot print is a No
+ * at exactly 9.5%, the rest of a Yes at 90.5%, "9%": it draws it as "9.0%".)
+ */
+function trackValue(probability: number, side: Side): number {
+  if (side === "YES") return probability;
+  const text = sideChance(probability, "NO");
+  const value = Number.parseFloat(text) / 100;
+  if (!Number.isFinite(value)) return probability;
+  if (text.includes(".") && value >= 0.095 && value <= 0.905) {
+    return value < 0.5 ? value - 1e-7 : value + 1e-7;
+  }
+  return value;
 }
 
 export function ForecastHistory({
@@ -152,9 +172,9 @@ function Ticket({ slip, prices }: { slip: Slip; prices: ReadonlyMap<string, Mark
     <article className="gm-ticket">
       <header className="gm-ticket__head">
         <div>
-          <h3 className="gm-h gm-h--sm">
+          <h2 className="gm-h gm-h--sm">
             {slip.legs.length === 1 ? t.slipSingle : t.slipCombo(slip.legs.length)}
-          </h3>
+          </h2>
           <p className="gm-ticket__when">{when}</p>
         </div>
         <span className="gm-tag" data-tone={status.tone}>
@@ -188,7 +208,8 @@ function TicketLeg({
   const then = placedAt(leg);
   // Its own side's chance now, as the feed showed it: the API's own string
   // for that side, never worked out from the other.
-  const now = open && market ? (leg.side === "NO" ? market.probability.no : market.probability.yes) : null;
+  const now = open && market ? Number(leg.side === "NO" ? market.probability.no : market.probability.yes) : null;
+  const sideOf: Side = leg.side === "NO" ? "NO" : "YES";
 
   return (
     <li className="gm-tleg">
@@ -212,7 +233,7 @@ function TicketLeg({
         {now !== null && then !== null ? (
           <div className="gm-tleg__track">
             <span className="gm-label">{t.sincePicked}</span>
-            <MoveTrack was={then} now={now} size="row" />
+            <MoveTrack was={trackValue(then, sideOf)} now={trackValue(now, sideOf)} size="row" />
           </div>
         ) : null}
       </div>

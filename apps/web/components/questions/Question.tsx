@@ -179,6 +179,7 @@ export function QuestionFigures({ question, band = GAME_BAND }: { question: Publ
             size="large"
             held={range.held ? band : undefined}
             describe={span.sentence}
+            flat={questionPage.rangeFlat}
           />
         </div>
       ) : null}

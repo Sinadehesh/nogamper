@@ -105,11 +105,13 @@
      contents in the margin, and as the screen narrows the right margin goes
      first. */
 
+  /* No space of its own above: the page column's top (.dp) is where every
+     app page's first line starts, a guide's trail and the privacy page's
+     title included. */
   .rd-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     row-gap: var(--s-6);
-    margin-top: var(--s-7);
   }
   .rd-layout__toc {
     display: none;

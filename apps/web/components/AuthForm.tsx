@@ -4,7 +4,7 @@ import "@/components/game/game.css";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 
 import { GuestButton } from "@/components/GuestButton";
 import { register, signIn, type ApiFailure } from "@/lib/api";
@@ -77,13 +77,33 @@ export function AuthForm({
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ field: Field; text: string } | null>(null);
+  const inputs = {
+    name: useRef<HTMLInputElement>(null),
+    email: useRef<HTMLInputElement>(null),
+    password: useRef<HTMLInputElement>(null),
+  };
+  const submitButton = useRef<HTMLButtonElement>(null);
 
   const creating = mode !== "login";
   const heading = HEADINGS[mode];
 
+  /** Says what is wrong under its field and puts the focus there to fix it. */
+  function refuse(field: Field, text: string) {
+    setError({ field, text });
+    window.requestAnimationFrame(() => {
+      (field === "form" ? submitButton.current : inputs[field].current)?.focus();
+    });
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
+
+    // An empty field is named before anything is sent, the first one first.
+    if (creating && !displayName.trim()) return refuse("name", t.fieldDisplayNameMissing);
+    if (!email.trim()) return refuse("email", t.fieldEmailMissing);
+    if (!password) return refuse("password", creating ? t.fieldPasswordChoose : t.fieldPasswordMissing);
+
     setBusy(true);
     setError(null);
 
@@ -97,7 +117,7 @@ export function AuthForm({
       return;
     }
     setBusy(false);
-    setError({ field: fieldOf(result.code), text: describe(result) });
+    refuse(fieldOf(result.code), describe(result));
   }
 
   /** The error under one field, or nothing. */
@@ -117,7 +137,11 @@ export function AuthForm({
           <div className="gm-guest" data-place={place}>
             <p className="gm-h gm-h--sm">{t.guestOptionTitle}</p>
             <p className="gm-small">{t.guestOptionBody}</p>
-            <GuestButton label={t.navStart} className="btn btn--secondary" />
+            <GuestButton
+              label={t.navStart}
+              className="btn btn--secondary"
+              next={next.startsWith("/play") ? next : "/play"}
+            />
           </div>
         );
 
@@ -137,6 +161,7 @@ export function AuthForm({
               {t.fieldDisplayName}
             </label>
             <input
+              ref={inputs.name}
               id={ids.name}
               className="field"
               value={displayName}
@@ -159,6 +184,7 @@ export function AuthForm({
             {t.fieldEmail}
           </label>
           <input
+            ref={inputs.email}
             id={ids.email}
             className="field"
             type="email"
@@ -189,13 +215,13 @@ export function AuthForm({
               type="button"
               className="gm-reveal"
               onClick={() => setReveal((shown) => !shown)}
-              aria-pressed={reveal}
               aria-controls={ids.password}
             >
               {reveal ? t.hidePassword : t.showPassword}
             </button>
           </div>
           <input
+            ref={inputs.password}
             id={ids.password}
             className="field"
             type={reveal ? "text" : "password"}
@@ -216,7 +242,14 @@ export function AuthForm({
 
         {errorFor("form")}
 
-        <button type="submit" className="btn btn--primary w-full" disabled={busy}>
+        {/* Not disabled while it works: a disabled button drops the focus, and
+            a keyboard user would start again from the top of the page. */}
+        <button
+          ref={submitButton}
+          type="submit"
+          className="btn btn--primary w-full"
+          aria-disabled={busy ? true : undefined}
+        >
           {busy ? t.working : heading.submit}
         </button>
 

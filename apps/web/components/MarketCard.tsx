@@ -6,10 +6,12 @@ import { useQuestionPage, useQuotedPrice, useReviewSlip } from "@/components/gam
 import { bothSides, PickFace, Wording } from "@/components/game/Pick";
 import { useSlip } from "@/components/SlipProvider";
 import { ChanceReadout, SplitBar } from "@/components/viz";
+import { Figure } from "@/components/viz/Figure";
 import { categoryLabel, t, viz } from "@/lib/copy";
+import { chance } from "@/lib/format";
 import { isPriceable } from "@/lib/odds";
 import type { MarketRules, MarketSummary, Side } from "@/lib/types";
-import { closesOn, shortDateTimeUtc } from "@/lib/viz";
+import { bandPercent, closesOn, onEdge, priceBand, shortDateTimeUtc } from "@/lib/viz";
 
 /** Within this long of closing, the card gives the time as well as the day. */
 const SOON_MS = 48 * 60 * 60 * 1000;
@@ -21,12 +23,20 @@ const SOON_MS = 48 * 60 * 60 * 1000;
  * it; the two picks follow, each with its own side's chance and what it
  * pays. On a betting slip the big number is what you could win; here it is
  * how likely the thing is, which is the number that is actually true.
+ *
+ * Two prices are not the market's chance, and the card does not call them
+ * that. A price on the edge of the game's band (1% or 99%) is where the API
+ * holds a long shot or a near-certainty: the game deals at it, and the market
+ * itself may be further out (its page shows where). And a price the API
+ * marks stale was read hours ago: the card says when, and that a new one is
+ * on its way, and offers no pick on it.
  */
 export function MarketCard({
   market: listed,
   rules,
   paused,
   readAt,
+  asked = false,
 }: {
   market: MarketSummary;
   rules: MarketRules;
@@ -34,6 +44,8 @@ export function MarketCard({
   paused: boolean;
   /** When the feed was read, in milliseconds: what "soon" and "this year" are measured from. */
   readAt: number;
+  /** The question a page sent the player here for: the feed focuses its card. */
+  asked?: boolean;
 }) {
   const slip = useSlip();
   const titleId = useId();
@@ -46,6 +58,10 @@ export function MarketCard({
   const review = useReviewSlip();
   const blocked = slip.blockedBecause(market);
   const stale = market.probability.stale;
+  const band = priceBand(rules);
+  const edge = stale ? null : onEdge(market.probability.yes, band);
+  // When the price was read: the feed's own time, less the age the API gives it.
+  const readOn = shortDateTimeUtc(readAt - (market.probability.age_seconds || 0) * 1000);
   const chosen: Side | null = slip.has(market.id, "YES")
     ? "YES"
     : slip.has(market.id, "NO")
@@ -57,17 +73,40 @@ export function MarketCard({
     market.probability.no,
   );
   const settled = sides.some((side) => side.pays === null);
+  // A new tab, so that looking at the chart never costs the picks gathered
+  // on this page's slip. Described by the question, so that twenty of these
+  // links are twenty different links.
+  const chartLink = page ? (
+    <a
+      className="gm-link gm-card__chart"
+      href={page}
+      target="_blank"
+      rel="noopener"
+      aria-describedby={titleId}
+    >
+      {t.seeChart}
+      <svg viewBox="0 0 10 10" aria-hidden="true">
+        <path d="M3 1.5h5.5V7M8.5 1.5 1.5 8.5" />
+      </svg>
+      <span className="sr-only">{t.newTab}</span>
+    </a>
+  ) : null;
   const closesSoon = Date.parse(market.lock_at) - readAt < SOON_MS;
   const closes = closesSoon
     ? viz.closesOn(shortDateTimeUtc(market.lock_at))
     : closesOn(market.lock_at, new Date(readAt).toISOString());
 
   return (
-    <article className="gm-card" aria-labelledby={titleId}>
+    <article
+      className="gm-card"
+      aria-labelledby={titleId}
+      data-market={market.id}
+      data-stale={stale ? "" : undefined}
+      tabIndex={asked ? -1 : undefined}
+    >
       <p className="gm-card__meta">
         <span className="dp-tag">{categoryLabel(market.category)}</span>
         <span>{closes}</span>
-        {stale ? <span>{t.priceUpdating}</span> : null}
       </p>
 
       <div>
@@ -80,19 +119,38 @@ export function MarketCard({
       </div>
 
       <div className="gm-card__read">
-        <ChanceReadout yes={market.probability.yes} size="card" />
-        {page ? (
-          // A new tab, so that looking at the chart never costs the picks
-          // gathered on this page's slip.
-          <a className="gm-link gm-card__chart" href={page} target="_blank" rel="noopener">
-            {t.seeChart}
-            <svg viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M3 1.5h5.5V7M8.5 1.5 1.5 8.5" />
-            </svg>
-            <span className="sr-only">{t.newTab}</span>
-          </a>
-        ) : null}
+        {stale ? (
+          <p className="gm-card__stale">{t.staleTitle}</p>
+        ) : edge ? (
+          // The figure the picks are dealt at, as the game's own limit.
+          <span className="viz-readout viz-readout--card gm-card__held">
+            <span className="viz-readout__side viz-readout__yes">
+              <span className="viz-readout__figure">
+                <Figure text={sides[0].chance} unit />
+              </span>{" "}
+              <span className="viz-readout__words">
+                <span className="viz-key" aria-hidden="true" />
+                {edge === "min" ? t.heldLow : t.heldHigh}
+              </span>
+            </span>
+          </span>
+        ) : (
+          <ChanceReadout yes={market.probability.yes} size="card" />
+        )}
+        {/* On a held price the link follows the line about the market's own
+            figure, which is what it shows. */}
+        {edge ? null : chartLink}
       </div>
+
+      {stale ? (
+        <p className="gm-card__line">{t.staleLine(chance(market.probability.yes), readOn)}</p>
+      ) : edge ? (
+        <p className="gm-card__line">
+          {edge === "min" ? t.heldMarketLow(bandPercent(band.min)) : t.heldMarketHigh(bandPercent(band.max))}
+          {chartLink ? " " : null}
+          {chartLink}
+        </p>
+      ) : null}
 
       <SplitBar yes={market.probability.yes} size="sm" labels={false} className="gm-card__bar" />
 
@@ -104,6 +162,7 @@ export function MarketCard({
               key={side.side}
               type="button"
               className="gm-pick"
+              data-market={market.id}
               data-side={side.side === "YES" ? "yes" : "no"}
               aria-pressed={selected}
               aria-describedby={titleId}
