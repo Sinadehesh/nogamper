@@ -259,7 +259,8 @@ question behind it answers 404, not a page that says "not found" with a 200.
 The sitemap is drawn on request rather than prebuilt, so it lists the question
 pages there are now and not the ones there were at the last release.
 
-**No third-party scripts.** No web fonts, no advertising, no trackers. Page
+**No third-party scripts.** No fonts or scripts from anyone else (the two
+typefaces are served by the site itself), no advertising, no trackers. Page
 views are counted by the host without cookies, and the
 [privacy page](apps/web/lib/content.ts) says exactly what is stored.
 

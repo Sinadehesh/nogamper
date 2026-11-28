@@ -1,8 +1,10 @@
 import Link from "next/link";
 
 import { JsonLd } from "@/components/JsonLd";
-import { StartActions } from "@/components/SignedIn";
-import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
+import { NotOpenYet } from "@/components/NotOpenYet";
+import { OxFigure } from "@/components/reading/OxFigure";
+import { Sources } from "@/components/reading/Sources";
+import { MainAction, SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { DONATE_URL, mission } from "@/lib/content";
 import { t } from "@/lib/copy";
 import { breadcrumbLd, pageMetadata } from "@/lib/seo";
@@ -15,6 +17,12 @@ export const metadata = pageMetadata({
   ownImage: true,
 });
 
+/**
+ * Why the site exists, what it does and what it will not do. The case rests
+ * on a few numbers, so they are set as figures with their sources; the name's
+ * story is drawn from its own three figures; the promises are a list with a
+ * neutral mark, because a refusal is not a score.
+ */
 export default async function MissionPage() {
   const rules = await getRules();
 
@@ -29,204 +37,197 @@ export default async function MissionPage() {
       <SiteHeader />
 
       <main id="main" className="flex-1">
-        <section className="container-page py-12 sm:py-20">
-          <p className="text-sm font-semibold uppercase tracking-wide text-accent">
-            {mission.eyebrow}
-          </p>
-          <h1 className="mt-3 max-w-3xl text-4xl font-black leading-[1.05] tracking-tight sm:text-6xl">
-            {mission.title}
-          </h1>
-          <p className="mt-6 max-w-2xl text-lg text-muted">{mission.lede}</p>
-        </section>
+        <div className="wrap dp rd">
+          <header className="dp-head">
+            <p className="rd-eyebrow">{mission.eyebrow}</p>
+            <h1>{mission.title}</h1>
+            <p className="dp-lede">{mission.lede}</p>
+          </header>
 
-        <section className="border-y border-line bg-surface" aria-labelledby="beliefs">
-          <div className="container-page py-12">
-            <h2 id="beliefs" className="text-2xl font-bold tracking-tight">
-              {mission.beliefsTitle}
-            </h2>
-            <ol className="mt-6 grid gap-4 md:grid-cols-3">
+          <section className="rd-section" aria-labelledby="beliefs">
+            <div className="rd-section__head">
+              <h2 id="beliefs" className="dp-h2">
+                {mission.beliefsTitle}
+              </h2>
+            </div>
+            <ol className="rd-points" role="list">
               {mission.beliefs.map((belief) => (
-                <li key={belief.title} className="rounded-2xl border border-line bg-bg p-5">
-                  <h3 className="text-lg font-bold">{belief.title}</h3>
-                  <p className="mt-2 text-sm text-muted">{belief.body}</p>
+                <li key={belief.title}>
+                  <h3>{belief.title}</h3>
+                  <p>{belief.body}</p>
                 </li>
               ))}
             </ol>
-          </div>
-        </section>
+          </section>
 
-        <section className="container-page py-12" aria-labelledby="scale">
-          <div className="max-w-2xl">
-            <h2 id="scale" className="text-2xl font-bold tracking-tight">
-              {mission.scaleTitle}
-            </h2>
-            <div className="prose-block mt-4 text-muted">
-              {mission.scale.map((paragraph) => (
-                <p key={paragraph.slice(0, 24)}>{paragraph}</p>
-              ))}
+          <section className="rd-section" aria-labelledby="scale">
+            <div className="rd-section__head">
+              <h2 id="scale" className="dp-h2">
+                {mission.scaleTitle}
+              </h2>
             </div>
-            <p className="mt-5 text-xs font-semibold uppercase tracking-wide text-muted">
-              {mission.sourcesLabel}
-            </p>
-            <ul className="mt-1 space-y-1 text-sm">
-              {mission.scaleSources.map((source) => (
-                <li key={source.href}>
-                  <a
-                    href={source.href}
-                    rel="noopener noreferrer"
-                    className="text-accent underline underline-offset-2"
-                  >
-                    {source.label}
-                  </a>
+            <ul className="rd-stats" role="list">
+              {mission.scaleFigures.map((stat) => (
+                <li key={stat.figure} className="rd-stat">
+                  <p className="rd-stat__fig">
+                    <span className="rd-stat__q">{stat.qualifier}</span>
+                    {stat.figure}
+                    {stat.unit ? <span className="rd-stat__unit">{stat.unit}</span> : null}
+                  </p>
+                  <p className="rd-stat__what">{stat.what}</p>
+                  <p className="rd-stat__src">{mission.scaleBy[stat.source]}</p>
                 </li>
               ))}
             </ul>
-          </div>
-        </section>
+            <div className="rd-two mt-8">
+              <div className="rd-text">
+                {mission.scale.map((paragraph) => (
+                  <p key={paragraph.slice(0, 24)}>{paragraph}</p>
+                ))}
+              </div>
+              <Sources
+                id="scale-sources"
+                title={mission.sourcesLabel}
+                sources={mission.scaleSources}
+                headingLevel={3}
+              />
+            </div>
+          </section>
 
-        <section className="border-y border-line bg-surface" aria-labelledby="do">
-          <div className="container-page py-12">
-            <h2 id="do" className="text-2xl font-bold tracking-tight">
-              {mission.doTitle}
-            </h2>
-            <ul className="mt-6 grid gap-4 md:grid-cols-2">
+          <section className="rd-section" aria-labelledby="do">
+            <div className="rd-section__head">
+              <h2 id="do" className="dp-h2">
+                {mission.doTitle}
+              </h2>
+            </div>
+            <ul className="rd-dos" role="list">
               {mission.commitments(rules).map((commitment) => (
-                <li
-                  key={commitment.title}
-                  // An odd one out at the end takes the full row instead of
-                  // leaving half of it empty.
-                  className="rounded-2xl border border-line bg-bg p-5 md:last:odd:col-span-2"
-                >
-                  <h3 className="text-lg font-bold">{commitment.title}</h3>
-                  <p className="mt-2 text-sm text-muted">{commitment.body}</p>
+                <li key={commitment.title}>
+                  <h3>{commitment.title}</h3>
+                  <p>{commitment.body}</p>
                 </li>
               ))}
             </ul>
-          </div>
-        </section>
+          </section>
 
-        <section className="container-page py-12" aria-labelledby="wont">
-          <div className="max-w-2xl">
-            <h2 id="wont" className="text-2xl font-bold tracking-tight">
-              {mission.wontTitle}
-            </h2>
-            <ul className="mt-5 space-y-3">
+          <section className="rd-band" aria-labelledby="wont">
+            <div className="rd-section__head">
+              <h2 id="wont" className="dp-h2">
+                {mission.wontTitle}
+              </h2>
+            </div>
+            <ul className="rd-marks rd-marks--cols" role="list">
               {mission.wont(rules).map((promise) => (
-                <li key={promise.slice(0, 32)} className="flex gap-3">
-                  <span aria-hidden className="mt-0.5 font-bold text-no">
-                    ✕
-                  </span>
-                  <span>{promise}</span>
-                </li>
+                <li key={promise.slice(0, 32)}>{promise}</li>
               ))}
             </ul>
-          </div>
-        </section>
+          </section>
 
-        <section className="border-y border-line bg-surface">
-          <div className="container-page grid gap-8 py-12 md:grid-cols-2">
-            <div aria-labelledby="for">
-              <h2 id="for" className="text-2xl font-bold tracking-tight">
+          <div className="rd-section rd-two">
+            <section aria-labelledby="for">
+              <h2 id="for" className="dp-h2">
                 {mission.forTitle}
               </h2>
-              <div className="prose-block mt-4 text-muted">
+              <div className="rd-text mt-5">
                 {mission.forBody.map((paragraph) => (
                   <p key={paragraph.slice(0, 24)}>{paragraph}</p>
                 ))}
               </div>
-            </div>
-            <div aria-labelledby="not-for">
-              <h2 id="not-for" className="text-2xl font-bold tracking-tight">
+            </section>
+            <section aria-labelledby="not-for">
+              <h2 id="not-for" className="dp-h2">
                 {mission.notForTitle}
               </h2>
-              <div className="prose-block mt-4 text-muted">
+              <div className="rd-text mt-5">
                 {mission.notForBody.map((paragraph) => (
                   <p key={paragraph.slice(0, 24)}>{paragraph}</p>
                 ))}
+                <p>
+                  <Link href="/help" className="rd-link" prefetch={false}>
+                    {mission.notForLink}
+                  </Link>
+                </p>
               </div>
-              <p className="mt-4">
-                <Link
-                  href="/help"
-                  className="font-semibold text-accent underline underline-offset-2"
-                >
-                  {mission.notForLink}
-                </Link>
-              </p>
-            </div>
+            </section>
           </div>
-        </section>
 
-        <section className="container-page py-12" aria-labelledby="measure">
-          <div className="max-w-2xl">
-            <h2 id="measure" className="text-2xl font-bold tracking-tight">
-              {mission.measureTitle}
-            </h2>
-            <p className="mt-4 text-muted">{mission.measureIntro}</p>
-            <ul className="mt-4 list-disc space-y-2 pl-5">
+          <section className="rd-section" aria-labelledby="measure">
+            <div className="rd-section__head">
+              <h2 id="measure" className="dp-h2">
+                {mission.measureTitle}
+              </h2>
+              <p>{mission.measureIntro}</p>
+            </div>
+            <ul className="rd-list" role="list">
               {mission.measures.map((measure) => (
                 <li key={measure.slice(0, 24)}>{measure}</li>
               ))}
             </ul>
+          </section>
 
-            {mission.nameApplies ? (
-              <>
-                <h2 id="name" className="mt-12 text-2xl font-bold tracking-tight">
-                  {mission.nameTitle}
+          {mission.nameApplies ? (
+            <section className="rd-band" aria-labelledby="name">
+              <div className="rd-two">
+                <div>
+                  <h2 id="name" className="dp-h2">
+                    {mission.nameTitle}
+                  </h2>
+                  <div className="rd-text mt-5">
+                    {mission.name.map((paragraph) => (
+                      <p key={paragraph.slice(0, 24)}>{paragraph}</p>
+                    ))}
+                  </div>
+                  <div className="mt-6">
+                    <Sources
+                      id="name-sources"
+                      title={mission.sourcesLabel}
+                      sources={mission.nameSources}
+                      headingLevel={3}
+                    />
+                  </div>
+                </div>
+                <OxFigure />
+              </div>
+            </section>
+          ) : null}
+
+          <section className="rd-close" aria-labelledby="paid">
+            <div className="rd-two">
+              <div>
+                <h2 id="paid" className="dp-h2">
+                  {mission.paidTitle}
                 </h2>
-                <div className="prose-block mt-4 text-muted">
-                  {mission.name.map((paragraph) => (
+                <div className="rd-text mt-5">
+                  {mission.paid(rules, DONATE_URL !== "").map((paragraph) => (
                     <p key={paragraph.slice(0, 24)}>{paragraph}</p>
                   ))}
+                  <p>
+                    <Link href="/support" className="rd-link" prefetch={false}>
+                      {mission.paidLink}
+                    </Link>
+                  </p>
                 </div>
-                <ul className="mt-3 space-y-1 text-sm">
-                  {mission.nameSources.map((source) => (
-                    <li key={source.href}>
-                      <a
-                        href={source.href}
-                        rel="noopener noreferrer"
-                        className="text-accent underline underline-offset-2"
-                      >
-                        {source.label}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-
-            <h2 id="paid" className="mt-12 text-2xl font-bold tracking-tight">
-              {mission.paidTitle}
-            </h2>
-            <div className="prose-block mt-4 text-muted">
-              {mission.paid(rules, DONATE_URL !== "").map((paragraph) => (
-                <p key={paragraph.slice(0, 24)}>{paragraph}</p>
-              ))}
+              </div>
+              <div>
+                <h2 id="independent" className="dp-h2">
+                  {mission.independenceTitle}
+                </h2>
+                <div className="rd-text mt-5">
+                  <p>{mission.independence}</p>
+                </div>
+              </div>
             </div>
-            <p className="mt-4">
-              <Link
-                href="/support"
-                className="font-semibold text-accent underline underline-offset-2"
-              >
-                {mission.paidLink}
-              </Link>
-            </p>
-
-            <h2 className="mt-12 text-2xl font-bold tracking-tight">
-              {mission.independenceTitle}
-            </h2>
-            <p className="mt-4 text-muted">{mission.independence}</p>
-
-            <div className="mt-10 flex flex-wrap items-start gap-3">
-              <StartActions secondary={false} />
-              <Link href="/articles" className="btn btn-secondary">
+            <div className="rd-actions mt-4">
+              <MainAction fallback={<NotOpenYet />} />
+              <Link href="/articles" className="btn btn--secondary" prefetch={false}>
                 {mission.ctaRead}
               </Link>
-              <Link href="/help" className="btn btn-quiet">
+              <Link href="/help" className="btn btn-quiet" prefetch={false}>
                 {mission.ctaHelp}
               </Link>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       </main>
 
       <SiteFooter />

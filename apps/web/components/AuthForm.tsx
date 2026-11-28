@@ -1,8 +1,10 @@
 "use client";
 
+import "@/components/game/game.css";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 
 import { GuestButton } from "@/components/GuestButton";
 import { register, signIn, type ApiFailure } from "@/lib/api";
@@ -25,6 +27,27 @@ function describe(failure: ApiFailure): string {
   return errorMessage(failure.code);
 }
 
+/** Which field an error is about, so it can be said under that field. */
+type Field = "name" | "email" | "password" | "form";
+
+function fieldOf(code: string): Field {
+  switch (code) {
+    case "invalid_display_name":
+      return "name";
+    case "email_taken":
+    case "invalid_email":
+      return "email";
+    case "invalid_credentials":
+    case "password_too_short":
+    case "password_too_long":
+    case "password_too_common":
+    case "not_registered":
+      return "password";
+    default:
+      return "form";
+  }
+}
+
 export function AuthForm({
   mode,
   passwordMin = 10,
@@ -38,21 +61,49 @@ export function AuthForm({
 }) {
   const router = useRouter();
   const carried = next === "/play" ? "" : `?next=${encodeURIComponent(next)}`;
-  const ids = { name: useId(), email: useId(), password: useId(), error: useId() };
+  const ids = {
+    name: useId(),
+    email: useId(),
+    password: useId(),
+    nameHint: useId(),
+    emailHint: useId(),
+    passwordHint: useId(),
+    error: useId(),
+  };
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ field: Field; text: string } | null>(null);
+  const inputs = {
+    name: useRef<HTMLInputElement>(null),
+    email: useRef<HTMLInputElement>(null),
+    password: useRef<HTMLInputElement>(null),
+  };
+  const submitButton = useRef<HTMLButtonElement>(null);
 
   const creating = mode !== "login";
   const heading = HEADINGS[mode];
 
+  /** Says what is wrong under its field and puts the focus there to fix it. */
+  function refuse(field: Field, text: string) {
+    setError({ field, text });
+    window.requestAnimationFrame(() => {
+      (field === "form" ? submitButton.current : inputs[field].current)?.focus();
+    });
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
+
+    // An empty field is named before anything is sent, the first one first.
+    if (creating && !displayName.trim()) return refuse("name", t.fieldDisplayNameMissing);
+    if (!email.trim()) return refuse("email", t.fieldEmailMissing);
+    if (!password) return refuse("password", creating ? t.fieldPasswordChoose : t.fieldPasswordMissing);
+
     setBusy(true);
     setError(null);
 
@@ -66,21 +117,51 @@ export function AuthForm({
       return;
     }
     setBusy(false);
-    setError(describe(result));
+    refuse(fieldOf(result.code), describe(result));
   }
 
-  return (
-    <div className="mx-auto w-full max-w-md">
-      <h1 className="text-3xl font-black tracking-tight">{heading.title}</h1>
-      <p className="mt-2 text-muted">{heading.intro}</p>
+  /** The error under one field, or nothing. */
+  const errorFor = (field: Field) =>
+    error?.field === field ? (
+      <p id={ids.error} role="alert" className="gm-error">
+        {error.text}
+      </p>
+    ) : null;
+  const describedBy = (field: Field, hint?: string) =>
+    [error?.field === field ? ids.error : null, hint].filter(Boolean).join(" ") || undefined;
 
-      <form onSubmit={submit} className="card mt-6 space-y-4 p-5" noValidate>
+  const guest =
+    mode === "upgrade"
+      ? null
+      : (place: "before" | "after") => (
+          <div className="gm-guest" data-place={place}>
+            <p className="gm-h gm-h--sm">{t.guestOptionTitle}</p>
+            <p className="gm-small">{t.guestOptionBody}</p>
+            <GuestButton
+              label={t.navStart}
+              className="btn btn--secondary"
+              next={next.startsWith("/play") ? next : "/play"}
+            />
+          </div>
+        );
+
+  return (
+    <div className="gm-auth__main">
+      <header className="gm-auth__head">
+        <h1>{heading.title}</h1>
+        <p className="dp-lede">{heading.intro}</p>
+      </header>
+
+      {guest?.("before")}
+
+      <form onSubmit={submit} className="gm-panel gm-form" noValidate>
         {creating ? (
-          <div>
+          <div className="gm-field">
             <label htmlFor={ids.name} className="label">
               {t.fieldDisplayName}
             </label>
             <input
+              ref={inputs.name}
               id={ids.name}
               className="field"
               value={displayName}
@@ -88,16 +169,22 @@ export function AuthForm({
               autoComplete="nickname"
               maxLength={24}
               required
+              aria-invalid={error?.field === "name" ? true : undefined}
+              aria-describedby={describedBy("name", ids.nameHint)}
             />
-            <p className="hint">{t.fieldDisplayNameHint}</p>
+            {errorFor("name")}
+            <p id={ids.nameHint} className="gm-field__hint">
+              {t.fieldDisplayNameHint}
+            </p>
           </div>
         ) : null}
 
-        <div>
+        <div className="gm-field">
           <label htmlFor={ids.email} className="label">
             {t.fieldEmail}
           </label>
           <input
+            ref={inputs.email}
             id={ids.email}
             className="field"
             type="email"
@@ -108,72 +195,81 @@ export function AuthForm({
             autoCapitalize="none"
             spellCheck={false}
             required
+            aria-invalid={error?.field === "email" ? true : undefined}
+            aria-describedby={describedBy("email", creating ? ids.emailHint : undefined)}
           />
-          {creating ? <p className="hint">{t.fieldEmailHint}</p> : null}
+          {errorFor("email")}
+          {creating ? (
+            <p id={ids.emailHint} className="gm-field__hint">
+              {t.fieldEmailHint}
+            </p>
+          ) : null}
         </div>
 
-        <div>
-          <div className="flex items-baseline justify-between">
+        <div className="gm-field">
+          <div className="gm-field__top">
             <label htmlFor={ids.password} className="label">
               {t.fieldPassword}
             </label>
             <button
               type="button"
-              className="text-xs font-semibold text-accent"
+              className="gm-reveal"
               onClick={() => setReveal((shown) => !shown)}
-              aria-pressed={reveal}
+              aria-controls={ids.password}
             >
               {reveal ? t.hidePassword : t.showPassword}
             </button>
           </div>
           <input
+            ref={inputs.password}
             id={ids.password}
             className="field"
             type={reveal ? "text" : "password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete={creating ? "new-password" : "current-password"}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? ids.error : undefined}
+            aria-invalid={error?.field === "password" ? true : undefined}
+            aria-describedby={describedBy("password", creating ? ids.passwordHint : undefined)}
             required
           />
-          {creating ? <p className="hint">{t.fieldPasswordHint(passwordMin)}</p> : null}
+          {errorFor("password")}
+          {creating ? (
+            <p id={ids.passwordHint} className="gm-field__hint">
+              {t.fieldPasswordHint(passwordMin)}
+            </p>
+          ) : null}
         </div>
 
-        {error ? (
-          <p id={ids.error} role="alert" className="notice notice-error">
-            {error}
-          </p>
-        ) : null}
+        {errorFor("form")}
 
-        <button type="submit" className="btn btn-primary w-full" disabled={busy}>
+        {/* Not disabled while it works: a disabled button drops the focus, and
+            a keyboard user would start again from the top of the page. */}
+        <button
+          ref={submitButton}
+          type="submit"
+          className="btn btn--primary w-full"
+          aria-disabled={busy ? true : undefined}
+        >
           {busy ? t.working : heading.submit}
         </button>
 
-        {creating ? <p className="hint">{t.noResetNote}</p> : null}
+        {creating ? <p className="gm-field__hint">{t.noResetNote}</p> : null}
       </form>
 
-      <p className="mt-5 text-sm text-muted">
+      <p className="gm-switch">
         {mode === "login" ? t.needAccount : t.haveAccount}{" "}
         <Link
           href={`${mode === "login" ? "/signup" : "/login"}${carried}`}
-          className="font-semibold text-accent underline underline-offset-2"
+          prefetch={false}
+          className="gm-link"
         >
           {mode === "login" ? t.navSignUp : t.navSignIn}
         </Link>
       </p>
 
-      {mode === "upgrade" ? null : (
-        <div className="mt-6 border-t border-line pt-5">
-          <p className="text-sm text-muted">{t.orGuest}</p>
-          <div className="mt-2">
-            <GuestButton label={t.playAsGuest} className="btn btn-secondary" />
-          </div>
-          <p className="hint">{t.guestExplainer}</p>
-        </div>
-      )}
+      {guest?.("after")}
 
-      <p className="mt-6 text-xs text-muted">{t.adultsConfirm}</p>
+      <p className="gm-adult">{t.adultsConfirm}</p>
     </div>
   );
 }

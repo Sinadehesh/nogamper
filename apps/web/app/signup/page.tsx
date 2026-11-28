@@ -1,12 +1,16 @@
+import "@/components/game/game.css";
+
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AuthForm } from "@/components/AuthForm";
+import { AuthAside } from "@/components/game/AuthAside";
 import { NotOpenYet } from "@/components/NotOpenYet";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { t } from "@/lib/copy";
 import { nextStep } from "@/lib/next-step";
 import { getRules } from "@/lib/server/rules";
+import { getMoves } from "@/lib/server/questions";
 import { getViewer } from "@/lib/server/viewer";
 import { GAME_OPEN } from "@/lib/site";
 
@@ -25,30 +29,40 @@ export default async function SignupPage({
     return (
       <>
         <SiteHeader />
-        <main id="main" className="container-page flex-1 py-10 sm:py-16">
-          <NotOpenYet page />
+        <main id="main" className="gm flex-1">
+          <div className="wrap">
+            <NotOpenYet page />
+          </div>
         </main>
         <SiteFooter />
       </>
     );
   }
 
-  const [viewer, rules, params] = await Promise.all([getViewer(), getRules(), searchParams]);
+  const [viewer, rules, params, moves] = await Promise.all([
+    getViewer(),
+    getRules(),
+    searchParams,
+    getMoves(),
+  ]);
   const next = nextStep(params.next);
   if (viewer && !viewer.is_guest) redirect(next);
 
   return (
     <>
-      <SiteHeader />
-      <main id="main" className="container-page flex-1 py-10 sm:py-16">
-        {/* A guest filling in this form keeps the account they have been
-            playing on; the page says so, because "create an account" reads
-            like starting again. */}
-        <AuthForm
-          mode={viewer?.is_guest ? "upgrade" : "signup"}
-          passwordMin={rules?.password_min_length}
-          next={next}
-        />
+      <SiteHeader quiet />
+      <main id="main" className="gm flex-1">
+        <div className="wrap dp gm-auth">
+          {/* A guest filling in this form keeps the account they have been
+              playing on; the page says so, because "create an account" reads
+              like starting again. */}
+          <AuthForm
+            mode={viewer?.is_guest ? "upgrade" : "signup"}
+            passwordMin={rules?.password_min_length}
+            next={next}
+          />
+          <AuthAside rules={rules} moves={moves} />
+        </div>
       </main>
       <SiteFooter />
     </>

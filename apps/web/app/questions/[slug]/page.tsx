@@ -4,15 +4,18 @@ import { notFound } from "next/navigation";
 
 import { AsOf } from "@/components/AsOf";
 import { JsonLd } from "@/components/JsonLd";
-import { PriceChart } from "@/components/PriceChart";
+import { QuestionFigures, StateLine, meaningOf, outcomeOf, outcomeWord } from "@/components/questions/Question";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
-import { PRICE_SOURCE, changeInWords, movesPage, questionPage } from "@/lib/content";
-import { t } from "@/lib/copy";
-import { chance, chancePair, dateTimeUtc, dateUtc, movement } from "@/lib/format";
+import { LineChart } from "@/components/viz";
+import { PRICE_SOURCE, questionPage } from "@/lib/content";
+import { categoryLabel, t } from "@/lib/copy";
+import { dateTimeUtc } from "@/lib/format";
 import { breadcrumbLd, pageMetadata } from "@/lib/seo";
 import { getQuestion } from "@/lib/server/questions";
+import { getRules } from "@/lib/server/rules";
 import { GAME_OPEN } from "@/lib/site";
 import type { PublicQuestion } from "@/lib/types";
+import { MS, onEdge, pct, pctPair, priceBand, priceToShow } from "@/lib/viz";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -46,11 +49,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   const question = answer.data;
-  const resolved = question.state === "resolved" && question.outcome !== null;
+  const outcome = outcomeOf(question);
   return pageMetadata({
     title: question.question,
-    description: resolved
-      ? questionPage.resolvedDescription(question.question, outcomeWord(question))
+    description: outcome
+      ? questionPage.resolvedDescription(question.question, outcomeWord(outcome))
       : questionPage.metaDescription(question.question),
     path: `/questions/${question.slug}`,
     // A question that was cancelled, or that the site stopped following, still
@@ -59,70 +62,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   });
 }
 
-function outcomeWord(question: PublicQuestion): string {
-  return question.outcome === "yes" ? t.yes : t.no;
-}
+/**
+ * How much older than the page's own time the market's reading it shows may
+ * be before the page says when that reading is from.
+ */
+const READING_NOTE_AFTER_MS = MS.HOUR / 4;
 
 /** When the price on the page was read: the answer's own time, less the price's age. */
 function priceReadAt(question: PublicQuestion): string {
   const read = new Date(question.as_of).getTime() - question.probability.age_seconds * 1000;
   return new Date(read).toISOString();
-}
-
-function stateLine(question: PublicQuestion): string {
-  switch (question.state) {
-    case "open":
-      return questionPage.states.open(dateTimeUtc(question.closes_at));
-    case "closed":
-      return questionPage.states.closed(dateUtc(question.closes_at));
-    case "resolved":
-      return questionPage.states.resolved(
-        outcomeWord(question),
-        dateUtc(question.resolved_at ?? question.ends_at),
-      );
-    case "void":
-      return questionPage.states.void;
-    case "unfollowed":
-      return questionPage.states.unfollowed(dateUtc(priceReadAt(question)));
-  }
-}
-
-/**
- * How far the chance has come over a day and over a week, each as "from X to
- * Y" — measured the way the list of moves measures it: from where the market
- * says the question stood then, to the price at the top of this page. One
- * rule on both pages, so the two never disagree about the same question.
- */
-function changes(question: PublicQuestion) {
-  const { reference } = question.changes;
-  if (reference === null) return [];
-
-  const now = Number(question.probability.yes);
-  const windows = [
-    { window: "day", label: questionPage.windows.day, change: question.changes.day },
-    { window: "week", label: questionPage.windows.week, change: question.changes.week },
-  ];
-  return windows.flatMap(({ window, label, change }) => {
-    if (change === null) return [];
-    const was = Math.min(1, Math.max(0, Number(reference) - Number(change)));
-    return [{ window, label, shown: movement(was, now) }];
-  });
-}
-
-function chartSummary(question: PublicQuestion): string | null {
-  const first = question.history[0];
-  const last = question.history[question.history.length - 1];
-  if (!first || !last) return null;
-
-  const values = question.history.map((point) => Number(point.yes));
-  return questionPage.chartSummary(
-    chance(first.yes),
-    dateUtc(first.at),
-    chance(last.yes),
-    dateUtc(last.at),
-    chance(Math.min(...values)),
-    chance(Math.max(...values)),
-  );
 }
 
 const sameText = (one: string, other: string) =>
@@ -135,10 +84,17 @@ const sameText = (one: string, other: string) =>
  * The page does not say why a price moved or where it is going, and its one
  * invitation — to make a forecast with points — is shown only while there is
  * a game to make it in and a question still open to make it on.
+ *
+ * Its order is its argument: the question and its state; the chance, how it
+ * has changed and the week's range; the price history, which is the centre
+ * of the page; what the number means; how the answer is decided.
  */
 export default async function QuestionPage({ params }: Props) {
   const { slug } = await params;
-  const answer = await getQuestion(slug);
+  // The rules give the game's band, where the API holds a live price: read
+  // together, and never waited on (a failure is null, and the band then
+  // comes from the copy of /v1/rules in lib/viz.ts).
+  const [answer, gameRules] = await Promise.all([getQuestion(slug), getRules()]);
   if (answer.status === "missing") notFound();
   if (answer.status === "unavailable") {
     // Thrown rather than shown as "not found": the question exists. A page
@@ -151,18 +107,42 @@ export default async function QuestionPage({ params }: Props) {
   }
 
   const question = answer.data;
-  const pair = chancePair(question.probability.yes);
   // Only an open question has a price that is still being read. Once it
   // closes, the number on the page is the last one from before it did.
   const open = question.state === "open";
-  const moved = open ? changes(question) : [];
-  const summary = chartSummary(question);
-  const first = question.history[0];
-  const last = question.history[question.history.length - 1];
+  const readAt = priceReadAt(question);
+  const band = priceBand(gameRules);
+  // The figure the page leads with: the market's own latest reading where
+  // the API holds the live price on the game's band, or where that reading
+  // is newer than the live price.
+  const shown = priceToShow(question, band);
+  // When the page's figures are from: when the market was last read, by the
+  // API (the live price) or by the market's own series, whichever is later.
+  // A reading that stands in for a held price is older than the live read
+  // that held it. Dated by the reading instead, a copy built a minute ago
+  // would look an hour old to the reader's clock, and the line would go
+  // looking for figures nobody has (AsOf).
+  const datedAt = Date.parse(shown.at) > Date.parse(readAt) ? shown.at : readAt;
+  // So where the chance shown is that older reading, by a quarter of an hour
+  // or more, a line under the date says when the reading is from, as the
+  // chart's own "Now" does: one figure, two times, each named.
+  const readingAt =
+    open && Date.parse(datedAt) - Date.parse(shown.at) >= READING_NOTE_AFTER_MS ? shown.at : null;
+  // Where the game's price for a pick sits on the band's edge it can differ
+  // from the market's figure above, and where it does (a reading beyond the
+  // edge, or a held price printed as its bound) the play panel says so, with
+  // the figures. Every figure in that line prints as the game prints a
+  // chance, so the band's "1.0%" is the "1.0%" of the price beside it.
+  const game = pctPair(question.probability.yes);
+  const gameDiffers =
+    open &&
+    onEdge(question.probability.yes, band) !== null &&
+    (shown.held === true || pct(shown.value) !== game.yes);
   const rules = (question.description ?? "")
     .split(/\n+/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
+  const hasHistory = question.history.length > 0;
 
   return (
     <>
@@ -175,173 +155,118 @@ export default async function QuestionPage({ params }: Props) {
       />
       <SiteHeader />
 
-      <main id="main" className="container-page flex-1 py-10 sm:py-14">
-        <article className="max-w-3xl">
-          <nav aria-label={questionPage.trail} className="text-sm text-muted">
-            <Link href="/questions" className="hover:text-ink">
+      <main id="main" className="flex-1">
+        <article className="wrap dp">
+          <nav aria-label={questionPage.trail} className="qp-trail">
+            <Link href="/questions" className="dp-link">
               {t.navQuestions}
             </Link>
-            <span aria-hidden className="mx-2">
-              /
-            </span>
-            <span>{question.category}</span>
+            <span aria-hidden="true">/</span>
+            <span>{categoryLabel(question.category)}</span>
           </nav>
 
-          <div className="mt-6">
+          <header className="qp-head">
             {/* The wider subject the question belongs to, when it has one that
                 is not simply the question again. */}
             {sameText(question.event_title, question.question) ? null : (
-              <p className="text-sm text-muted">{question.event_title}</p>
+              <p className="qp-kicker">{question.event_title}</p>
             )}
-            <h1 className="mt-1 text-3xl font-black leading-tight tracking-tight sm:text-4xl">
-              {question.question}
-            </h1>
-          </div>
-          <p className="mt-3 text-muted">{stateLine(question)}</p>
-          <div className="mt-1">
-            {/* For an open question the line dates its price, which is the
-                figure the page is about and can be older than the answer it
-                came in: a server just woken has the prices it went to sleep
-                with. A page that can still change is watched for a newer
-                copy; one that is finished is not. */}
-            <AsOf
-              at={open ? priceReadAt(question) : question.as_of}
-              changing={open || question.state === "closed"}
-            />
-          </div>
+            <h1 className="qp-title">{question.question}</h1>
+            <StateLine question={question} readAt={readAt} />
+          </header>
 
-          <section className="card mt-6 p-6" aria-labelledby="now">
-            <h2 id="now" className="text-xs font-bold uppercase tracking-wide text-muted">
-              {question.state === "resolved"
-                ? t.resolvedLabel
-                : open
-                  ? t.marketSays
-                  : questionPage.lastPrice}
-            </h2>
-            {question.state === "resolved" && question.outcome !== null ? (
-              <p className="mt-2 text-5xl font-black">{outcomeWord(question)}</p>
-            ) : (
-              <div className="mt-2 flex flex-wrap items-baseline gap-x-8 gap-y-2">
-                <p className="text-5xl font-black tabular-nums text-yes">
-                  <span className="mr-2 text-base font-bold">{t.yes}</span>
-                  {pair.yes}
-                </p>
-                <p className="text-2xl font-black tabular-nums text-no">
-                  <span className="mr-2 text-sm font-bold">{t.no}</span>
-                  {pair.no}
-                </p>
-              </div>
-            )}
-          </section>
-
-          {moved.length > 0 ? (
-            <section className="mt-10" aria-labelledby="changes">
-              <h2 id="changes" className="text-xl font-bold tracking-tight">
-                {questionPage.changesTitle}
-              </h2>
-              <dl className="mt-3 divide-y divide-line border-y border-line">
-                {moved.map(({ label, shown }) => (
-                  <div key={label} className="flex flex-wrap justify-between gap-x-6 py-3">
-                    <dt className="text-muted">{label}</dt>
-                    <dd className="font-semibold tabular-nums">
-                      {movesPage.fromTo(shown.was, shown.now)}
-                      <span className="ml-2 font-normal text-muted">
-                        {changeInWords(shown.points, shown.direction)}
-                      </span>
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-2 text-sm text-muted">
-                {questionPage.changesNote(
-                  moved.some((row) => row.window === "day"),
-                  moved.some((row) => row.window === "week"),
-                )}
-              </p>
-            </section>
+          <QuestionFigures question={question} band={band} />
+          {/* For an open question the line dates its price, which is the
+              figure the page is about and can be older than the answer it
+              came in: a server just woken has the prices it went to sleep
+              with. A page that can still change is watched for a newer copy;
+              one that is finished is not. */}
+          <AsOf
+            at={open ? datedAt : question.as_of}
+            changing={open || question.state === "closed"}
+            className="qp-asof"
+          />
+          {readingAt ? (
+            <p className="qp-asof__reading text-sm leading-normal text-muted">
+              {questionPage.readingAt(dateTimeUtc(readingAt))}
+            </p>
           ) : null}
 
-          <section className="mt-10" aria-labelledby="chart">
-            <h2 id="chart" className="text-xl font-bold tracking-tight">
-              {questionPage.chartTitle}
-            </h2>
-            {summary && first && last ? (
-              <figure className="mt-4">
-                <PriceChart
-                  points={question.history}
-                  firstLabel={dateUtc(first.at)}
-                  lastLabel={dateUtc(last.at)}
-                />
-                <figcaption className="mt-3 text-sm text-muted">
-                  {summary} {questionPage.chartSource[question.history_source]}
-                </figcaption>
-              </figure>
-            ) : (
-              <p className="mt-3 text-muted">{questionPage.chartSource.none}</p>
-            )}
+          <section className="qp-chart" aria-labelledby="chart">
+            <div className="qp-chart__head">
+              <h2 id="chart" className="dp-h2">
+                {questionPage.chartTitle}
+              </h2>
+              {hasHistory && question.history_source !== "none" ? (
+                <p className="dp-sub">
+                  {questionPage.chartSource[question.history_source]} {questionPage.chartScale}
+                </p>
+              ) : null}
+            </div>
+            <LineChart question={question} labelledBy="chart" band={band} />
           </section>
 
+          <div className="qp-pair">
+            <section className="qp-meaning" aria-labelledby="meaning">
+              <h2 id="meaning" className="dp-h2">
+                {questionPage.meaningTitle}
+              </h2>
+              {meaningOf(question, band).map((paragraph) => (
+                <p key={paragraph.slice(0, 32)}>{paragraph}</p>
+              ))}
+              <p>
+                <Link href="/articles/how-to-read-prediction-market-odds" className="link">
+                  {questionPage.meaningLink}
+                </Link>
+              </p>
+            </section>
+
+            {GAME_OPEN && open ? (
+              <section className="qp-play dp-panel" aria-labelledby="play">
+                <h2 id="play">{questionPage.playTitle}</h2>
+                <p>{questionPage.playBody}</p>
+                {gameDiffers ? (
+                  <p className="qp-play__band">
+                    {questionPage.playBand(pct(band.min), pct(band.max), game.yes, game.no)}
+                  </p>
+                ) : null}
+                <Link href={`/play?question=${question.slug}`} prefetch={false} className="btn btn--secondary">
+                  {questionPage.playCta}
+                </Link>
+              </section>
+            ) : null}
+          </div>
+
           {rules.length > 0 ? (
-            <section className="mt-10" aria-labelledby="decided">
-              <h2 id="decided" className="text-xl font-bold tracking-tight">
+            <section className="qp-rules" aria-labelledby="decided">
+              <h2 id="decided" className="dp-h2">
                 {questionPage.decidedTitle}
               </h2>
-              <p className="mt-2 text-sm text-muted">{questionPage.decidedIntro}</p>
-              <blockquote className="mt-3 space-y-3 border-l-2 border-line pl-4 text-muted">
+              <p className="qp-rules__intro dp-label">{questionPage.decidedIntro}</p>
+              <div className="qp-rules__text">
                 <p>{rules[0]}</p>
                 {rules.length > 1 ? (
                   <details>
-                    <summary className="cursor-pointer font-semibold text-ink">
-                      {questionPage.decidedMore}
-                    </summary>
-                    <div className="mt-3 space-y-3">
+                    <summary>{questionPage.decidedMore}</summary>
+                    <div className="qp-rules__more">
                       {rules.slice(1).map((paragraph, index) => (
                         <p key={`${index}-${paragraph.slice(0, 16)}`}>{paragraph}</p>
                       ))}
                     </div>
                   </details>
                 ) : null}
-              </blockquote>
+              </div>
             </section>
           ) : null}
 
-          <section className="mt-10" aria-labelledby="meaning">
-            <h2 id="meaning" className="text-xl font-bold tracking-tight">
-              {questionPage.meaningTitle}
-            </h2>
-            {questionPage.meaning.map((paragraph) => (
-              <p key={paragraph.slice(0, 24)} className="mt-3 text-muted">
-                {paragraph}
-              </p>
-            ))}
-            <p className="mt-3">
-              <Link
-                href="/articles/how-to-read-prediction-market-odds"
-                className="font-semibold text-accent hover:underline"
-              >
-                {questionPage.meaningLink}
+          <div className="dp-end">
+            <p className="dp-small">{PRICE_SOURCE}</p>
+            <p>
+              <Link href="/moves" className="link">
+                {questionPage.movesLink}
               </Link>
             </p>
-          </section>
-
-          {GAME_OPEN && open ? (
-            <section className="notice mt-10" aria-labelledby="play">
-              <h2 id="play" className="font-bold">
-                {questionPage.playTitle}
-              </h2>
-              <p className="mt-1 text-sm">{questionPage.playBody}</p>
-              <Link href="/play" className="btn btn-secondary btn-sm mt-3">
-                {questionPage.playCta}
-              </Link>
-            </section>
-          ) : null}
-
-          <p className="mt-10 text-sm text-muted">{PRICE_SOURCE}</p>
-          <p className="mt-4">
-            <Link href="/moves" className="btn btn-secondary btn-sm">
-              {questionPage.movesLink}
-            </Link>
-          </p>
+          </div>
         </article>
       </main>
 

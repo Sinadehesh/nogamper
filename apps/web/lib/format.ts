@@ -9,6 +9,7 @@
 const LOCALE = "en-US";
 
 const WHOLE = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
+// Only ever given a whole number of hundredths (see `odds`), so it never rounds.
 const ODDS = new Intl.NumberFormat(LOCALE, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -57,10 +58,25 @@ export function count(value: number): string {
   return WHOLE.format(value);
 }
 
-/** "2.00×" — how many times the stake comes back if the pick is right. */
+/**
+ * "2.00×" — how many times the stake comes back if the pick is right.
+ *
+ * Cut to two places, never rounded up, so that a multiplier and the payout
+ * printed beside it multiply out: 100 points at "1.76×" pays 176, not 177.
+ * Odds come at six places (1 ÷ 0.5665 is 1.765225), and rounded to two they
+ * would print 1.77× next to the 176 the server pays. What is cut is the
+ * multiplier a 100-point stake is paid at: the server rounds every payout
+ * half up to a hundredth of a point, so odds of 2.119991 pay 212 for 100
+ * points, and print 2.12× (plain truncation would print 2.11× beside 212).
+ */
 export function odds(value: string | number): string {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? `${ODDS.format(parsed)}×` : String(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  // In millionths, as the server stores odds; a 100-point stake comes back
+  // as (millionths + 50) ÷ 10,000 hundredths of a point per point, floored.
+  const millionths = Math.round(parsed * 1_000_000);
+  const hundredths = Math.floor((millionths + 50) / 10_000);
+  return `${ODDS.format(hundredths / 100)}×`;
 }
 
 export function percent(probability: string | number, digits = 0): string {
@@ -101,6 +117,22 @@ export function chancePair(yesProbability: string | number): { yes: string; no: 
   const digits = parsed < 0.095 || parsed > 0.905 ? 1 : 0;
   const yes = Number((parsed * 100).toFixed(digits));
   return { yes: `${yes.toFixed(digits)}%`, no: `${(100 - yes).toFixed(digits)}%` };
+}
+
+/**
+ * One side's chance, printed as its question prints the pair: a YES side by
+ * `chance()`, a NO side as the rest of the printed YES (`chancePair`). Printed
+ * on its own, a NO at 36.5% beside a YES at 63.5% could round up too: 101% in
+ * all. This way a card's two picks, a slip's lines and a question's page
+ * always add up to 100% and always agree. `probability` is that side's own
+ * (`probability.no` for a NO pick); odds are still worked out from it, never
+ * from the printed figure.
+ */
+export function sideChance(probability: string | number, side: "YES" | "NO"): string {
+  const parsed = Number(probability);
+  if (!Number.isFinite(parsed)) return String(probability);
+  if (side === "YES") return chance(parsed);
+  return chancePair(Math.round((1 - parsed) * 10_000) / 10_000).no;
 }
 
 /**
@@ -230,6 +262,24 @@ export function duration(hours: number): string {
   if (hours < 48) return plural(hours, "hour");
   if (hours === 168) return "1 week";
   return plural(Math.round(hours / 24), "day");
+}
+
+/**
+ * What a person typed into a stake box, read strictly: whole points, with
+ * commas and spaces allowed between the digits. Anything else is a problem
+ * to say, not to guess at: "1.5" is not 15 points, and "abc" is not 0.
+ * `minor` is in minor units, and 0 whenever there is a problem.
+ */
+export function readPoints(input: string): {
+  minor: number;
+  problem: "empty" | "fraction" | "invalid" | null;
+} {
+  const compact = input.replace(/[,\s]/g, "");
+  if (!compact) return { minor: 0, problem: "empty" };
+  if (/^\d*[.]\d*$/.test(compact) && /\d/.test(compact)) return { minor: 0, problem: "fraction" };
+  if (!/^\d+$/.test(compact)) return { minor: 0, problem: "invalid" };
+  const whole = Number(compact.slice(0, 12));
+  return Number.isFinite(whole) ? { minor: whole * MINOR_PER_POINT, problem: null } : { minor: 0, problem: "invalid" };
 }
 
 /**

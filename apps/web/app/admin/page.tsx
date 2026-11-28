@@ -75,7 +75,7 @@ export default function AdminOverviewPage() {
         <Tile label={t.adminForecastsOpen} value={count(forecasts.open)} />
       </dl>
 
-      <section className="grid gap-5 lg:grid-cols-2">
+      <section className="grid items-start gap-5 lg:grid-cols-2">
         <article className="card p-5">
           <h2 className="text-lg font-bold">{t.adminPointsTitle}</h2>
           <p className="mt-1 text-sm text-muted">{t.adminPointsNote}</p>
@@ -120,7 +120,7 @@ export default function AdminOverviewPage() {
                 <td className="num">{count(day.forecasters)}</td>
                 <td>
                   <span className="flex items-center gap-3">
-                    <span className="w-10 tabular-nums">{count(day.forecasts)}</span>
+                    <span className="rd-admin-fig w-10">{count(day.forecasts)}</span>
                     <span className="h-2 flex-1 rounded-full bg-sunken" aria-hidden>
                       <span
                         className="block h-full rounded-full bg-accent"
@@ -176,7 +176,7 @@ function Tile({
   return (
     <div className={flat ? "" : "card p-4"}>
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className="text-2xl font-black tabular-nums">{value}</dd>
+      <dd className="text-2xl font-bold">{value}</dd>
       {note ? <dd className="mt-0.5 text-xs text-muted">{note}</dd> : null}
     </div>
   );

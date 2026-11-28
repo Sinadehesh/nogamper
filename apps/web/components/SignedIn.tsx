@@ -1,12 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useSyncExternalStore } from "react";
 
-import { GuestButton } from "@/components/GuestButton";
-import { NotOpenYet } from "@/components/NotOpenYet";
-import { landing } from "@/lib/content";
-import { t } from "@/lib/copy";
 import { SIGNED_IN_COOKIE } from "@/lib/session-marker";
 import { GAME_OPEN } from "@/lib/site";
 
@@ -32,54 +27,6 @@ function subscribe(onChange: () => void): () => void {
 
 export function useSignedIn(): boolean {
   return useSyncExternalStore(subscribe, readMarker, () => false);
-}
-
-/** The right-hand end of the site header. */
-export function AccountLinks() {
-  const signedIn = useSignedIn();
-
-  if (!GAME_OPEN) return null;
-  if (signedIn) {
-    return (
-      <Link href="/play" className="btn btn-primary btn-sm">
-        {t.navPlay}
-      </Link>
-    );
-  }
-  return (
-    <>
-      <Link href="/login" className="font-semibold hover:text-accent">
-        {t.navSignIn}
-      </Link>
-      <Link href="/signup" className="btn btn-primary btn-sm">
-        {t.navSignUp}
-      </Link>
-    </>
-  );
-}
-
-/** The buttons under a headline: start playing, or carry on. */
-export function StartActions({ secondary = true }: { secondary?: boolean }) {
-  const signedIn = useSignedIn();
-
-  if (!GAME_OPEN) return <NotOpenYet />;
-  if (signedIn) {
-    return (
-      <Link href="/play" className="btn btn-primary">
-        {landing.ctaContinue}
-      </Link>
-    );
-  }
-  return (
-    <>
-      <GuestButton label={landing.ctaGuest} />
-      {secondary ? (
-        <Link href="/signup" className="btn btn-secondary">
-          {landing.ctaSignUp}
-        </Link>
-      ) : null}
-    </>
-  );
 }
 
 /** Shown only to somebody who is not signed in. */

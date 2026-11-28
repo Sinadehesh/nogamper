@@ -13,10 +13,10 @@ import { t } from "@/lib/copy";
 export function NotOpenYet({ page = false }: { page?: boolean }) {
   if (page) {
     return (
-      <div className="mx-auto max-w-lg text-center">
-        <h1 className="text-2xl font-bold tracking-tight">{t.notOpenTitle}</h1>
-        <p className="mt-3 text-muted">{t.notOpenBody}</p>
-        <Link href="/articles" className="btn btn-primary mt-6">
+      <div className="gm-closed">
+        <h1>{t.notOpenTitle}</h1>
+        <p className="dp-lede">{t.notOpenBody}</p>
+        <Link href="/articles" prefetch={false} className="btn btn--primary">
           {t.notOpenLink}
         </Link>
       </div>
@@ -25,7 +25,11 @@ export function NotOpenYet({ page = false }: { page?: boolean }) {
   return (
     <p className="text-sm text-muted">
       {t.notOpenShort}{" "}
-      <Link href="/articles" className="font-semibold text-accent underline underline-offset-2">
+      <Link
+        href="/articles"
+        prefetch={false}
+        className="font-semibold text-accent underline underline-offset-2"
+      >
         {t.notOpenLink}
       </Link>
     </p>

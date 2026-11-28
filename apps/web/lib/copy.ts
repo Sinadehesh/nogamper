@@ -19,7 +19,24 @@ export const t = {
     "prediction markets, and points instead of money — free to play, and nothing to cash out.",
 
   // ----- navigation ---------------------------------------------------------
-  navLabel: "Site",
+  // The header's and the footer's link lists are two landmarks, so they need
+  // two different names.
+  navMainLabel: "Main",
+  navFooterLabel: "Site map",
+  navMenu: "Menu",
+  navShowLinks: (word: string) => `Show the ${word} links`,
+  navQuestionsWord: "Questions",
+  navGuides: "Guides",
+  navHelpWord: "Help",
+  // The header's one button, and what it says to somebody already signed in.
+  navStart: "Start playing free",
+  navOpenGame: "Open the game",
+  // One line under each guide topic in the header's Guides panel.
+  navGuideLines: {
+    "prediction-markets": "What a price means, and how the kinds differ",
+    odds: "Where the margin sits, and why it adds up",
+    "stepping-back": "Practical steps, blocking tools and real help",
+  },
   navPlay: "Play",
   navMission: "Mission",
   navArticles: "Articles",
@@ -47,6 +64,17 @@ export const t = {
   footerNotAffiliated:
     "Market questions and prices come from public Polymarket data. This site is not " +
     "affiliated with Polymarket and places no trades anywhere.",
+  footerGameTitle: "The game",
+  footerLearningTitle: "Learning",
+  footerHelpTitle: "Help",
+  footerSiteTitle: "The site",
+  footerHelpLine:
+    "Worried about gambling, yours or someone close to you? The services on the help page " +
+    "are free and confidential.",
+  footerHelpLink: "See where to get help",
+  footerSaferTools: "Limits and breaks",
+  footerTerms: "Terms",
+  footerCopyright: (year: number) => `© ${year} ${APP_NAME}`,
 
   // ----- shared -------------------------------------------------------------
   loading: "Loading…",
@@ -77,6 +105,11 @@ export const t = {
   fieldPasswordHint: (min: number) =>
     `At least ${min} characters. A long phrase you will remember beats a short clever one.`,
   fieldDisplayName: "Display name",
+  // Said under a field left empty, before anything is sent.
+  fieldDisplayNameMissing: "Enter a display name.",
+  fieldEmailMissing: "Enter your email.",
+  fieldPasswordMissing: "Enter your password.",
+  fieldPasswordChoose: "Choose a password.",
   fieldDisplayNameHint: "2 to 24 characters. Only its first letter is shown on the leaderboard.",
   noResetNote:
     "There is no password reset yet, because nothing here sends email. Keep your password " +
@@ -91,19 +124,79 @@ export const t = {
   playAsGuest: "Play as a guest",
   guestExplainer: "No sign-up. You can create an account later and keep everything.",
   adultsConfirm: "By playing you confirm you are 18 or over.",
-  showPassword: "Show",
-  hidePassword: "Hide",
+  showPassword: "Show password",
+  hidePassword: "Hide password",
+  // The guest option on the sign-in and sign-up pages: above the form on a
+  // phone, under it beside the picture of the game on a wide screen.
+  guestOptionTitle: "No form needed",
+  guestOptionBody: "Start as a guest in one click. Create an account later and keep everything.",
+  authAsideLabel: "What playing is like",
+  authAsideLines: (start: string | null) => [
+    "Each question shows the chance a real market gives it, read from Polymarket.",
+    "Pick yes or no, stake some points, and see what it pays before you confirm.",
+    start
+      ? `You start with ${start} points. They have no cash value and never will.`
+      : "Points are free and have no cash value.",
+  ],
+
+  // ----- the game, signed out (/play) ---------------------------------------
+  welcomeTitle: "The forecasting game",
+  welcomeLede: (start: string | null) =>
+    "Pick yes or no on real questions at the chance a real market gives. " +
+    (start
+      ? `You start with ${start} free points, and none of them can be cashed out.`
+      : "Points are free, and none of them can be cashed out."),
+  welcomeNoSignUp: "No sign-up needed: one click and you are playing as a guest.",
+  welcomeHaveAccount: "Played before?",
+  welcomeStepsTitle: "How it works",
+  welcomeSteps: (rules: { min: string; max: string; legs: number } | null) => [
+    {
+      title: "Pick a question",
+      body: "Elections, crypto prices and the economy, each settled by the real answer.",
+    },
+    {
+      title: "Choose yes or no",
+      body: "A 62% chance means the market expects yes about 62 times in 100.",
+    },
+    {
+      title: "Stake some points",
+      body: rules
+        ? `From ${rules.min} to ${rules.max} points, on up to ${rules.legs} questions at once. ` +
+          "You see what it pays before you confirm."
+        : "You see what a pick pays before you confirm it.",
+    },
+  ],
+  previewLabel: (question: string, yes: string, no: string, payout: string) =>
+    `A question as the game shows it, "${question}": yes at ${yes}, no at ${no}, and a slip ` +
+    `with yes picked, 100 points staked, paying ${payout} points if it is right.`,
+  previewCaption: "A live question, as the game shows it",
 
   // ----- the play screen ----------------------------------------------------
   greeting: (name: string) => `Hi, ${name}`,
   balanceLabel: "Your points",
   topUpReady: (amount: string) => `Free daily top-up: +${amount}`,
   topUpClaim: "Claim",
-  topUpClaiming: "Claiming…",
-  topUpClaimed: (amount: string) => `+${amount} points added.`,
-  topUpNext: (when: string) => `Next free top-up in ${when}.`,
+  topUpClaiming: "Adding…",
+  topUpClaimed: (amount: string) => `${amount} points added.`,
+  // The strip at the top of the game: the balance, the free daily points,
+  // and the player's own limit or break when one applies.
+  dailyLabel: "Free every day",
+  dailyAmount: (amount: string) => `+${amount}`,
+  dailyAdd: (amount: string) => `Add today's ${amount}`,
+  dailyDone: (when: string) => `Added today. The next are free from ${when}.`,
+  dailyNext: (amount: string, when: string) => `Next ${amount} free from ${when}`,
+  limitLabel: "Your daily limit",
+  limitOf: (spent: string, limit: string) => `${spent} of ${limit}`,
+  limitTodayLine: "points staked today",
+  limitMeter: (spent: string, limit: string) => `${spent} of your ${limit} points staked today`,
+  limitReachedShort: "Reached for today. Forecasting opens again tomorrow.",
+  breakLabel: "Your break",
+  breakUntil: (until: string) => `Until ${until}`,
+  breakPaused: "Forecasting is paused. Everything else works as usual.",
+  saferLink: "Limits and breaks",
   guestBanner: "You are playing as a guest, so this record lives only in this browser.",
   guestBannerAction: "Create an account to keep it",
+  guestBannerShort: "Create an account to keep your points",
   breakBanner: (until: string) =>
     `You are taking a break until ${until}. You can look around; forecasting is paused.`,
   limitBanner: (spent: string, limit: string) =>
@@ -111,38 +204,68 @@ export const t = {
   limitReachedBanner: (limit: string) =>
     `You have reached the daily limit of ${limit} points you set. Forecasting opens again tomorrow.`,
 
+  // The game's five views: in the bar on a wide screen, in a bar along the
+  // bottom on a phone (where the shorter word is used).
+  viewsLabel: "Game",
   tabMarkets: "Questions",
-  tabHistory: "My forecasts",
+  tabMarketsName: "Questions to forecast",
+  tabHistory: "Your forecasts",
+  tabHistoryShort: "Forecasts",
   tabLeaderboard: "Leaderboard",
   tabSafer: "Safer play",
   tabAccount: "Account",
+  // The questions view's line, in two sentences: a phone shows the second.
+  marketsLedeSource: "Each question shows the chance a real market gives it.",
+  marketsLedeHow: (max: number) => `Pick yes or no on up to ${max} questions, then choose a stake.`,
+  historyLede:
+    "Every forecast you have placed: open ones with their chance now where it is known, " +
+    "settled ones with what they paid.",
+  saferLede:
+    "Limits, breaks and your own record. The server enforces each one; nothing on this page " +
+    "can get round them.",
+  accountLede: "Your player code, how you sign in, and what is kept about you.",
 
   // ----- questions ----------------------------------------------------------
   categoryAll: "All",
+  categoryGroup: "Category",
   sortLabel: "Sort",
   sortTossup: "Closest calls",
   sortClosing: "Closing soonest",
   sortBusiest: "Most traded",
   marketsLoading: "Fetching questions…",
-  marketsEmpty: "No open questions here right now. Try another category.",
+  marketsEmpty: "No open questions in this category right now. Try another one.",
   marketsEmptyAll:
-    "No open questions right now. They are refreshed from the market every hour — check back soon.",
-  loadMore: "Show more",
-  closesIn: (duration: string) => `Closes in ${duration}`,
+    "No open questions right now. The list is read from the market every hour.",
+  loadMore: "Show more questions",
+  // The list's heading, for a screen reader's outline (the view's title is
+  // "Questions", each card's question is the next level down).
+  cardsHeading: "Open questions",
+  // A question's page sent somebody here for a question the game does not
+  // have open: one outside the game's band, or one that has closed.
+  askedMissing: "The question you came from is not open in the game right now.",
+  askedMissingLink: "Back to its page",
   closesOn: (when: string) => `Closes ${when}`,
-  closed: "Closed",
   priceUpdating: "Price updating",
   marketSays: "The market says",
   resolvedLabel: "How it ended",
-  chanceSplit: (yes: string, no: string) => `Yes ${yes}, no ${no}`,
+  seeChart: "See the chart",
+  newTab: "(opens in a new tab)",
   pays: (multiple: string) => `pays ${multiple}`,
+  onSlip: (side: string) => `${side} is on your slip.`,
   settledAlready: "All but settled",
   settledAlreadyHint: "This is too close to certain to forecast.",
-  pickAdd: (side: string) => `Forecast ${side}`,
-  pickRemove: "Remove from slip",
   blockedSameEvent: "You already have a pick from this event on your slip.",
   blockedFull: (max: number) => `A slip holds at most ${max} picks.`,
-  blockedStale: "This price is updating. Try again in a moment.",
+  blockedStale: "Picks open again once the new price is in.",
+  // A price the API marks stale: when it was read, never shown as the chance now.
+  staleTitle: "New price on its way",
+  staleLine: (chance: string, when: string) => `Yes was at ${chance} when last read, ${when}.`,
+  // A price on the edge of the game's band: the game deals at it, and the
+  // market itself may be further out (its page shows where).
+  heldLow: "for yes, the game's lowest price",
+  heldHigh: "for yes, the game's highest price",
+  heldMarketLow: (edge: string) => `The market itself has yes at ${edge} or lower.`,
+  heldMarketHigh: (edge: string) => `The market itself has yes at ${edge} or higher.`,
   onBreakNoPicks: "Forecasting is paused while you are on a break.",
   limitReachedNoPicks:
     "You have reached the daily limit you set, so forecasting is paused until tomorrow.",
@@ -151,33 +274,58 @@ export const t = {
   slipTitle: "Your forecast",
   slipLegCount: (count: number, max: number) => `${count} of ${max} picks`,
   slipOpenBar: (count: number) => (count === 1 ? "1 pick on your slip" : `${count} picks on your slip`),
-  slipReview: "Review",
+  slipReview: "Review slip",
+  slipEmptyTitle: "No picks yet",
+  slipEmptyBody: (max: number) =>
+    `Pick yes or no on a question and it lands here. Up to ${max} questions can go on one ` +
+    "slip, and every pick has to be right for it to pay.",
+  // The slip's lines, in the order and the words of the front page's picture
+  // of it: "Your forecast", "Yes at 22%", "100 points", "pays 462 if right".
+  slipPick: (side: string, chance: string) => `${side} at ${chance}`,
+  slipStakeLine: (amount: string) => `${amount} points`,
+  slipPaysLine: (payout: string) => `pays ${payout} if right`,
+  slipChanceLine: (chance: string) => `${chance} chance of being right`,
   removeLeg: "Remove pick",
-  slipAllMustWin: (count: number) => `All ${count} picks have to be right for this to pay.`,
+  removeLegOf: (question: string) => `Remove this pick: ${question}`,
+  slipAllMustWin: (count: number) =>
+    count === 2
+      ? "Both picks have to be right for this to pay."
+      : `All ${count} picks have to be right for this to pay.`,
   stake: "Stake",
-  stakeHint: (min: string, max: string) => `Between ${min} and ${max} points.`,
+  stakeUnit: "points",
+  stakeHint: (min: string, max: string) => `From ${min} to ${max} points.`,
+  stakeHave: (balance: string) => `You have ${balance}.`,
+  quickStakes: "Quick amounts",
+  stakeTooSmall: (min: string) => `The smallest stake is ${min} points.`,
+  // A stake field holding nothing, nothing but 0, or something that is not
+  // a number; and one with a decimal point, which is never rounded away.
+  stakeEnter: (min: string, max: string) => `Enter a stake in whole points, from ${min} to ${max}.`,
+  stakeWhole: (min: string, max: string) =>
+    `Points are whole numbers. Enter a stake from ${min} to ${max}.`,
+  stakeTooLarge: (max: string) => `The largest stake is ${max} points.`,
   balance: "Balance",
   combinedOdds: "Combined odds",
   winChance: "Chance it comes in",
-  winChanceNote: (chance: string) =>
-    `The market gives this about a ${chance} chance. That is the honest number to look at.`,
   toWin: "If you are right",
-  profit: (amount: string) => `That is your stake back plus ${amount}.`,
   cappedAt: (amount: string) => `Payouts are capped at ${amount} points.`,
-  noMargin: "Fair odds: 1 ÷ probability. Nothing is taken out.",
+  noMargin: "Fair odds: 1 ÷ the chance. Nothing is taken out.",
   placeForecast: (amount: string) => `Place forecast · ${amount} points`,
+  placeForecastBare: "Place forecast",
   placing: "Placing…",
   placed: "Forecast placed.",
+  placedTitle: "Forecast placed",
+  placedBody: "It is with your forecasts now, and settles when the real answer is in.",
+  placedSee: "See your forecasts",
+  placedDone: "Done",
   quoting: "Pricing…",
-  keepBrowsing: "Add another question",
+  keepBrowsing: "Back to the questions",
   discardOpen: "Clear slip",
   discardTitle: "Clear this slip?",
   discardBody: (count: number) =>
     count === 1 ? "Your pick will be removed." : `Your ${count} picks will be removed.`,
   discardConfirm: "Clear it",
   discardKeep: "Keep it",
-  notEnough: (short: string) =>
-    `You are ${short} points short. Lower the stake, or claim your free daily top-up.`,
+  notEnough: (short: string) => `That is ${short} points more than you have. Lower the stake.`,
   limitLeft: (left: string) => `${left} points left of today's limit.`,
   overLimit: (left: string) =>
     `That is more than the ${left} points left of the daily limit you set. Lower the stake, ` +
@@ -189,7 +337,10 @@ export const t = {
   historyOpen: "Open",
   historyWon: "Right",
   historyLost: "Wrong",
+  historyFilter: "Show",
   historyEmpty: "Nothing here yet. Forecasts you place show up here with how they turned out.",
+  historyEmptyOpen: "No open forecasts.",
+  historyEmptySettled: "None of your forecasts has settled this way yet.",
   statusPending: "Open",
   statusWon: "Right",
   statusLost: "Wrong",
@@ -197,44 +348,46 @@ export const t = {
   statusVoid: "Voided",
   slipSingle: "Single forecast",
   slipCombo: (count: number) => `${count}-pick forecast`,
-  slipStakeAtOdds: (stake: string, oddsLabel: string) => `${stake} points at ${oddsLabel}`,
-  pendingProgress: (settled: number, total: number, payout: string) =>
-    total === 1
-      ? `Waiting for the result. Pays ${payout} points if right.`
-      : `${settled} of ${total} decided. Pays ${payout} points if all are right.`,
-  paidOut: "Returned to you",
-  stakeLost: "Stake lost",
-  lostSummary: (right: number, total: number) =>
-    total === 1 ? "This one did not come in." : `${right} of ${total} picks were right.`,
+  placedOn: (when: string) => `Placed ${when}`,
+  settledOn: (when: string) => `Settled ${when}`,
+  waitingOne: "Waiting for the result.",
+  waitingMany: (settled: number, total: number) => `${settled} of ${total} picks decided so far.`,
+  sincePicked: "Chance then and now",
+  paidLine: (amount: string) => `Paid ${amount} points`,
+  lostLine: (amount: string) => `Stake lost: ${amount} points`,
   voidNote: "Voided at the source. Your stake was returned.",
   insuredNote: "A miss within the cover this slip carried. Your stake was returned.",
   resolvedAs: (answer: string) => `Answer: ${answer}`,
 
   // ----- leaderboard --------------------------------------------------------
   leaderboardTitle: (season: string) => `${season} leaderboard`,
-  leaderboardEnds: (when: string) => `Ends in ${when}`,
+  leaderboardEnds: (when: string) => `This season ends ${when}.`,
   leaderboardIntro:
-    "Ranked on settled forecasts this month. Bragging rights only — there are no prizes, " +
-    "by design.",
+    "The score is your net points on forecasts settled this month, plus a share for your " +
+    "return on what you staked. There are no prizes.",
   leaderboardMinimum: (amount: string) =>
     `Stake at least ${amount} points on settled forecasts to be ranked.`,
   leaderboardEmpty:
     "Nobody is ranked yet this season. Standings update every hour as forecasts settle.",
-  leaderboardYou: (rank: number) => `You are ranked #${rank} this season.`,
+  leaderboardYou: (rank: number) => `You are ranked ${rank} this season.`,
   leaderboardUnranked: "You are not ranked yet this season.",
-  colRank: "#",
+  leaderboardYourNet: (net: string, staked: string) =>
+    `Your net this season: ${net} points, on ${staked} staked.`,
+  leaderboardCaption: (season: string) =>
+    `${season}: rank, player, forecasts right of those settled, points staked and net points.`,
+  colRank: "Rank",
   colPlayer: "Player",
   colRecord: "Right / settled",
   colStaked: "Staked",
-  colNet: "Net",
+  colNet: "Net points",
 
   // ----- safer play ---------------------------------------------------------
   saferIntro:
     "These are play points, and the tools below are real anyway: they are enforced by the " +
     "server, not suggested by the page.",
 
-  realityTitle: "Reality check",
-  realityIntro: "Your own record, stated plainly.",
+  realityTitle: "Your record",
+  realityIntro: "Every settled forecast, counted the same way the leaderboard counts it.",
   realityEmpty: "Once some of your forecasts have settled, your record shows up here.",
   statForecasts: "Forecasts settled",
   statRight: "Right",
@@ -257,7 +410,7 @@ export const t = {
   marginFootnote:
     "An illustration, not a claim about any particular bookmaker. A lost stake is lost either " +
     "way; the margin comes out of what winners are paid.",
-  calibrationTitle: "How well calibrated are you?",
+  calibrationTitle: "How often your picks came in",
   calibrationIntro:
     "Of the things you backed at around 70%, about 70% should come in. Big gaps mean the " +
     "market knew better — or you did.",
@@ -306,6 +459,9 @@ export const t = {
   shopOverLimit: "That pack would take you past this month's spending limit.",
   shopRestricted: "This account cannot buy points.",
   shopClosed: "Nothing is for sale at the moment.",
+  shopNoneTitle: "Buying points",
+  shopNone: (daily: string) =>
+    `Points are not for sale here. Everyone gets ${daily} free every day; the rest come from forecasts that are right.`,
   shopAdultRequired: "Please confirm that you are old enough.",
   shopUnknownPack: "That pack is no longer on sale. Reload the page and choose again.",
   shopUnavailable: "Payment is unavailable right now. Nothing was charged. Please try later.",
@@ -338,6 +494,8 @@ export const t = {
   limitCurrent: (amount: string) => `Current limit: ${amount} points a day.`,
   limitNone: "No limit set.",
   limitSpent: (spent: string) => `Staked today: ${spent} points.`,
+  limitStakedToday: "Staked today",
+  limitPerDay: "A day",
   limitField: "Points per day",
   limitSet: "Set limit",
   limitRemove: "Remove limit",
@@ -353,20 +511,26 @@ export const t = {
     "Pause forecasting for a while. You can still sign in, see your record and claim the " +
     "daily top-up — a break should not cost you anything.",
   breakActive: (until: string) => `You are on a break until ${until}.`,
-  breakLength: "How long?",
+  breakLength: "Length of the break",
   breakExtend: "Make it longer",
   breakRule: "A break cannot be cancelled or shortened once it starts. That is the point of it.",
   breakConfirmTitle: (length: string) => `Take a break for ${length}?`,
   breakConfirmBody: "You will not be able to place forecasts until it ends, and it cannot be undone.",
   breakConfirm: "Start my break",
-  breakStarted: "Your break has started. Well done.",
+  breakStarted: "Your break has started.",
+  breakOptions: "Break lengths",
 
   reminderTitle: "Session reminder",
-  reminderIntro: "A nudge on this device after you have been here a while.",
+  reminderIntro:
+    "A short note on this device after you have been here a while. It is on at 30 minutes " +
+    "unless you change it.",
+  reminderOptions: "Remind me after",
+  reminderChange: "Change the reminder",
+  deviceTitle: "On this device",
   reminderOff: "Off",
   reminderEvery: (minutes: number) => `${minutes} min`,
   reminderHeadline: (minutes: number) => `You have been here ${minutes} minutes.`,
-  reminderBody: "No rush and nothing to lose — but it is a good moment to stretch your legs.",
+  reminderBody: "A good moment for a pause. Your forecasts settle whether you are here or not.",
   reminderContinue: "Keep going",
   reminderBreak: "Take a break",
 
@@ -375,6 +539,16 @@ export const t = {
 
   // ----- account ------------------------------------------------------------
   accountTitle: "Your account",
+  // The first card on the account view: the view itself is "Your account".
+  accountDetails: "Your details",
+  accountSignIn: "How you sign in",
+  accountGuestKeep:
+    "A guest account is a cookie in this browser. Add an email and a password to keep your " +
+    "record on any device.",
+  accountSignOutNote: "Signs this browser out. Your record stays with your account.",
+  accountSignOutGuest:
+    "A guest has no password to come back with, so signing out leaves this record behind " +
+    "for good. Create an account first to keep it.",
   accountCode: "Player code",
   accountCodeHint: "Quote this if you write to us. It is not a password.",
   accountEmail: "Email",
@@ -424,7 +598,7 @@ export const t = {
   articleHelpPrompt: "If gambling is costing you more than you want it to,",
   articleHelpLink: "free, confidential help is here.",
   articleMore: "Keep reading",
-  articleBack: "All articles",
+  articleBack: "All guides",
   articleTryTitle: "See what forecasting is like with no money in it",
   articleTryBody: "Real questions, live odds, and points that can never be cashed out.",
 
@@ -460,6 +634,7 @@ export const t = {
     `${max.toLocaleString("en-US")}`,
   writeTabEdit: "Write",
   writeTabPreview: "Preview",
+  writeTabs: "Show the text or a preview",
   writePreviewEmpty: "Nothing to preview yet.",
   writeSave: "Save draft",
   writeSaved: "Saved.",
@@ -729,3 +904,147 @@ const CATEGORY_LABELS: Record<string, string> = {
 export function categoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category;
 }
+
+// ---------------------------------------------------------------------------
+// Charts and figures (components/viz): every word they print or announce.
+//
+// A change in a chance is "from 54% to 62%", or "54% → 62%". Its size, where
+// one is needed, is in percentage points: "points" alone are the game's
+// currency and nothing else.
+// ---------------------------------------------------------------------------
+
+function percentagePoints(size: string): string {
+  return `${size} percentage ${size === "1" ? "point" : "points"}`;
+}
+
+export const viz = {
+  missing: "—",
+  yes: t.yes,
+  no: t.no,
+
+  // The figure and the words beside it.
+  chanceOfYes: "chance of yes",
+  chanceOfNo: "chance of no",
+  lastChanceOfYes: "chance of yes at the last price",
+  split: (yes: string, no: string) => `${t.yes} ${yes}, ${t.no.toLowerCase()} ${no}`,
+
+  // Changes.
+  fromTo: (was: string, now: string) => `from ${was} to ${now}`,
+  fromToStart: (was: string, now: string) => `From ${was} to ${now}`,
+  arrow: (was: string, now: string) => `${was} → ${now}`,
+  unchanged: (now: string) => `unchanged at ${now}`,
+  unchangedStart: (now: string) => `Unchanged at ${now}`,
+  up: (size: string) => `up ${percentagePoints(size)}`,
+  down: (size: string) => `down ${percentagePoints(size)}`,
+  sentence: (fromTo: string, by: string) => `${fromTo}, ${by}.`,
+  windowSentence: (window: string, change: string) => `${window}: ${change}`,
+  now: "now",
+  dayAgo: "a day ago",
+  weekAgo: "a week ago",
+  pastDay: "Past day",
+  pastWeek: "Past week",
+  noWeek: "No figure for the week yet",
+  noDay: "No figure for the day yet",
+  noChanges: "No change figures to show right now.",
+  scaleStart: "0%",
+  scaleMiddle: "50%",
+  scaleEnd: "100%",
+
+  // Dates. A time to close is a date, never a countdown.
+  closesOn: (date: string) => `Closes ${date}`,
+  closedOn: (date: string) => `Closed ${date}`,
+
+  // The 7-day range.
+  low: "Low",
+  high: "High",
+  rangeSentence: (low: string, high: string, nowWord: string, now: string) =>
+    `Over 7 days: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
+  rangeNow: "Now",
+  rangeLast: "Last price",
+
+  // The small line in a row.
+  sparkSentence: (from: string, to: string, low: string, high: string) =>
+    `Over 7 days: from ${from} to ${to}. Lowest ${low}, highest ${high}.`,
+
+  // The price chart.
+  chartDayAgo: "A day ago",
+  chartWeekAgo: "A week ago",
+  chartClosed: (date: string) => `Closed ${date}`,
+  chartUtc: "UTC",
+  endNow: "now",
+  endLast: "last price",
+  endResult: "result",
+  chartEmpty: "There is no price history to show for this question.",
+  chartOne: (value: string, date: string) => `One price so far: ${value} on ${date}.`,
+  chartSummary: (
+    first: string,
+    firstAt: string,
+    last: string,
+    lastAt: string,
+    low: string,
+    high: string,
+  ) => `From ${first} on ${firstAt} to ${last} on ${lastAt}. Lowest ${low}, highest ${high}.`,
+  chartSlider: "Price history",
+  chartHint:
+    "Use the arrow keys to step through the prices, Page Up and Page Down to move a day, " +
+    "and Home and End for the first and the last.",
+  chartPoint: (time: string, value: string) => `${time}: ${value} chance of yes`,
+  chartFigures: "Show the figures",
+  chartKeyFigures: "Key figures",
+  chartTableCaption: "Every price on the chart, for yes. Times are in UTC.",
+  chartColTime: "Time (UTC)",
+  chartColChance: "Chance of yes",
+  chartColNote: "Note",
+  noteHigh: "7-day high",
+  noteLow: "7-day low",
+  noteNow: "Now",
+  noteLast: "Last price",
+  noteGap: (hours: string) => `No prices for ${hours} hours after this`,
+  keyNow: "Now",
+  keyLast: "Last price",
+  keyDayAgo: "A day ago",
+  keyWeekAgo: "A week ago",
+  keyLow: "Lowest",
+  keyHigh: "Highest",
+  keyClosed: "Closed to forecasts",
+  keyResult: "Result",
+  keyAt: (value: string, when: string) => `${value} on ${when}`,
+  resultWord: (outcome: "yes" | "no") => (outcome === "yes" ? t.yes : t.no),
+
+  // A bookmaker's margin, beside none.
+  marginCaption: (margin: string) =>
+    `What a bookmaker's margin of ${margin} a pick takes from a stake, by the number of picks on ` +
+    `one slip, and what ${APP_NAME} takes.`,
+  marginColPicks: "Picks on one slip",
+  marginColBookmaker: (margin: string) => `A bookmaker at ${margin} a pick`,
+  marginColUs: APP_NAME,
+  marginPicks: (count: number) => (count === 1 ? "1 pick" : `${count} picks`),
+  marginUnavailable: "The margin figures could not be read just now.",
+
+  // One pick, and a slip of several.
+  pickChance: (side: "YES" | "NO") => (side === "YES" ? "chance of yes" : "chance of no"),
+  pickOdds: "fair odds",
+  pickRule: (probability: string) => `1 ÷ ${probability}`,
+  pickReturn: (stake: string) => `points back on a ${stake}-point stake`,
+  pickUnpriceable: t.settledAlready,
+  pickUnpriceableHint: t.settledAlreadyHint,
+  stepsTitle: "The chance that every pick so far is right",
+  stepPick: (index: number, side: string, chance: string) => `Pick ${index}: ${side} at ${chance}`,
+  allRight: (count: number, chance: string) =>
+    count === 1
+      ? `1 pick right: ${chance} chance`
+      : count === 2
+        ? `Both right: ${chance} chance`
+        : `All ${count} right: ${chance} chance`,
+  slipPays: (multiple: string) => `Pays ${multiple}`,
+  slipReturn: (amount: string, stake: string) =>
+    `${amount} points back on a ${stake}-point stake`,
+  slipCapped: (cap: string) => t.cappedAt(cap),
+  slipOverLimit: (limit: string) =>
+    `That is over the ${limit} limit for one slip, so the game would not take it.`,
+  slipTooMany: (max: number) => `A slip holds up to ${max} picks.`,
+  slipUnpriceable: "One pick is all but settled, so this slip has no price.",
+  slipEmpty: "No picks yet.",
+  stepArrow: "→",
+  pickUnpriceableNote: `${t.settledAlready}. ${t.settledAlreadyHint}`,
+} as const;

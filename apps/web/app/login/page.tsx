@@ -1,11 +1,16 @@
+import "@/components/game/game.css";
+
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AuthForm } from "@/components/AuthForm";
+import { AuthAside } from "@/components/game/AuthAside";
 import { NotOpenYet } from "@/components/NotOpenYet";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { t } from "@/lib/copy";
 import { nextStep } from "@/lib/next-step";
+import { getRules } from "@/lib/server/rules";
+import { getMoves } from "@/lib/server/questions";
 import { getViewer } from "@/lib/server/viewer";
 import { GAME_OPEN } from "@/lib/site";
 
@@ -24,15 +29,22 @@ export default async function LoginPage({
     return (
       <>
         <SiteHeader />
-        <main id="main" className="container-page flex-1 py-10 sm:py-16">
-          <NotOpenYet page />
+        <main id="main" className="gm flex-1">
+          <div className="wrap">
+            <NotOpenYet page />
+          </div>
         </main>
         <SiteFooter />
       </>
     );
   }
 
-  const [viewer, params] = await Promise.all([getViewer(), searchParams]);
+  const [viewer, params, rules, moves] = await Promise.all([
+    getViewer(),
+    searchParams,
+    getRules(),
+    getMoves(),
+  ]);
   const next = nextStep(params.next);
   // A registered player who is already signed in has nothing to do here. A
   // guest does: this is how they get back to an account they made earlier.
@@ -40,9 +52,12 @@ export default async function LoginPage({
 
   return (
     <>
-      <SiteHeader />
-      <main id="main" className="container-page flex-1 py-10 sm:py-16">
-        <AuthForm mode="login" next={next} />
+      <SiteHeader quiet />
+      <main id="main" className="gm flex-1">
+        <div className="wrap dp gm-auth">
+          <AuthForm mode="login" next={next} />
+          <AuthAside rules={rules} moves={moves} />
+        </div>
       </main>
       <SiteFooter />
     </>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import "@/components/reading/reading.css";
 import { JsonLd } from "@/components/JsonLd";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { DONATE_PAYEE, DONATE_URL, price, support } from "@/lib/content";
@@ -12,6 +13,38 @@ export const metadata = pageMetadata({
   description: support.metaDescription,
   path: "/support",
 });
+
+/** One of the other ways to help, as a card that is a link. */
+function Way({ way }: { way: (typeof support.other)[number] }) {
+  const inner = (
+    <>
+      <span className="rd-card__title">{way.title}</span>
+      <span className="rd-card__text">{way.body}</span>
+      <span className="rd-card__go">{way.cta}</span>
+    </>
+  );
+  // The front page runs the kit's scripts and is always reached by a full
+  // page load; another site is left the ordinary way.
+  if (way.href === "/") {
+    return (
+      <a href="/" className="rd-card">
+        {inner}
+      </a>
+    );
+  }
+  if (/^https?:\/\//.test(way.href)) {
+    return (
+      <a href={way.href} rel="noopener noreferrer" className="rd-card">
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <Link href={way.href} className="rd-card" prefetch={false}>
+      {inner}
+    </Link>
+  );
+}
 
 /**
  * How the site is paid for, and how to help pay for it.
@@ -28,6 +61,9 @@ export default async function SupportPage() {
   const rules = await getRules();
   const shop = rules?.shop.open ? rules.shop : null;
   const donations = DONATE_URL !== "";
+  // With no way to give, the page says who pays and leaves out what money
+  // would be for, so it does not ask for what it cannot take.
+  const giving = donations || shop !== null;
 
   return (
     <>
@@ -39,126 +75,134 @@ export default async function SupportPage() {
       />
       <SiteHeader />
 
-      <main id="main" className="container-page flex-1 py-10 sm:py-14">
-        <div className="max-w-2xl">
-          <h1 className="text-3xl font-black tracking-tight sm:text-4xl">{support.title}</h1>
-          <p className="mt-4 text-lg text-muted">{support.lede}</p>
+      <main id="main" className="flex-1">
+        <div className="wrap dp rd">
+          <header className="dp-head">
+            <h1>{support.title}</h1>
+            <p className="dp-lede">{giving ? support.lede : support.ledeClosed}</p>
+          </header>
 
-          {!donations && !shop ? <p className="notice mt-6">{support.nothingYet}</p> : null}
+          {giving ? null : <p className="rd-state mt-8">{support.nothingYet}</p>}
 
-          <h2 className="mt-10 text-xl font-bold tracking-tight">{support.costsTitle}</h2>
-          <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
-            {support.costs.map((cost) => (
-              <li key={cost.slice(0, 24)}>{cost}</li>
-            ))}
-          </ul>
-        </div>
-
-        {donations || shop ? (
-          <div className="mt-10 grid gap-5 lg:grid-cols-2">
-            {donations ? (
-              <section className="card p-6" aria-labelledby="donate">
-                <h2 id="donate" className="text-xl font-bold tracking-tight">
-                  {support.donateTitle}
+          {giving ? (
+            <section className="rd-section" aria-labelledby="costs">
+              <div className="rd-section__head">
+                <h2 id="costs" className="dp-h2">
+                  {support.costsTitle}
                 </h2>
-                <p className="mt-3 text-sm text-muted">{support.donateBody}</p>
-                <p className="mt-5">
-                  <a
-                    href={DONATE_URL}
-                    className="btn btn-primary"
-                    rel="noopener noreferrer"
-                    target="_blank"
-                  >
-                    {support.donateCta}
-                  </a>
-                </p>
-                <p className="mt-2 text-xs text-muted">{support.donateNote}</p>
-                {DONATE_PAYEE ? (
-                  <p className="mt-2 text-xs text-muted">{support.donatePayee(DONATE_PAYEE)}</p>
-                ) : null}
-              </section>
-            ) : null}
+              </div>
+              <ol className="rd-costs" role="list">
+                {support.costs.map((cost) => (
+                  <li key={cost.slice(0, 24)}>{cost}</li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
 
-            {shop && rules ? (
-              <section className="card p-6" aria-labelledby="points">
-                <h2 id="points" className="text-xl font-bold tracking-tight">
-                  {support.pointsTitle}
-                </h2>
-                <p className="mt-3 text-sm text-muted">{support.pointsBody(rules)}</p>
-                <h3 className="mt-4 text-sm font-semibold">{support.pointsPriceLabel}</h3>
-                <ul className="mt-2 space-y-1 text-sm tabular-nums">
-                  {shop.packs.map((pack) => (
-                    <li key={pack.points.minor}>
-                      {support.pointsPack(
-                        pack.points.display,
-                        price(pack.price_cents, shop.currency),
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-5">
-                  <Link href="/play?tab=account" className="btn btn-secondary">
-                    {support.pointsCta}
-                  </Link>
-                </p>
-                <p className="mt-2 text-xs text-muted">{support.pointsCtaNote}</p>
-              </section>
-            ) : null}
-          </div>
-        ) : null}
+          {giving ? (
+            <div className="rd-section rd-give">
+              {donations ? (
+                <section className="rd-give__card" aria-labelledby="donate">
+                  <h2 id="donate" className="dp-h2">
+                    {support.donateTitle}
+                  </h2>
+                  <p className="rd-give__text">{support.donateBody}</p>
+                  <p>
+                    <a
+                      href={DONATE_URL}
+                      className="btn btn--primary"
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      {support.donateCta}
+                    </a>
+                  </p>
+                  <div className="flex flex-col gap-1">
+                    <p className="rd-give__fine">{support.donateNote}</p>
+                    {DONATE_PAYEE ? (
+                      <p className="rd-give__fine">{support.donatePayee(DONATE_PAYEE)}</p>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
 
-        <div className="max-w-2xl">
+              {shop && rules ? (
+                <section className="rd-give__card" aria-labelledby="points">
+                  <h2 id="points" className="dp-h2">
+                    {support.pointsTitle}
+                  </h2>
+                  <p className="rd-give__text">{support.pointsBody(rules)}</p>
+                  <div>
+                    <h3 className="dp-label mb-2">{support.pointsPriceLabel}</h3>
+                    <ul className="rd-packs" role="list">
+                      {shop.packs.map((pack) => (
+                        <li key={pack.points.minor}>
+                          {support.pointsPack(pack.points.display, price(pack.price_cents, shop.currency))}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <p>
+                    <Link href="/play?tab=account" className="btn btn--secondary" prefetch={false}>
+                      {support.pointsCta}
+                    </Link>
+                  </p>
+                  <p className="rd-give__fine">{support.pointsCtaNote}</p>
+                </section>
+              ) : null}
+            </div>
+          ) : null}
+
           {shop && rules ? (
-            <>
-              <h2 id="terms" className="mt-10 text-xl font-bold tracking-tight">
-                {support.pointsTermsTitle}
-              </h2>
-              <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
+            <section className="rd-section" aria-labelledby="terms">
+              <div className="rd-section__head">
+                <h2 id="terms" className="dp-h2">
+                  {support.pointsTermsTitle}
+                </h2>
+              </div>
+              <ol className="rd-terms" role="list">
                 {support.pointsTerms(rules).map((term) => (
                   <li key={term.slice(0, 24)}>{term}</li>
                 ))}
-              </ul>
-
-              <div className="notice notice-warn mt-6">
-                <h2 className="font-bold">{support.cautionTitle}</h2>
-                <p className="mt-2 text-sm">
+              </ol>
+              <div className="rd-urgent mt-8">
+                <h3>{support.cautionTitle}</h3>
+                <p>
                   {support.cautionBody}{" "}
-                  <Link href="/help" className="font-semibold underline underline-offset-2">
+                  <Link href="/help" className="rd-plain-link" prefetch={false}>
                     {support.cautionLink}
                   </Link>
                 </p>
               </div>
-            </>
+            </section>
           ) : null}
 
-          {donations || shop ? (
-            <>
-              <h2 id="refunds" className="mt-10 text-xl font-bold tracking-tight">
+          {giving ? (
+            <section className="rd-section rd-measure" aria-labelledby="refunds">
+              <h2 id="refunds" className="dp-h2">
                 {support.refundsTitle}
               </h2>
-              <p className="mt-3 text-muted">{support.refundsBody}</p>
-            </>
+              <div className="rd-text mt-5">
+                <p>{support.refundsBody}</p>
+              </div>
+            </section>
           ) : null}
 
-          <h2 className="mt-10 text-xl font-bold tracking-tight">{support.otherTitle}</h2>
+          <section className="rd-section" aria-labelledby="other">
+            <div className="rd-section__head">
+              <h2 id="other" className="dp-h2">
+                {support.otherTitle}
+              </h2>
+            </div>
+            <ul className="rd-ways" role="list">
+              {support.other.map((way) => (
+                <li key={way.title}>
+                  <Way way={way} />
+                </li>
+              ))}
+            </ul>
+          </section>
         </div>
-
-        <ul className="mt-4 grid gap-4 md:grid-cols-3">
-          {support.other.map((way) => (
-            <li key={way.title} className="card p-5">
-              <h3 className="font-bold">{way.title}</h3>
-              <p className="mt-2 text-sm text-muted">{way.body}</p>
-              <p className="mt-3 text-sm">
-                <Link
-                  href={way.href}
-                  className="font-semibold text-accent underline underline-offset-2"
-                >
-                  {way.cta}
-                </Link>
-              </p>
-            </li>
-          ))}
-        </ul>
       </main>
 
       <SiteFooter />

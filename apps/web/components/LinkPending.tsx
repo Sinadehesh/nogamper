@@ -1,6 +1,7 @@
 "use client";
 
 import { useLinkStatus } from "next/link";
+import { type ReactNode, createContext, useContext } from "react";
 
 /**
  * A word inside a link while the page it leads to is on its way.
@@ -17,23 +18,38 @@ import { useLinkStatus } from "next/link";
  *
  * It has to be rendered inside the `<Link>` it reports on.
  */
+type Words = { label: string; slowLabel: string };
+
 type Props = {
-  label: string;
-  slowLabel: string;
+  /** The words, unless a `PendingWords` around the links gives them once for all. */
+  label?: string;
+  slowLabel?: string;
   /** On a line of its own beneath the link's text, rather than after it. */
   ownLine?: boolean;
 };
 
+const Shared = createContext<Words | null>(null);
+
+/**
+ * The two lines for every link inside it, given once: a list of four hundred
+ * links would otherwise carry the same two sentences four hundred times in
+ * the page's data.
+ */
+export function PendingWords({ label, slowLabel, children }: Words & { children: ReactNode }) {
+  return <Shared.Provider value={{ label, slowLabel }}>{children}</Shared.Provider>;
+}
+
 export function LinkPending({ label, slowLabel, ownLine = false }: Props) {
+  const shared = useContext(Shared);
   const { pending } = useLinkStatus();
   if (!pending) return null;
   return (
     <span
       role="status"
-      className={`text-sm font-normal text-muted ${ownLine ? "mt-2 block" : ""}`}
+      className={`text-[13px] leading-snug font-normal text-muted ${ownLine ? "mt-1.5 block" : ""}`}
     >
-      <span className="pending-hint">{label}</span>{" "}
-      <span className="pending-hint pending-hint-late">{slowLabel}</span>
+      <span className="pending-hint">{label ?? shared?.label}</span>{" "}
+      <span className="pending-hint pending-hint-late">{slowLabel ?? shared?.slowLabel}</span>
     </span>
   );
 }

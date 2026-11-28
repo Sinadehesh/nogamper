@@ -43,6 +43,8 @@ type Props = {
   at: string;
   /** Whether they are still changing. A finished question's are not. */
   changing: boolean;
+  /** Extra classes for where the page puts the line. */
+  className?: string;
 };
 
 /** The time printed on the copy of this page the server would hand out now. */
@@ -57,7 +59,7 @@ async function newestCopyIsFrom(): Promise<number | null> {
   return Number.isFinite(time) ? time : null;
 }
 
-export function AsOf({ at, changing }: Props) {
+export function AsOf({ at, changing, className }: Props) {
   const router = useRouter();
   const [state, setState] = useState<"current" | "looking" | "gave-up">("current");
   // Counts the reader's own "try again"s, so that each starts the looking over.
@@ -96,9 +98,9 @@ export function AsOf({ at, changing }: Props) {
   }, [at, changing, round, router]);
 
   return (
-    <p className="text-sm text-muted">
+    <p className={`text-sm leading-normal text-muted ${className ?? ""}`}>
       {asOf.label}{" "}
-      <time dateTime={at} {...{ [MARK]: "" }}>
+      <time dateTime={at} className="text-ink/80" {...{ [MARK]: "" }}>
         {dateTimeUtc(at)}
       </time>
       {". "}
@@ -110,7 +112,7 @@ export function AsOf({ at, changing }: Props) {
             {asOf.gaveUp}{" "}
             <button
               type="button"
-              className="font-semibold text-accent underline underline-offset-2"
+              className="min-h-11 font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-current"
               onClick={() => setRound((previous) => previous + 1)}
             >
               {t.retry}

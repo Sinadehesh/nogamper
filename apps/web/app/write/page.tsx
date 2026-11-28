@@ -19,9 +19,13 @@ export default async function WritePage() {
 
   return (
     <>
-      <SiteHeader />
-      <main id="main" className="container-page flex-1 py-10 sm:py-14">
-        <Writer displayName={viewer.display_name} />
+      {/* A guest is asked to create an account here, and that is the one
+          action on the page: the header offers no game beside it. */}
+      <SiteHeader quiet={viewer.is_guest} />
+      <main id="main" className="flex-1">
+        <div className="wrap dp rd">
+          <Writer displayName={viewer.display_name} />
+        </div>
       </main>
       <SiteFooter />
     </>

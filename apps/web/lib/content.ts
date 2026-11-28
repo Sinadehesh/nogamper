@@ -79,118 +79,266 @@ export const AUTHOR_URL = process.env.NEXT_PUBLIC_AUTHOR_URL ?? "";
 // Landing
 // ---------------------------------------------------------------------------
 
+/** A count of picks in a sentence, in words up to ten: "a five-pick bet". */
+function countWord(count: number): string {
+  const words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+  return words[count] ?? String(count);
+}
+
+/**
+ * A break's length in the game's own words ("24 hours", "3 days", "1 week",
+ * "30 days"): the label its break buttons carry (lib/format.ts, duration).
+ */
+export function breakLength(hours: number): string {
+  return duration(hours);
+}
+
+/**
+ * True only when the rules say, in so many words, that no points are on sale.
+ * "No money goes in" is only ever printed then: with the shop open, or with
+ * no rules to read, the page says the part that is true either way.
+ */
+function shopShut(rules: Rules): boolean {
+  return rules?.shop?.open === false;
+}
+
+/**
+ * "An 84% chance", "a 62% chance": the article a figure is read with, from
+ * its whole part ("8.5%" is read "eight point five").
+ */
+function articleFor(figure: number | string): "A" | "An" {
+  const text = String(figure).replace(/,/g, "");
+  if (/^[a-z]/i.test(text)) return /^[aeiou]/i.test(text) ? "An" : "A";
+  const whole = text.match(/^\d+/)?.[0] ?? "";
+  return /^(8|11|18|8\d|8\d\d)$/.test(whole) ? "An" : "A";
+}
+
+/** When a daily limit that has been raised or removed takes effect. */
+function loosensAfter(rules: Rules): string {
+  if (!rules) return "only after a wait";
+  const hours = rules.limit_loosen_delay_hours;
+  return hours === 24 ? "a day later" : `${duration(hours)} later`;
+}
+
+/**
+ * The front page (app/page.tsx and components/landing). Every figure in it
+ * is read from the live rules or the live questions; with neither to hand,
+ * each sentence has a version without the figure that is still true.
+ */
 export const landing = {
   metaTitle: `${APP_NAME} — prediction markets without the gambling`,
   metaDescription:
     `${APP_NAME} is a free forecasting game: real questions, live odds from real prediction ` +
     "markets, and points instead of money. Free to play, and nothing can ever be cashed out.",
 
+  // The share picture's small line over the headline (app/opengraph-image.tsx).
   eyebrow: "A free forecasting game",
-  headline: "All the fun of calling it. None of the betting.",
-  lede:
-    `${APP_NAME} is a prediction market you play with points instead of money. Real ` +
-    "questions about the news, live odds from real markets, a leaderboard to climb — and " +
-    "nothing to lose but an argument.",
+  headline: "A prediction market played with free points",
+  lede: (rules: Rules) =>
+    "Pick yes or no on real news questions at the chance a real market gives. " +
+    (rules
+      ? `Everyone starts with ${rules.signup_bonus.display} points, and none can be cashed out.`
+      : "Everyone starts with the same free points, and none can be cashed out."),
+  heroSecondary: "See what moved today",
+  heroNote: "No sign-up needed.",
+
+  // The buttons other pages show under their own headlines
+  // (components/SignedIn.tsx, StartActions).
   ctaGuest: "Start playing — no sign-up",
   ctaContinue: "Carry on playing",
   ctaSignUp: "Create an account",
-  ctaSignIn: "Sign in",
-  ctaNote: "Free to play. No card needed, and nothing to win or lose but points.",
 
-  promisesTitle: "What makes it not gambling",
-  promises: (rules: Rules) => [
-    {
-      title: "Points, never money",
-      body:
-        (selling(rules)
-          ? "Points cannot be cashed out, traded or won as anything worth money. "
-          : "You cannot buy points, cash them out or win anything worth money. ") +
-        "Everybody starts " +
-        (rules ? `with the same ${rules.signup_bonus.display}` : "with the same balance") +
-        ", and a free top-up every day means nobody is ever stuck" +
-        (selling(rules)
-          ? " or ever has to pay. You can buy extra points to support the site, and they are " +
-            "worth exactly as little as the free ones."
-          : "."),
-    },
-    {
-      title: "Fair odds, no house",
-      body:
-        "Every price is exactly 1 ÷ the probability. Nobody takes a cut on the way through, " +
-        "so the only way to end up ahead is to be right more often than the crowd.",
-    },
-    {
-      title: "Brakes that actually hold",
-      body:
-        "Set a daily limit or take a break. A limit is easy to tighten and slow to loosen, " +
-        "and a break cannot be cut short — enforced by the server, not left to willpower.",
-    },
-  ],
+  // The hero's picture: one open question as the game shows it. Its words
+  // are the game's own; these say what the picture is to a screen reader.
+  windowLabel: (question: string, yes: string, no: string) =>
+    `One question as ${APP_NAME} shows it, "${question}": ${articleFor(yes).toLowerCase()} ${yes} chance of yes and ${no} of ` +
+    "no, its chance over the past week, and the two picks, yes and no.",
+  windowEmpty:
+    "The live questions could not be read just now. They are read from the market every few minutes.",
+  windowPoints: (amount: string) => `${amount} points`,
+  slipPick: (side: string, chance: string) => `${side} at ${chance}`,
+  slipPays: (payout: string) => `pays ${payout} if right`,
+  slipLabel: (side: string, chance: string, stake: string, payout: string) =>
+    `A slip: ${side.toLowerCase()} at ${chance}, a stake of ${stake} points, and ${payout} ` +
+    "points back if it is right.",
 
-  stepsTitle: "How it works",
-  steps: (rules: Rules) => [
+  // The game, in three steps.
+  gameTitle: "The same questions a real market is trading",
+  // "a real market" opens the guide to what a prediction market is.
+  gameIntro: {
+    before: "Each question shows the chance ",
+    link: "a real market",
+    after:
+      " puts on it, read from Polymarket. Back the side you think is right and see your points " +
+      "before you confirm.",
+    guide: "what-is-a-prediction-market",
+  },
+  steps: (rules: Rules, chance: number) => [
     {
       title: "Pick a question",
-      body: "Will rates be cut? Will Bitcoin close the year above a line? Each has a live price.",
+      body: "Elections, crypto prices and the economy. Each one settles when the real answer is in.",
     },
     {
-      title: "Say yes or no",
-      body: "The price is the market's own estimate of the chance. Back the side you think is right.",
+      title: "Choose yes or no",
+      body: `${articleFor(chance)} ${chance}% chance means the market expects yes about ${chance} times in 100.`,
     },
     {
       title: "Stake some points",
+      body: rules
+        ? `From ${rules.min_stake.display} to ${rules.max_stake.display} points, with up to ` +
+          `${rules.max_legs} questions on one slip.`
+        : "A stake within the game's limits, and more than one question on a slip if you like.",
+    },
+  ],
+  stepListLabel: (rows: { question: string; chance: string }[]) =>
+    `Questions as the game lists them, the first one picked: ${rows
+      .map((row) => `${row.question} ${row.chance}`)
+      .join("; ")}.`,
+  stepPickLabel: (question: string, yes: string, no: string, yesPays: string, noPays: string) =>
+    `The two picks on "${question}": yes at ${yes}, which pays ${yesPays}, and no at ${no}, ` +
+    `which pays ${noPays}. Yes is chosen.`,
+  stepSlipLabel: (question: string, side: string, chance: string, stake: string, payout: string) =>
+    `A slip with one pick, ${side.toLowerCase()} at ${chance} on "${question}", a stake of ` +
+    `${stake} points, and ${payout} points back if it is right.`,
+
+  // What keeps it a game.
+  keepsTitle: "What keeps it a game",
+  keepsIntro: (rules: Rules) =>
+    (shopShut(rules)
+      ? "No money goes in or comes out, "
+      : "Points never come out as money, ") +
+    "nothing is taken from a pick, and the limits you set hold.",
+  keepsRules: "Read the rules",
+  keeps: (rules: Rules) => ({
+    points: {
+      title: rules
+        ? `Starts everyone at ${rules.signup_bonus.display} points`
+        : "Starts everyone with the same points",
       body:
-        "A little or a lot. " +
-        (rules && rules.max_legs > 1
-          ? `Combine up to ${rules.max_legs} questions on one slip if you are feeling sure.`
-          : "One question at a time."),
+        (rules
+          ? `A free top-up of ${rules.daily_topup.display} arrives every day. `
+          : "A free top-up arrives every day. ") +
+        (shopShut(rules)
+          ? "Points can't be cashed out, sold or traded."
+          : "You can't cash points out, sell them or trade them."),
+    },
+    odds: {
+      title: "Pays fair odds on every pick",
+      body: "A pick at 62% pays 1.61 times its stake: one divided by the chance, with no cut.",
+    },
+    limits: {
+      title: "Holds the limits you set in the game",
+      body: `A daily limit tightens at once and loosens ${loosensAfter(rules)}. A break can't be cut short.`,
+    },
+  }),
+  pointsLabel: (bonus: string, topUp: string) =>
+    `A new player's balance in the game: ${bonus} points, with the free daily top-up of ` +
+    `${topUp} ready to claim.`,
+  pointsLabelBare: "A new player's balance in the game, with the free daily top-up ready to claim.",
+  fairChance: "Chance of yes",
+  fairOdds: (probability: string) => `Fair odds, 1 ÷ ${probability}`,
+  fairTaken: `Taken by ${APP_NAME}`,
+  fairPays: (stake: string) => `A ${stake}-point pick pays`,
+  fairLabel: (chance: string, odds: string, stake: string, payout: string) =>
+    `A pick at ${chance} has fair odds of ${odds}, one divided by the chance. ${APP_NAME} ` +
+    `takes 0%, so ${stake} points pay ${payout}.`,
+  limitsLabel: (lengths: string[]) =>
+    "The game's own limits: a daily limit on stakes" +
+    (lengths.length ? `, and a break of ${list(lengths)}` : ", and a break") +
+    ", which cannot be cut short once it starts.",
+  breakLengths: (hours: number[]) => hours.map(breakLength),
+
+  // The margin, said once, large.
+  marginLabel: "What a bookmaker's margin takes",
+  // Under the figures: why a slip of many picks costs most, and the first
+  // steps for anyone who wants to stop betting.
+  marginGuides: [
+    { label: "Read why parlays cost more", guide: "why-parlays-are-a-bad-bet" },
+    { label: "Read how to stop gambling", guide: "how-to-stop-gambling" },
+  ],
+  marginStatement: (figures: { legs: number; margin: string; take: string } | null) =>
+    figures
+      ? {
+          lead:
+            `On ${articleFor(countWord(figures.legs)).toLowerCase()} ${countWord(figures.legs)}-pick bet with ${articleFor(figures.margin).toLowerCase()} ${figures.margin} margin on each ` +
+            `pick, a bookmaker keeps ${figures.take} of the stake before a single result is in. ` +
+            `${APP_NAME} keeps `,
+          strong: "none of it",
+          end: ".",
+        }
+      : {
+          lead:
+            "On a bet of several picks with a margin on each, a bookmaker keeps part of every " +
+            `stake before a single result is in. ${APP_NAME} keeps `,
+          strong: "none of it",
+          end: ".",
+        },
+
+  // What moved.
+  movedTitle: (window: "day" | "week") =>
+    window === "day"
+      ? "The questions that moved in the last day"
+      : "The questions that moved in the last week",
+  movedIntro: (window: "day" | "week") =>
+    window === "day"
+      ? "The questions whose chance changed most since yesterday, read from the market."
+      : "The questions whose chance changed most in the past week, read from the market.",
+  movedNone: "No question's chance has changed much lately. Every move is listed on its own page.",
+  // When the moves could not be read at all, which is not "nothing moved".
+  movedUnread: "The moves could not be read just now. They are read from the market every few minutes.",
+  movedAll: "See every move",
+  movedListHead: (window: "day" | "week") => (window === "day" ? "Past day" : "Past week"),
+  movedMeta: (category: string, event: string) => `${category} · ${event}`,
+
+  // Questions.
+  faqTitle: "Questions people ask first",
+  faq: [
+    {
+      question: `Is ${APP_NAME} gambling?`,
+      answer:
+        "No. Points can't be bought for an edge or cashed out, so there is nothing to win or " +
+        "lose but points.",
     },
     {
-      title: "See how you did",
-      body: "When the real-world answer is in, your forecast settles and your record updates.",
+      question: "Where do the questions and chances come from?",
+      answer:
+        `From Polymarket's public market data. ${APP_NAME} is not affiliated with Polymarket ` +
+        "and takes no money from it.",
+      // Said again in the footer on every page: a short screen (a phone, a small
+      // laptop) leaves it to that.
+      spare: true,
     },
-  ],
+    {
+      question: "What does a 62% chance mean?",
+      answer:
+        "The market expects yes about 62 times in 100, the way a forecaster says 62% chance " +
+        "of rain.",
+      link: { label: "Read the guide to market odds", guide: "how-to-read-prediction-market-odds" },
+    },
+    {
+      question: "What happens when a question ends?",
+      answer:
+        "When the real answer is in, every pick on it settles and the right ones pay their " +
+        "points.",
+    },
+    {
+      question: "Where can I find help if gambling is already a problem?",
+      answer: "This game is not a treatment. Free, confidential help is listed on one page.",
+      link: { label: "Get free help", href: "/help" },
+    },
+  ] as {
+    question: string;
+    answer: string;
+    link?: { label: string; guide?: string; href?: string };
+    spare?: boolean;
+  }[],
 
-  mathTitle: "The part a bookmaker would rather you skipped",
-  mathIntro: (margin: string) =>
-    "Somewhere that takes bets does not pay fair odds. It shaves a margin off every pick, and " +
-    `on a bet with several picks the margin multiplies. Here is what a ${margin} margin takes ` +
-    "from each stake, on average, before luck has had any say:",
-  mathColumnPicks: "On one slip",
-  mathPicks: (count: number) => (count === 1 ? "1 pick" : `${count} picks`),
-  mathThere: (margin: string) => `With a ${margin} margin`,
-  mathHere: `On ${APP_NAME}`,
-  mathNothing: "0%",
-  mathOutro:
-    "That is why the multi-pick bet is the product every betting site pushes hardest. " +
-    `${APP_NAME} charges nothing at any length, and its reality check will show you what ` +
-    "your own record would have cost somewhere that does.",
-
-  whyTitle: "Why this exists",
-  why: [
-    "Predicting things is genuinely fun. Having a view, putting something behind it, and " +
-    "finding out whether you were right is one of the better ways to follow the news.",
-    "Most places that let you do it want your money, and are built — carefully, by people " +
-    "who are good at it — to keep you coming back after you have lost some. This is the same " +
-    "game with the money taken out and those tricks left out: no streaks to protect, no " +
-    "limited-time boosts, no balance that shrinks if you stay away.",
-    "It is not a treatment, and it will not fix a gambling problem. It is somewhere to enjoy " +
-    "the good part without the part that ruins people.",
-  ],
-  whyHelpPrompt: "If gambling is already costing you more than you want it to,",
-  whyHelpLink: "there is real, free help here.",
-  whyMissionLink: "Read the mission",
-
-  readTitle: "Worth reading first",
-  readIntro:
-    "Plain answers to the questions people actually ask, each with its sources listed.",
-  // One from each group, in the order somebody new would want them.
-  readSlugs: [
-    "what-is-a-prediction-market",
-    "why-parlays-are-a-bad-bet",
-    "how-to-stop-gambling",
-  ],
-  readAll: "All the guides",
+  // The close: the promise again, one fact, and the name set large.
+  closeTitle: (rules: Rules) =>
+    rules
+      ? `Free to play, ${rules.signup_bonus.display} points to start`
+      : "Free to play, the same points for everyone",
+  closeLine: "Nothing is taken from a pick.",
 };
 
 // ---------------------------------------------------------------------------
@@ -201,6 +349,8 @@ export type Resource = {
   region: string;
   name: string;
   contact?: string;
+  /** The number as a phone dials it, for the tel: link: "+448088020133". */
+  tel?: string;
   body: string;
   href: string;
   linkLabel: string;
@@ -239,6 +389,7 @@ export const help = {
       region: "United Kingdom",
       name: "GamCare — National Gambling Helpline",
       contact: "0808 8020 133",
+      tel: "+448088020133",
       body: "Free to call, 24 hours a day, every day of the year. Also by live chat and WhatsApp.",
       href: "https://www.gamcare.org.uk/get-support/talk-to-us-now/",
       linkLabel: "gamcare.org.uk",
@@ -247,6 +398,7 @@ export const help = {
       region: "United States",
       name: "National Problem Gambling Helpline",
       contact: "1-800-MY-RESET (1-800-697-3738)",
+      tel: "+18006973738",
       body:
         "Call or text, or chat online. Free and confidential, run by the National Council on " +
         "Problem Gambling, and it connects you with help in your state.",
@@ -263,6 +415,7 @@ export const help = {
       linkLabel: "gamblersanonymous.org",
     },
   ] satisfies Resource[],
+  call: (name: string, number: string) => `Call ${name} on ${number}`,
   resourcesNote:
     "Phone numbers change. Each link goes to the service's own page, which is always the " +
     "authority. Details here were last checked in November 2026.",
@@ -331,6 +484,80 @@ export const about = {
     "terms page, because the whole point is that there is no catch.",
 
   rulesTitle: "The rules",
+  rulesIntro: "The figures the game runs on, read from its live settings.",
+  rulesUnavailable:
+    "The live rules could not be read just now. They are the same for everyone, and this " +
+    "table shows them again as soon as they can be read.",
+  // The rules at a glance: one row each, the figure in the middle.
+  ruleRows: (rules: GameRules) => [
+    {
+      label: "Starting balance",
+      value: `${rules.signup_bonus.display} points`,
+      note: "The same for everyone, free.",
+    },
+    {
+      label: "Daily top-up",
+      value: `${rules.daily_topup.display} points`,
+      note: "Claimed once a day.",
+    },
+    {
+      label: "Stake on a slip",
+      value: `${rules.min_stake.display} to ${rules.max_stake.display} points`,
+      note: "Your choice, within the range.",
+    },
+    {
+      label: "Picks on a slip",
+      value: `Up to ${rules.max_legs}`,
+      note: "Every pick must be right for the slip to pay.",
+    },
+    {
+      label: "Longest odds",
+      value: `${oddsCeiling(rules)} to 1`,
+      note: "The most a slip can multiply its stake by.",
+    },
+    {
+      label: "Payout cap",
+      value: `${rules.payout_cap.display} points`,
+      note: "The most one slip can return.",
+    },
+    {
+      label: "Margin",
+      value: "None",
+      note: "Odds are 1 ÷ the chance of the pick.",
+    },
+    {
+      // The game's own price for a pick, which the API holds inside this
+      // band: a question the market has beyond it is dealt at the edge.
+      label: "Price range",
+      value: `${percent(rules.min_prob)} to ${percent(rules.max_prob)}`,
+      note:
+        `A question the market puts below ${percent(rules.min_prob)} is priced at ` +
+        `${percent(rules.min_prob)}, one above ${percent(rules.max_prob)} at ` +
+        `${percent(rules.max_prob)}.`,
+    },
+    {
+      label: "Daily limit",
+      value: "Yours to set",
+      note: `Lower it at once; raising it takes ${duration(rules.limit_loosen_delay_hours)}.`,
+    },
+    {
+      label: "Breaks",
+      value: list(rules.break_options_hours.map(duration)),
+      note: "A break cannot be cut short.",
+    },
+    ...(selling(rules)
+      ? [
+          {
+            label: "Extra points",
+            value: `${price(rules.shop.price_per_thousand_cents, rules.shop.currency)} per 1,000`,
+            note:
+              "Optional. At most " +
+              `${price(rules.shop.monthly_cap_cents, rules.shop.currency)} a month per account.`,
+          },
+        ]
+      : []),
+  ],
+  reasonsTitle: "Why they are set this way",
   rules: (rules: Rules) => [
     {
       title: "Points have no value",
@@ -378,11 +605,11 @@ export const about = {
       title: "Long shots are capped",
       body:
         (rules
-          ? `A slip can carry at most ${oddsCeiling(rules)} to 1, and questions the market ` +
-            `already has above ${percent(rules.max_prob)} or below ${percent(rules.min_prob)} ` +
-            "are closed to forecasts. "
-          : "The longest price a slip can carry is capped, and questions that are all but " +
-            "settled are closed to forecasts. ") +
+          ? `A slip can carry at most ${oddsCeiling(rules)} to 1, and no pick is priced ` +
+            `below ${percent(rules.min_prob)} or above ${percent(rules.max_prob)}: a question ` +
+            "the market puts beyond those is priced at the nearer one. "
+          : "The longest price a slip can carry is capped, and so is a single pick's: a " +
+            "question the market has all but settled is priced at a set floor or ceiling. ") +
         "Without that the quickest way up the leaderboard would be a lottery ticket, and " +
         "this is not a lottery.",
     },
@@ -401,6 +628,25 @@ export const about = {
   ],
 
   sourceTitle: "Where the questions come from",
+  sourceFacts: [
+    {
+      key: "Where",
+      value: "Polymarket",
+      body: "Its public market data: the questions, and the crowd's price for each.",
+    },
+    {
+      key: "How often",
+      value: "About once a minute",
+      body:
+        `${APP_NAME}'s server reads the prices while it is running. Your browser never ` +
+        "contacts Polymarket.",
+    },
+    {
+      key: "When",
+      value: "Dated",
+      body: "The pages of questions and moves say when their prices were read, in UTC.",
+    },
+  ],
   source:
     "Questions and live prices are read from Polymarket's public market data. " +
     `${APP_NAME} is not affiliated with Polymarket, takes no part in its markets and places ` +
@@ -422,6 +668,7 @@ export const about = {
     "Rewards for recruiting friends",
   ],
 
+  buildEyebrow: "For developers",
   buildTitle: "How it is built",
   buildIntro:
     "A small system with the parts a larger one has, each doing one job. The source is open.",
@@ -514,12 +761,44 @@ export const mission = {
   ],
 
   scaleTitle: "Why it matters",
+  // The page's strongest numbers, set as figures. Each keeps the word that
+  // qualifies it in the sources ("about", "around") and names its source;
+  // `source` is the place of that source in `scaleSources`.
+  scaleFigures: [
+    {
+      qualifier: "About",
+      figure: "1.2%",
+      unit: "",
+      what: "of the world's adults have a gambling disorder.",
+      source: 0,
+    },
+    {
+      qualifier: "Around",
+      figure: "80",
+      unit: "million",
+      what: "adults live with gambling disorder or problematic gambling.",
+      source: 1,
+    },
+    {
+      qualifier: "Close to",
+      figure: "450",
+      unit: "million",
+      what: "adults are at some risk of harm.",
+      source: 1,
+    },
+    {
+      qualifier: "Approaching",
+      figure: "$700",
+      unit: "billion",
+      what: "a year lost to gambling by 2028, in US dollars, as the commission expects.",
+      source: 1,
+    },
+  ],
+  scaleBy: [
+    "The World Health Organization's estimate",
+    "A commission in The Lancet Public Health, 2024",
+  ],
   scale: [
-    "The World Health Organization estimates that about 1.2% of the world's adults have a " +
-    "gambling disorder. A commission published in The Lancet Public Health in 2024 put the " +
-    "number living with gambling disorder or problematic gambling at around 80 million " +
-    "adults, with close to 450 million at some risk of harm, and expects what people lose " +
-    "to gambling each year to approach 700 billion US dollars by 2028.",
     "Those are large numbers and they are hard to feel. Each one is a person, and usually a " +
     "household around them. Most never ask for help. Many started with something that " +
     "looked like a bit of fun on a phone.",
@@ -643,6 +922,25 @@ export const mission = {
     "them. Later studies found that it does not take money to work — only people who are " +
     "trying to be right. That is the idea this site is built on.",
   ],
+  // The report's three figures, drawn as a small display beside the story.
+  // Nothing else about the guesses is known to this page, so nothing else
+  // is drawn: no spread, no shape, only how many there were and where the
+  // middle one fell against the ox.
+  nameNumbers: { guesses: 787, middle: 1207, ox: 1198 },
+  nameFigure: {
+    label: "The 1907 competition, from the report's own figures",
+    guessesWord: "guesses",
+    dots:
+      "One dot for each guess, from the lowest to the highest. The ringed one is the middle " +
+      "guess: as many guesses above it as below.",
+    lower: "Lower guesses",
+    higher: "Higher guesses",
+    middle: "The middle guess",
+    ox: "The ox",
+    pounds: (weight: string) => `${weight} lb`,
+    apart: (gap: string) => `${gap} lb apart.`,
+    fromZero: "Both bars start at 0 lb.",
+  },
   nameSources: [
     {
       label: "“Vox Populi”, Nature, 7 March 1907",
@@ -701,9 +999,13 @@ export const privacy = {
     "As little as it can. This page says exactly what is stored, why, and how to remove it. " +
     "It is a plain description of how the site works rather than a legal document.",
   updatedLabel: "Last updated",
+  updated: (when: string) => `Last updated ${when}`,
+  indexLabel: "On this page",
+  indexCount: (count: number) => `${count} sections`,
 
   sections: [
     {
+      id: "guest",
       title: "If you play as a guest",
       body: [
         "A guest account is a random identifier kept in a cookie in your browser, with your " +
@@ -712,6 +1014,7 @@ export const privacy = {
       ],
     },
     {
+      id: "account",
       title: "If you create an account",
       body: [
         "Your email address, used only to sign in. Nothing on this site sends email, so the " +
@@ -722,6 +1025,7 @@ export const privacy = {
       ],
     },
     {
+      id: "visible",
       title: "What other people can see",
       body: [
         "The leaderboard shows the first letter of your display name and nothing else. If " +
@@ -730,6 +1034,7 @@ export const privacy = {
       ],
     },
     {
+      id: "cookies",
       title: "Cookies and your browser",
       body: [
         "Two cookies, both set when you start playing: one that holds your session and " +
@@ -740,6 +1045,7 @@ export const privacy = {
       ],
     },
     {
+      id: "visits",
       title: "Counting visits",
       body: [
         "Page views are counted in aggregate, without cookies, using the privacy-friendly " +
@@ -751,6 +1057,7 @@ export const privacy = {
       ],
     },
     {
+      id: "others",
       title: "Who else is involved",
       body: [
         "The companies that host the site, its database and its application process data on " +
@@ -761,6 +1068,7 @@ export const privacy = {
       ],
     },
     {
+      id: "payments",
       title: "If you pay for anything",
       body: [
         "Payments are taken by Stripe, on Stripe's own page. Your card details go to Stripe " +
@@ -776,6 +1084,7 @@ export const privacy = {
       ],
     },
     {
+      id: "deleting",
       title: "Changing or deleting it",
       body: [
         "You can change your display name, withdraw or delete anything you have written, and " +
@@ -786,6 +1095,7 @@ export const privacy = {
       ],
     },
     {
+      id: "questions",
       title: "Questions",
       body: [
         "Use “Write to us” on the account page. Replies appear there too.",
@@ -807,14 +1117,14 @@ export const PRICE_SOURCE =
   "Prices are read from Polymarket's public market data. " +
   `${APP_NAME} is not affiliated with Polymarket and takes no money from it.`;
 
-function pointsWord(points: string): string {
-  return Number(points) === 1 ? "point" : "points";
-}
-
-/** "up 25 points", "down 1 point", "unchanged" — a change, in words. */
+/**
+ * "up 25 percentage points", "down 1 percentage point", "unchanged": a change
+ * in a chance, in words. "Points" alone are the game's currency and nothing
+ * else, so a change is never written in them.
+ */
 export function changeInWords(points: string, direction: "up" | "down" | "flat"): string {
   if (direction === "flat") return "unchanged";
-  return `${direction} ${points} ${pointsWord(points)}`;
+  return `${direction} ${points} percentage ${Number(points) === 1 ? "point" : "points"}`;
 }
 
 /** The line that dates a page's figures, and what it says while newer ones are fetched. */
@@ -839,38 +1149,51 @@ export const movesPage = {
 
   title: "What moved",
   lede:
-    "The questions whose chances changed most, and from what to what. A change is reported " +
-    "here. It is not explained, and it is not a tip.",
+    "The questions whose chance of yes changed most in the last day and the last week, " +
+    "read from Polymarket.",
+  notATipLine: "Each change is reported here, not explained, and none of it is a tip.",
+  // Over each list: when its "then" is, a day or a week before the change
+  // figures were read. "Now" is the page's own time, in its "As of" line.
+  sectionFrom: (start: string) => `Each change is measured from ${start} to now.`,
 
   dayTitle: "In the last day",
   weekTitle: "In the last week",
-  fromTo: (was: string, now: string) => `From ${was} to ${now}`,
-  emptyDay: (points: string) =>
-    `Nothing has moved by ${points} points or more in the last day.`,
-  emptyWeek: (points: string) =>
-    `Nothing has moved by ${points} points or more in the last week.`,
+  count: (shown: number) =>
+    shown === 1 ? "1 question, the largest move first" : `${shown} questions, the largest move first`,
+  windowWords: { day: "in a day", week: "in a week" },
+  // A move whose own figure was read at another time than the rest of the
+  // list, so its "then" is another moment: its own start.
+  rowFrom: (start: string) => `Measured from ${start}`,
+  emptyDay: (size: string) =>
+    `Nothing has moved by ${size} percentage points or more in the last day.`,
+  emptyWeek: (size: string) =>
+    `Nothing has moved by ${size} percentage points or more in the last week.`,
   unavailable:
     "The figures could not be fetched just now, or are being read again. That takes a " +
     "minute or two. The rest of the site is unaffected.",
 
+  keyTitle: "How to read a row",
+  keyThen: "then",
+  keyNow: "now",
+  key: [
+    "Hollow is where the chance of yes stood at the start; filled is where it is now.",
+    "Every row has the same track from 0% to 100%, so a longer arrow is a bigger move.",
+  ],
+
   rulesTitle: "What counts as a move",
   rules: (day: string, week: string, hours: number, margin: string) => [
-    `A change of ${day} points or more in a day, or ${week} or more in a week. Less than ` +
-    "that is the ordinary noise of a market, and a page of it would be a page of nothing.",
-    `Only questions that are still open: more than ${hours} hours from closing, and not ` +
-    `within ${margin} points of certain at either end. A price collapsing as a question ` +
-    "is decided is a result arriving, not news.",
-    "The change is measured from where the question stood a day or a week ago to its " +
-    "price now. A move that has already come back is not listed.",
+    `At least ${day} percentage points in a day, or ${week} in a week.`,
+    `Open questions only, more than ${hours} hours before they close.`,
+    `None within ${margin} percentage points of 0% or 100%: that is a result arriving.`,
+    "From where it stood then to its price now, so a move that came back is not listed.",
   ],
 
   notATipTitle: "A move is not a tip",
   notATip: [
-    "A price moves when the people trading on it change their minds, or when one large " +
-    "trade pushes it. Sometimes that is news arriving. Sometimes it is one opinion and a " +
-    "thin market. This page cannot tell you which, and neither can anyone who says they can.",
-    "Some moves hold. Many drift back. Nothing here says what happens next — and on this " +
-    "site there is nothing to win by guessing, which is rather the point.",
+    "A price moves when the people trading change their minds, or when one large trade " +
+      "pushes it. Sometimes that is news arriving. Sometimes it is one opinion in a thin market.",
+    "This page cannot tell you which, and neither can anyone who says they can. Some moves " +
+      "hold and many drift back. Nothing here says what happens next.",
   ],
 
   allLink: "Browse every question",
@@ -883,14 +1206,42 @@ export const questionsPage = {
     "currently puts the chance at. Read them freely; nothing here can be bet on.",
   title: "Every question",
   lede:
-    "Every question this site follows, by subject. Each has a page of its own: what the " +
-    "market says, how that has changed, and how it ended once it has.",
-  open: "Open",
+    `Every question ${APP_NAME} follows, by subject. Each one has a page with its chance of ` +
+    "yes, how that has changed, and its chart.",
+  countsLabel: "Questions by subject",
+  openCount: (open: number) => `${open} open`,
+  finishedCount: (finished: number) => `${finished} finished`,
   finished: "Finished",
-  finishedIntro: "Questions that have closed or been resolved. Their pages keep the record.",
-  unavailable: "The list of questions could not be fetched just now.",
+  finishedIntro:
+    "Questions that have closed or been resolved, the most recent first. Their pages keep " +
+    "the record.",
+  finishedShown: (shown: number, total: number) => `The ${shown} most recent of ${total}.`,
+  finishedStates: {
+    closed: "Closed, waiting for a result",
+    resolved: "Resolved",
+  },
+  others: "Other questions",
+  // Where a family's questions differ, read aloud in its heading.
+  slot: "…",
+  unavailable: "The list of questions could not be fetched just now. Try again in a minute or two.",
   empty: "There are no questions to list yet. They are read from the market every hour.",
   count: (shown: number) => (shown === 1 ? "1 question" : `${shown} questions`),
+
+  // For the filter, which runs in the browser and so is handed plain words:
+  // {shown} and {total} are filled in there.
+  filter: {
+    search: "Find a question",
+    placeholder: "Bitcoin, Sweden, the Fed",
+    subject: "Subject",
+    state: "State",
+    all: "All",
+    states: { open: "Open", closed: "Waiting for a result", resolved: "Resolved" },
+    showingAll: "Showing all {total} questions",
+    showing: "Showing {shown} of {total} questions",
+    sectionCount: "{shown} of {total}",
+    none: "No question matches. Try a shorter word, or clear the search.",
+    clear: "Clear the search",
+  },
 };
 
 export const questionPage = {
@@ -905,62 +1256,127 @@ export const questionPage = {
     `answer was decided. Asked: ${question}`,
 
   trail: "Questions",
+  // The state of a question in a word, and then in a sentence beside it.
+  stateWords: {
+    open: "Open",
+    closed: "Closed",
+    resolved: (outcome: string) => `Resolved ${outcome}`,
+    void: "Cancelled",
+    unfollowed: "No longer followed",
+  },
   states: {
-    open: (closes: string) => `Open. Forecasts close on ${closes}.`,
+    open: (closes: string) => `Forecasts close on ${closes}.`,
     closed: (when: string) => `Closed to forecasts on ${when}, and waiting for its result.`,
-    resolved: (outcome: string, when: string) => `Resolved ${outcome} on ${when}.`,
-    void: "Cancelled by its source. Nobody was right or wrong about it.",
-    unfollowed: (when: string) =>
-      `No longer followed here. The price shown is the last one this site read, on ${when}.`,
+    resolved: (when: string) => `Settled on ${when}.`,
+    void: "Its source called it off, so nobody was right or wrong about it.",
+    unfollowed: (when: string) => `The price shown is the last one ${APP_NAME} read, on ${when}.`,
   },
   lastPrice: "Last price",
+  answerWord: "was the answer",
 
   changesTitle: "How it has changed",
+  // Each over a track: "In the last day 97% → 22%", from where it stood then
+  // to the price at the top of the page.
   windows: { day: "In the last day", week: "In the last week" },
-  // A question younger than a week has no figure for the week, and the note
-  // should not promise a line that is not there.
-  changesNote: (day: boolean, week: boolean) =>
-    `From where it stood ${day && week ? "a day and a week" : week ? "a week" : "a day"} ago ` +
-    "to the price above.",
+  // A window with no figure, for a question that is not younger than it (one
+  // that is says "No figure for the week yet").
+  noFigure: { day: "No figure for the day", week: "No figure for the week" },
+
+  // The week's range, named for the week only where its figures cover one.
+  // Otherwise it says the dates they cover: a question younger than a week, a
+  // finished one whose figures end with it, and the site's own record, which
+  // has holes in it.
+  rangeTitle: { live: "Lowest and highest this week", last: "Lowest and highest in its last week" },
+  rangeSince: {
+    title: (since: string) => `Lowest and highest since ${since}`,
+    sentence: (since: string) => (low: string, high: string, nowWord: string, now: string) =>
+      `Since ${since}: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
+  },
+  rangeBetween: {
+    title: (from: string, to: string) => `Lowest and highest, ${from} to ${to}`,
+    sentence: (from: string, to: string) => (low: string, high: string, nowWord: string, now: string) =>
+      `From ${from} to ${to}: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
+  },
+  // Over the one figure of a range whose lowest and highest print the same.
+  rangeFlat: "Unchanged at",
+  rangeRecorded: {
+    title: (since: string) => `Lowest and highest recorded since ${since}`,
+    sentence: (since: string) => (low: string, high: string, nowWord: string, now: string) =>
+      `Of the prices recorded since ${since}, with gaps: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
+  },
 
   // Not "the last week": a new question has less than a week to show, and a
   // finished one's week is not the last. The dates are under the chart.
   chartTitle: "Price history",
-  chartSummary: (
-    first: string,
-    firstAt: string,
-    last: string,
-    lastAt: string,
-    low: string,
-    high: string,
-  ) => `From ${first} on ${firstAt} to ${last} on ${lastAt}. Lowest ${low}, highest ${high}.`,
   chartSource: {
-    source: "Hourly prices from the market's own history, for Yes.",
-    own: "Prices for Yes as this site recorded them. There are gaps where it was not running.",
+    source: "The chance of yes by the hour, from the market's own history.",
+    own: `The chance of yes as ${APP_NAME} recorded it, with gaps where it was not running.`,
     none: "There is no price history to show for this question.",
   },
+  chartScale: "The scale is always 0% to 100%, so a small move looks small.",
 
   meaningTitle: "What the number means",
-  meaning: [
-    "It is the price, from 0 to 100, at which people are trading a contract that pays 100 " +
-    "if the answer is yes. Read as a chance: at 55%, the market is saying this happens a " +
-    "little more often than not.",
-    "It is the opinion of the people trading, weighted by their money. It is often a good " +
-    "estimate. It is not knowledge, and it can be wrong for a long time.",
-  ],
+  meaning: {
+    live: (inHundred: string, band: string) => `The market gives yes ${inHundred} in 100: ${band}.`,
+    last: (inHundred: string, band: string) =>
+      `At its last price, the market gave yes ${inHundred} in 100: ${band}.`,
+    fewerThanOne: "fewer than 1",
+    moreThan99: "more than 99",
+    // For a price held on the game's band, which says only "1% or less".
+    atMost: (count: string) => `at most ${count}`,
+    atLeast: (count: string) => `at least ${count}`,
+    orLess: (price: string) => `${price} or less`,
+    orMore: (price: string) => `${price} or more`,
+    bands: {
+      noAlmost: "close to ruled out",
+      noVery: "very unlikely",
+      no: "unlikely, though far from ruled out",
+      noLean: "a little less than even",
+      even: "close to even",
+      yesLean: "a little better than even",
+      yes: "likely, though far from certain",
+      yesVery: "very likely",
+      yesAlmost: "close to certain",
+    },
+    contract: (price: string) =>
+      `On Polymarket, a contract that pays 100 if the answer is yes trades at ${price}.`,
+    about: (price: string) => `about ${price}`,
+    lessThan: (price: string) => `less than ${price}`,
+    moreThan: (price: string) => `more than ${price}`,
+    estimate:
+      "That is an estimate by the people trading, weighted by their money. It is not " +
+      "knowledge, and it can stay wrong for a long time.",
+    closed: "Forecasts are closed while the market waits for the result.",
+    resolved: (outcome: string) => `The answer was ${outcome}.`,
+    resolvedRange: (low: string, high: string) =>
+      `In its last week of trading, the market's chance of yes ran between ${low} and ${high}.`,
+    // When its figures cover less than that week (see rangeSince).
+    resolvedRangeFrom: (from: string, low: string, high: string) =>
+      `From ${from} to its result, the market's chance of yes ran between ${low} and ${high}.`,
+    void: "Its source cancelled it, so there is no answer to measure a forecast against.",
+    unfollowed: `${APP_NAME} no longer reads this market, so the figures above are the last it saw.`,
+  },
   meaningLink: "How to read prediction market odds",
 
   decidedTitle: "How the answer is decided",
-  decidedIntro: "In the market's own words:",
+  decidedIntro: "In the market's own words.",
   decidedMore: "Read the rest of the rules",
 
-  playTitle: "Think the market has it wrong?",
+  playTitle: "Your own forecast",
   playBody:
-    "Say so with points instead of money. There is nothing to win here, and nothing to " +
-    "lose but points that are free.",
+    "Say what you think with points instead of money. The points are free, and there is " +
+    "nothing else to win or lose.",
   playCta: "Make a forecast",
-  movesLink: "See what else moved",
+  // Shown in that panel when the game's price for this question sits on the
+  // edge of its band and so differs from the market's figure above. Every
+  // figure in it prints as the game prints a chance.
+  playBand: (low: string, high: string, yes: string, no: string) =>
+    `The game prices every pick between ${low} and ${high}, so here yes is at ${yes} and no at ${no}.`,
 
+  // Under the line that dates the page, when the chance shown is the
+  // market's own last reading and that is a while older than the page.
+  readingAt: (when: string) => `The chance shown is the market's latest reading, from ${when}.`,
+  movesLink: "See what else moved",
 };
 
 export const articlesPage = {
@@ -969,10 +1385,32 @@ export const articlesPage = {
     "Plain-English guides to how betting odds and prediction markets really work, and to " +
     "stepping back from gambling — with sources, and no affiliate links.",
 
-  title: "Plain answers, no sales pitch",
+  // The page's name, the word the header and every guide's trail use for it.
+  title: "Guides",
   lede:
     "How odds and prediction markets really work, and how to step back from gambling when " +
-    "it stops being fun. Written carefully, with the sources listed.",
+    "it stops being fun. Each guide lists its sources at the end.",
+
+  // The way in for somebody new: the first guide shown large, the next two
+  // beside it. A slug that is not a guide is skipped.
+  startTitle: "Start here",
+  startIntro:
+    "New to this? Read these three in order: what a prediction market is, what its prices " +
+    "mean, and where a bookmaker's fee hides.",
+  startPath: [
+    "what-is-a-prediction-market",
+    "how-to-read-prediction-market-odds",
+    "bookmaker-margin-explained",
+  ],
+  groupsTitle: "Every guide, by topic",
+  guideCount: (count: number) => (count === 1 ? "1 guide" : `${count} guides`),
+
+  // Inside a guide.
+  tocLabel: "On this page",
+  tocCount: (count: number) => (count === 1 ? "1 section" : `${count} sections`),
+  tableLabel: (n: number) => `Table ${n}`,
+  anchorLabel: (heading: string) => `Link to the section “${heading}”`,
+  tryOther: "Read our mission",
 
   // In the order they appear on the page.
   topics: {
@@ -1025,11 +1463,15 @@ export const support = {
     "There is no advertising here and no money from gambling companies. That is the point of " +
     "the place, and it means the bills are paid by the person who built it and by the " +
     "people who use it. If it has been useful to you, this is how to help it continue.",
+  // The lede while there is no way to give: donations not open, nothing on
+  // sale. The page then leaves out what the money is for.
+  ledeClosed:
+    "There is no advertising here and no money from gambling companies. That is the point of " +
+    "the place, and for now it means the person who built it pays all the bills.",
 
   nothingYet:
     "Right now there is nothing to pay for: donations are not open and nothing is for sale. " +
-    "The site is paid for by the person who built it. If that changes, this page is where " +
-    "it will say so — and the game will stay free either way.",
+    "If that changes, this page will say so first, and the game will stay free either way.",
 
   costsTitle: "What the money is for",
   costs: [
@@ -1102,10 +1544,11 @@ export const support = {
     {
       title: "Tell one person",
       body:
-        "Somebody you know likes calling the football, or is trying to bet less. A link from " +
-        "a friend does more than any advertisement this site will never buy.",
+        "Somebody you know likes calling elections or the price of Bitcoin, or is trying to " +
+        "bet less. A link from a friend does more than any advertisement this site will " +
+        "never buy.",
       href: "/",
-      cta: "The front page",
+      cta: "Go to the front page",
     },
     {
       title: "Check our work",
@@ -1116,4 +1559,18 @@ export const support = {
       cta: "Read the code",
     },
   ],
+};
+
+// ---------------------------------------------------------------------------
+// A page that does not exist
+// ---------------------------------------------------------------------------
+
+export const notFoundPage = {
+  metaTitle: "Page not found",
+  title: "Page not found",
+  lede:
+    "The address may be mistyped, or the page has moved. Every question on the site is listed " +
+    "on one page.",
+  questionsLink: "See every question",
+  homeLink: "Go to the front page",
 };

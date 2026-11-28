@@ -13,7 +13,8 @@ import { t } from "@/lib/copy";
  * lives in localStorage — because it costs nothing to keep there and a
  * reminder is not something a server needs to enforce.
  *
- * On by default, at half an hour. Opting out is one tap on the safer-play tab.
+ * On by default, at half an hour. Opting out is one tap, on the account view
+ * or from the reminder itself.
  */
 
 const STORAGE_KEY = "session-reminder-minutes";
@@ -44,7 +45,14 @@ export function writeReminderMinutes(minutes: number): void {
   window.dispatchEvent(new Event(CHANGED_EVENT));
 }
 
-export function SessionReminder({ onTakeBreak }: { onTakeBreak: () => void }) {
+export function SessionReminder({
+  onTakeBreak,
+  onSettings,
+}: {
+  onTakeBreak: () => void;
+  /** Opens the place the reminder is set, so turning it off is one tap away. */
+  onSettings?: () => void;
+}) {
   const [interval, setIntervalMinutes] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [dismissedAt, setDismissedAt] = useState(0);
@@ -69,17 +77,13 @@ export function SessionReminder({ onTakeBreak }: { onTakeBreak: () => void }) {
   if (!due) return null;
 
   return (
-    <div
-      role="status"
-      className="fixed inset-x-3 bottom-3 z-30 mx-auto max-w-md rounded-2xl border border-line
-                 bg-surface p-4 shadow-xl"
-    >
-      <p className="font-bold">{t.reminderHeadline(elapsed)}</p>
-      <p className="mt-1 text-sm text-muted">{t.reminderBody}</p>
-      <div className="mt-3 flex gap-2">
+    <div role="status" className="gm-toast gm">
+      <p className="gm-h gm-h--sm">{t.reminderHeadline(elapsed)}</p>
+      <p className="gm-small">{t.reminderBody}</p>
+      <div className="btn-row">
         <button
           type="button"
-          className="btn btn-primary btn-sm"
+          className="btn btn--secondary btn-sm"
           onClick={() => {
             setDismissedAt(elapsed);
             onTakeBreak();
@@ -87,13 +91,21 @@ export function SessionReminder({ onTakeBreak }: { onTakeBreak: () => void }) {
         >
           {t.reminderBreak}
         </button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => setDismissedAt(elapsed)}
-        >
+        <button type="button" className="gm-quiet" onClick={() => setDismissedAt(elapsed)}>
           {t.reminderContinue}
         </button>
+        {onSettings ? (
+          <button
+            type="button"
+            className="gm-quiet"
+            onClick={() => {
+              setDismissedAt(elapsed);
+              onSettings();
+            }}
+          >
+            {t.reminderChange}
+          </button>
+        ) : null}
       </div>
     </div>
   );

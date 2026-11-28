@@ -1,14 +1,12 @@
-import Link from "next/link";
-
 import { JsonLd } from "@/components/JsonLd";
-import { LinkPending } from "@/components/LinkPending";
+import { DIRECTORY_ID, Directory, byCategory } from "@/components/questions/Directory";
+import { QuestionFilter } from "@/components/questions/QuestionFilter";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
-import { FETCHING, FETCHING_SLOWLY, PRICE_SOURCE, questionsPage } from "@/lib/content";
-import { t } from "@/lib/copy";
+import { PRICE_SOURCE, questionsPage } from "@/lib/content";
+import { categoryLabel, t } from "@/lib/copy";
 import { breadcrumbLd, pageMetadata } from "@/lib/seo";
 import { keepEarlierCopy } from "@/lib/server/public";
 import { allQuestions } from "@/lib/server/questions";
-import type { QuestionIndexItem } from "@/lib/types";
 
 // Kept for five minutes, then built again behind the next visitor.
 export const revalidate = 300;
@@ -24,47 +22,16 @@ export const metadata = pageMetadata({
 // is only how far back the list on this page goes.
 const FINISHED_SHOWN = 100;
 
-function byCategory(questions: QuestionIndexItem[]): [string, QuestionIndexItem[]][] {
-  const groups = new Map<string, QuestionIndexItem[]>();
-  for (const question of questions) {
-    groups.set(question.category, [...(groups.get(question.category) ?? []), question]);
-  }
-  return [...groups.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([category, items]) => [
-      category,
-      // Numbers read as numbers, so "$5,000" comes before "$10,000".
-      [...items].sort((a, b) => a.question.localeCompare(b.question, "en", { numeric: true })),
-    ]);
-}
-
-function QuestionLinks({ questions }: { questions: QuestionIndexItem[] }) {
-  return (
-    <ul className="mt-3 grid gap-x-8 gap-y-2 md:grid-cols-2">
-      {questions.map((question) => (
-        <li key={question.slug}>
-          {/* Not fetched ahead of a click: there are hundreds of these, each
-              page is built when first asked for, and scrolling past them
-              should not build them all. */}
-          <Link
-            href={`/questions/${question.slug}`}
-            prefetch={false}
-            className="hover:text-accent hover:underline"
-          >
-            {question.question} <LinkPending label={FETCHING} slowLabel={FETCHING_SLOWLY} />
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /**
- * Every question, as a plain list of links.
+ * Every question, as links.
  *
  * It exists so that each question's page can be reached by a person browsing
  * and by a search engine following links, not only from the game — which a
- * visitor without an account, and a crawler, never see.
+ * visitor without an account, and a crawler, never see. The index has no
+ * figures (a chance per row would be one request per question), so the page
+ * says once where the figures are, and makes four hundred titles scannable
+ * instead: by subject, with near-identical titles gathered into families and
+ * a filter that hides what does not match.
  */
 export default async function QuestionsPage() {
   const read = await allQuestions();
@@ -73,7 +40,9 @@ export default async function QuestionsPage() {
   if (read === null) keepEarlierCopy("The list of questions");
   const all = read ?? [];
   const open = all.filter((question) => question.state === "open");
-  const finished = all.filter((question) => question.state !== "open").slice(0, FINISHED_SHOWN);
+  const allFinished = all.filter((question) => question.state !== "open");
+  const finished = allFinished.slice(0, FINISHED_SHOWN);
+  const subjects = byCategory(open);
 
   return (
     <>
@@ -85,36 +54,57 @@ export default async function QuestionsPage() {
       />
       <SiteHeader />
 
-      <main id="main" className="container-page flex-1 py-10 sm:py-14">
-        <div className="max-w-3xl">
-          <h1 className="text-4xl font-black tracking-tight sm:text-5xl">{questionsPage.title}</h1>
-          <p className="mt-4 text-lg text-muted">{questionsPage.lede}</p>
+      <main id="main" className="flex-1">
+        <div className="wrap dp">
+          <header className="dp-head">
+            <h1>{questionsPage.title}</h1>
+            <p className="dp-lede">{questionsPage.lede}</p>
+          </header>
+
+          {read === null ? <p className="notice mt-8 max-w-2xl">{questionsPage.unavailable}</p> : null}
+          {read?.length === 0 ? <p className="notice mt-8 max-w-2xl">{questionsPage.empty}</p> : null}
+
+          {all.length > 0 ? (
+            <>
+              {/* The counts are also the way to each subject without a script. */}
+              <nav className="qx-counts" aria-label={questionsPage.countsLabel}>
+                {open.length > 0 ? (
+                  <span className="qx-count qx-count--lead">
+                    <b>{questionsPage.openCount(open.length)}</b>
+                  </span>
+                ) : null}
+                {subjects.map(([category, items]) => (
+                  <a key={category} className="qx-count" href={`#open-${category}`}>
+                    {categoryLabel(category)} <b>{items.length}</b>
+                  </a>
+                ))}
+                {allFinished.length > 0 ? (
+                  <a className="qx-count" href="#finished">
+                    {questionsPage.finishedCount(allFinished.length)}
+                  </a>
+                ) : null}
+              </nav>
+
+              <QuestionFilter
+                listId={DIRECTORY_ID}
+                total={open.length + finished.length}
+                words={questionsPage.filter}
+                categories={[...new Set(all.map((question) => question.category))]
+                  .sort((a, b) => a.localeCompare(b))
+                  .map((category) => ({ value: category, label: categoryLabel(category) }))}
+                states={(["open", "closed", "resolved"] as const)
+                  .filter((state) => all.some((question) => question.state === state))
+                  .map((state) => ({ value: state, label: questionsPage.filter.states[state] }))}
+              />
+
+              <Directory open={open} finished={finished} finishedTotal={allFinished.length} />
+            </>
+          ) : null}
+
+          <div className="dp-end">
+            <p className="dp-small">{PRICE_SOURCE}</p>
+          </div>
         </div>
-
-        {read === null ? <p className="notice mt-8 max-w-2xl">{questionsPage.unavailable}</p> : null}
-        {read?.length === 0 ? <p className="notice mt-8 max-w-2xl">{questionsPage.empty}</p> : null}
-
-        {byCategory(open).map(([category, questions]) => (
-          <section key={category} className="mt-10" aria-labelledby={`open-${category}`}>
-            <h2 id={`open-${category}`} className="text-2xl font-bold tracking-tight">
-              {category}
-            </h2>
-            <p className="mt-1 text-sm text-muted">{questionsPage.count(questions.length)}</p>
-            <QuestionLinks questions={questions} />
-          </section>
-        ))}
-
-        {finished.length > 0 ? (
-          <section className="mt-14" aria-labelledby="finished">
-            <h2 id="finished" className="text-2xl font-bold tracking-tight">
-              {questionsPage.finished}
-            </h2>
-            <p className="mt-1 text-sm text-muted">{questionsPage.finishedIntro}</p>
-            <QuestionLinks questions={finished} />
-          </section>
-        ) : null}
-
-        <p className="mt-12 max-w-2xl text-sm text-muted">{PRICE_SOURCE}</p>
       </main>
 
       <SiteFooter />

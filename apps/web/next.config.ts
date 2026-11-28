@@ -18,6 +18,18 @@ const config: NextConfig = {
   // set — a stack fingerprint with no benefit to a visitor, and one more
   // fact an outside prober does not need.
   poweredByHeader: false,
+  // `next dev` would otherwise write AGENTS.md and CLAUDE.md into this folder
+  // whenever it sees an AI coding assistant running. The repository's own
+  // instructions for assistants are kept deliberately, so nothing is added
+  // behind the owner's back.
+  agentRules: false,
+  // The development build's floating badge sits over the page's own corner,
+  // in the way of the layout being checked.
+  devIndicators: false,
+  // The development server refuses its own live-reload connection from any
+  // address but localhost, so a page opened at 127.0.0.1 never comes alive.
+  // Development only: production builds ignore this.
+  allowedDevOrigins: ["127.0.0.1"],
   env: {
     // Whether this build knows where the game's API is. A production build
     // with no API_BASE_URL has nothing behind its "Start playing" button, so
@@ -66,6 +78,28 @@ const config: NextConfig = {
           {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=(), payment=()",
+          },
+        ],
+      },
+      // The self-hosted fonts are fetched before the first line of text on
+      // every page, so a returning visitor's browser keeps them for a year
+      // and never asks again. That is only right while a file's name
+      // changes with its contents: a changed font must get a new file name
+      // (and the new name in app/globals.css and the preloads in
+      // app/layout.tsx), or visitors keep the old one.
+      {
+        source: "/fonts/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      // The design kit's stylesheets and scripts keep their names when a
+      // newer copy of the kit replaces them, so they are kept for a day and
+      // then checked again, the old copy serving meanwhile for up to a week.
+      {
+        source: "/assets/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
           },
         ],
       },

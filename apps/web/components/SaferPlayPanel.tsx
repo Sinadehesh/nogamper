@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type CSSProperties, type FormEvent } from "react";
 
 import { usePlayer } from "@/components/PlayerProvider";
-import { REMINDER_OPTIONS, readReminderMinutes, writeReminderMinutes } from "@/components/SessionReminder";
 import { SpendLimitCard } from "@/components/Shop";
+import { Figure } from "@/components/viz/Figure";
 import { getRealityCheck, setDailyLimit, takeBreak, type ApiFailure } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
 import {
   count,
-  dateTime,
+  dateTimeUtc,
   duration,
   parsePoints,
   percent,
@@ -22,24 +22,23 @@ import type { RealityCheck } from "@/lib/types";
 /**
  * The player's own brakes, and their own record.
  *
- * Everything on this tab is enforced by the server. The page only asks; it
+ * Everything on this view is enforced by the server. The page only asks; it
  * does not decide, and it never offers a way round — there is no "end break"
- * button to disable because there is no route for one to call.
+ * button to disable because there is no route for one to call. Calm on
+ * purpose: no accent, no alarm colour, the rules stated beside each control.
  */
 export function SaferPlayPanel() {
   return (
-    <section className="space-y-4">
-      <p className="text-sm text-muted">{t.saferIntro}</p>
-      <RealityCheckCard />
-      <div className="grid gap-4 md:grid-cols-2">
+    <section className="gm-feed" aria-labelledby="gm-view-title">
+      <div className="gm-tools">
         <DailyLimitCard />
         <BreakCard />
       </div>
       <SpendLimitCard />
-      <ReminderCard />
-      <p className="notice">
+      <RealityCheckCard />
+      <p className="gm-note gm-note--line">
         {t.helpPrompt}{" "}
-        <Link href="/help" className="font-semibold text-accent underline underline-offset-2">
+        <Link href="/help" prefetch={false} className="gm-link">
           {t.helpLink}
         </Link>
       </p>
@@ -70,18 +69,24 @@ function RealityCheckCard() {
   }, [refresh]);
 
   return (
-    <article className="card p-5">
-      <h2 className="text-lg font-bold">{t.realityTitle}</h2>
-      <p className="text-sm text-muted">{t.realityIntro}</p>
+    <article className="gm-panel gm-tool" aria-labelledby="gm-record-title">
+      <div className="gm-tool__head">
+        <h2 id="gm-record-title" className="gm-h">
+          {t.realityTitle}
+        </h2>
+        <p className="gm-small">{t.realityIntro}</p>
+      </div>
 
       {error ? (
-        <p role="alert" className="notice notice-error mt-4">
+        <p role="alert" className="gm-note gm-error">
           {error}
         </p>
       ) : !record ? (
-        <p className="mt-4 text-muted">{t.loading}</p>
+        <p className="gm-small" role="status">
+          {t.loading}
+        </p>
       ) : record.slips_settled === 0 ? (
-        <p className="mt-4 text-muted">{t.realityEmpty}</p>
+        <p className="gm-empty">{t.realityEmpty}</p>
       ) : (
         <RecordBody record={record} />
       )}
@@ -105,83 +110,84 @@ function RecordBody({ record }: { record: RealityCheck }) {
 
   return (
     <>
-      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+      <dl className="gm-stats">
         <Stat label={t.statForecasts} value={String(record.slips_settled)} />
         <Stat label={t.statRight} value={t.ofTotal(record.slips_won, record.slips_settled)} />
-        <Stat
-          label={t.statPicks}
-          value={t.ofTotal(record.picks_correct, record.picks_settled)}
-        />
+        <Stat label={t.statPicks} value={t.ofTotal(record.picks_correct, record.picks_settled)} />
         <Stat label={t.statOpen} value={String(record.slips_open)} />
         <Stat label={t.statStaked} value={count(staked)} />
         <Stat label={t.statReturned} value={count(returned)} />
-        <Stat label={t.statNet} value={signed(net)} tone={net >= 0 ? "text-yes" : "text-no"} />
+        <Stat label={t.statNet} value={signed(net)} />
         <Stat label={t.statActive} value={String(record.active_days_30d)} />
       </dl>
 
-      <div className="mt-5 rounded-xl border border-line bg-sunken p-4">
-        <h3 className="font-bold">{t.marginTitle}</h3>
-        <p className="mt-1 text-sm text-muted">{t.marginBody(margin)}</p>
+      <div className="gm-sub">
+        <h3 className="gm-h gm-h--sm">{t.marginTitle}</h3>
+        <p className="gm-small">{t.marginBody(margin)}</p>
         {record.margin_cost.minor > 0 ? (
           <>
-            <p className="mt-3 text-lg font-bold">
-              {t.marginCost(
-                marginCost > 0 ? `${count(marginCost)} ${t.pointsUnit}` : t.marginLessThanOne,
-              )}
+            <p className="gm-h">
+              <Figure
+                text={t.marginCost(
+                  marginCost > 0 ? `${count(marginCost)} ${t.pointsUnit}` : t.marginLessThanOne,
+                )}
+              />
             </p>
-            <p className="text-sm text-muted tabular-nums">
-              {t.marginNet(signed(net), signed(netWithMargin))}
+            <p className="gm-small">
+              <Figure text={t.marginNet(signed(net), signed(netWithMargin))} />
             </p>
           </>
         ) : (
-          <p className="mt-3 text-sm">{t.marginNone}</p>
+          <p className="gm-small text-ink">{t.marginNone}</p>
         )}
-        <p className="mt-3 text-xs text-muted">{t.marginFootnote}</p>
+        <p className="gm-small">{t.marginFootnote}</p>
       </div>
 
       {calibrated.length > 0 ? (
-        <div className="mt-5">
-          <h3 className="font-bold">{t.calibrationTitle}</h3>
-          <p className="mt-1 text-sm text-muted">{t.calibrationIntro}</p>
-          <table className="table mt-3">
-            <thead>
-              <tr>
-                <th scope="col">{t.calibrationBand}</th>
-                <th scope="col" className="num">
-                  {t.calibrationPicks}
-                </th>
-                <th scope="col" className="num">
-                  {t.calibrationHit}
-                </th>
-                <th scope="col" className="num">
-                  {t.calibrationExpected}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {calibrated.map((bucket) => (
-                <tr key={bucket.low}>
-                  <td className="tabular-nums">
-                    {t.calibrationRange(percent(bucket.low), percent(bucket.high))}
-                  </td>
-                  <td className="num">{bucket.picks}</td>
-                  <td className="num">{percent(bucket.correct / bucket.picks)}</td>
-                  <td className="num">{bucket.expected ? percent(bucket.expected) : "—"}</td>
+        <div className="grid gap-2">
+          <h3 className="gm-h gm-h--sm">{t.calibrationTitle}</h3>
+          <p className="gm-small">{t.calibrationIntro}</p>
+          <div className="overflow-x-auto">
+            <table className="gm-cal">
+              <thead>
+                <tr>
+                  <th scope="col">{t.calibrationBand}</th>
+                  <th scope="col" className="num">
+                    {t.calibrationPicks}
+                  </th>
+                  <th scope="col" className="num">
+                    {t.calibrationHit}
+                  </th>
+                  <th scope="col" className="num">
+                    {t.calibrationExpected}
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {calibrated.map((bucket) => (
+                  <tr key={bucket.low}>
+                    <td>{t.calibrationRange(percent(bucket.low), percent(bucket.high))}</td>
+                    <td className="num">{bucket.picks}</td>
+                    <td className="num">{percent(bucket.correct / bucket.picks)}</td>
+                    <td className="num">{bucket.expected ? percent(bucket.expected) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
     </>
   );
 }
 
-function Stat({ label, value, tone = "" }: { label: string; value: string; tone?: string }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className={`text-xl font-bold tabular-nums ${tone}`}>{value}</dd>
+      <dt>{label}</dt>
+      <dd>
+        <Figure text={value} />
+      </dd>
     </div>
   );
 }
@@ -190,7 +196,7 @@ function Stat({ label, value, tone = "" }: { label: string; value: string; tone?
 
 function describe(failure: ApiFailure): string {
   return failure.code === "limit_locked" && failure.until
-    ? t.limitLockedUntil(dateTime(failure.until))
+    ? t.limitLockedUntil(dateTimeUtc(failure.until))
     : errorMessage(failure.code);
 }
 
@@ -198,6 +204,7 @@ function DailyLimitCard() {
   const { player, applyLimits } = usePlayer();
   const { limits } = player;
   const fieldId = useId();
+  const noteId = useId();
 
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -223,34 +230,63 @@ function DailyLimitCard() {
     if (minor > 0) void save(minor);
   }
 
+  const limit = limits.daily_limit;
+  const used = limit && limit.minor > 0 ? Math.min(100, (limits.daily_spent.minor / limit.minor) * 100) : 0;
+
   return (
-    <article className="card p-5">
-      <h2 className="text-lg font-bold">{t.limitTitle}</h2>
-      <p className="text-sm text-muted">{t.limitIntro}</p>
+    <article className="gm-panel gm-tool" aria-labelledby="gm-limit-title">
+      <div className="gm-tool__head">
+        <h2 id="gm-limit-title" className="gm-h">
+          {t.limitTitle}
+        </h2>
+        <p className="gm-small">{t.limitIntro}</p>
+      </div>
 
-      <p className="mt-4 font-semibold">
-        {limits.daily_limit ? t.limitCurrent(limits.daily_limit.display) : t.limitNone}
-      </p>
-      <p className="text-sm text-muted">{t.limitSpent(limits.daily_spent.display)}</p>
-      {limits.daily_limit && limits.daily_limit_loosen_at ? (
-        <p className="mt-1 text-sm text-muted">
-          {t.limitLockedUntil(dateTime(limits.daily_limit_loosen_at))}
-        </p>
-      ) : null}
+      <div className="gm-now">
+        {limit ? (
+          <>
+            <p className="gm-label">{t.limitStakedToday}</p>
+            <p className="gm-now__figure">
+              <Figure text={t.limitOf(limits.daily_spent.display, limit.display)} />
+            </p>
+            <div
+              className="gm-meter"
+              role="img"
+              aria-label={t.limitMeter(limits.daily_spent.display, limit.display)}
+              style={{ "--gm-used": `${used}%` } as CSSProperties}
+            >
+              <span />
+            </div>
+            <p className="gm-small">{t.limitCurrent(limit.display)}</p>
+          </>
+        ) : (
+          <>
+            <p className="gm-h">{t.limitNone}</p>
+            <p className="gm-small">
+              <Figure text={t.limitSpent(limits.daily_spent.display)} />
+            </p>
+          </>
+        )}
+        {limit && limits.daily_limit_loosen_at ? (
+          <p className="gm-small">{t.limitLockedUntil(dateTimeUtc(limits.daily_limit_loosen_at))}</p>
+        ) : null}
+      </div>
 
-      <form onSubmit={submit} className="mt-4">
+      <form onSubmit={submit} className="grid gap-2">
         <label htmlFor={fieldId} className="label">
           {t.limitField}
         </label>
-        <div className="flex gap-2">
+        <div className="gm-inline">
           <input
             id={fieldId}
-            className="field tabular-nums"
+            className="field"
             inputMode="numeric"
+            autoComplete="off"
             value={draft}
+            aria-describedby={noteId}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <button type="submit" className="btn btn-primary shrink-0" disabled={busy || !draft.trim()}>
+          <button type="submit" className="btn btn--secondary" disabled={busy || !draft.trim()}>
             {busy ? t.saving : t.limitSet}
           </button>
         </div>
@@ -259,10 +295,10 @@ function DailyLimitCard() {
       {/* Offered only once the limit has stood long enough to be removed.
           While it has not, the line above already says when it will have —
           a button that can only ever answer "not yet" is noise. */}
-      {limits.daily_limit && !limits.daily_limit_loosen_at ? (
+      {limit && !limits.daily_limit_loosen_at ? (
         <button
           type="button"
-          className="btn btn-quiet btn-sm mt-2"
+          className="gm-quiet justify-self-start"
           onClick={() => void save(null)}
           disabled={busy}
         >
@@ -271,15 +307,14 @@ function DailyLimitCard() {
       ) : null}
 
       {message ? (
-        <p
-          role={message.ok ? "status" : "alert"}
-          className={`notice mt-3 ${message.ok ? "notice-ok" : "notice-error"}`}
-        >
+        <p role={message.ok ? "status" : "alert"} className={message.ok ? "gm-note" : "gm-note gm-error"}>
           {message.text}
         </p>
       ) : null}
 
-      <p className="hint mt-3">{t.limitRule}</p>
+      <p id={noteId} className="gm-tool__rule">
+        {t.limitRule}
+      </p>
     </article>
   );
 }
@@ -289,6 +324,7 @@ function DailyLimitCard() {
 function BreakCard() {
   const { player, applyLimits, onBreak } = usePlayer();
   const { limits } = player;
+  const confirmTitleId = useId();
 
   const [pending, setPending] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -309,41 +345,51 @@ function BreakCard() {
   }
 
   return (
-    <article className="card p-5">
-      <h2 className="text-lg font-bold">{t.breakTitle}</h2>
-      <p className="text-sm text-muted">{t.breakIntro}</p>
+    <article className="gm-panel gm-tool" aria-labelledby="gm-break-title">
+      <div className="gm-tool__head">
+        <h2 id="gm-break-title" className="gm-h">
+          {t.breakTitle}
+        </h2>
+        <p className="gm-small">{t.breakIntro}</p>
+      </div>
 
       {onBreak && limits.break_until ? (
-        <p className="notice notice-warn mt-4 font-semibold">
-          {t.breakActive(dateTime(limits.break_until))}
-        </p>
+        <div className="gm-now">
+          <p className="gm-label">{t.breakLabel}</p>
+          <p className="gm-h">{t.breakActive(dateTimeUtc(limits.break_until))}</p>
+        </div>
       ) : null}
 
-      <p className="label mt-4">{onBreak ? t.breakExtend : t.breakLength}</p>
-      <div className="flex flex-wrap gap-2">
-        {limits.break_options_hours.map((hours) => (
-          <button
-            key={hours}
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              setMessage(null);
-              setPending(hours);
-            }}
-          >
-            {duration(hours)}
-          </button>
-        ))}
+      <div className="grid gap-2">
+        <p className="label">{onBreak ? t.breakExtend : t.breakLength}</p>
+        <div className="gm-chips" role="group" aria-label={t.breakOptions}>
+          {limits.break_options_hours.map((hours) => (
+            <button
+              key={hours}
+              type="button"
+              className="gm-chip"
+              aria-pressed={pending === hours}
+              onClick={() => {
+                setMessage(null);
+                setPending(hours);
+              }}
+            >
+              {duration(hours)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {pending !== null ? (
-        <div role="alertdialog" aria-modal="false" className="notice notice-warn mt-3">
-          <p className="font-bold">{t.breakConfirmTitle(duration(pending))}</p>
-          <p className="mt-1 text-sm">{t.breakConfirmBody}</p>
-          <div className="mt-3 flex gap-2">
+        <div role="alertdialog" aria-modal="false" aria-labelledby={confirmTitleId} className="gm-confirm">
+          <p id={confirmTitleId} className="gm-h gm-h--sm">
+            {t.breakConfirmTitle(duration(pending))}
+          </p>
+          <p className="gm-small">{t.breakConfirmBody}</p>
+          <div className="btn-row">
             <button
               type="button"
-              className="btn btn-primary btn-sm"
+              className="btn btn--secondary"
               onClick={() => void confirm()}
               disabled={busy}
             >
@@ -351,7 +397,7 @@ function BreakCard() {
             </button>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className="gm-quiet"
               onClick={() => setPending(null)}
               disabled={busy}
             >
@@ -362,45 +408,12 @@ function BreakCard() {
       ) : null}
 
       {message ? (
-        <p
-          role={message.ok ? "status" : "alert"}
-          className={`notice mt-3 ${message.ok ? "notice-ok" : "notice-error"}`}
-        >
+        <p role={message.ok ? "status" : "alert"} className={message.ok ? "gm-note" : "gm-note gm-error"}>
           {message.text}
         </p>
       ) : null}
 
-      <p className="hint mt-3">{t.breakRule}</p>
-    </article>
-  );
-}
-
-// ----- session reminder -----------------------------------------------------
-
-function ReminderCard() {
-  const [minutes, setMinutes] = useState(0);
-  useEffect(() => setMinutes(readReminderMinutes()), []);
-
-  return (
-    <article className="card p-5">
-      <h2 className="text-lg font-bold">{t.reminderTitle}</h2>
-      <p className="text-sm text-muted">{t.reminderIntro}</p>
-      <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label={t.reminderTitle}>
-        {REMINDER_OPTIONS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={minutes === option}
-            className={`btn btn-sm ${minutes === option ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => {
-              setMinutes(option);
-              writeReminderMinutes(option);
-            }}
-          >
-            {option === 0 ? t.reminderOff : t.reminderEvery(option)}
-          </button>
-        ))}
-      </div>
+      <p className="gm-tool__rule">{t.breakRule}</p>
     </article>
   );
 }

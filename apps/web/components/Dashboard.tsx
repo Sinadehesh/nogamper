@@ -1,32 +1,44 @@
 "use client";
 
+import "@/components/game/game.css";
+
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { AccountPanel } from "@/components/AccountPanel";
 import { ForecastHistory } from "@/components/ForecastHistory";
+import {
+  QuestionLinks,
+  QuotedPrices,
+  quotedPrices,
+  ReviewSlip,
+  useWide,
+} from "@/components/game/context";
+import { useFocusTrap } from "@/components/game/trap";
+import { GameBar, TabBar, VIEW_LABEL, viewHref } from "@/components/game/views";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { MarketFeed } from "@/components/MarketFeed";
 import { usePlayer } from "@/components/PlayerProvider";
 import { SaferPlayPanel } from "@/components/SaferPlayPanel";
 import { SessionReminder } from "@/components/SessionReminder";
-import { Wordmark } from "@/components/SiteChrome";
 import { SlipProvider, useSlip } from "@/components/SlipProvider";
-import { SlipSheet } from "@/components/SlipSheet";
+import { SlipEmpty, SlipPlaced, SlipRail, SlipSheet, type Receipt } from "@/components/SlipSheet";
+import { Figure } from "@/components/viz/Figure";
 import { claimTopUp, getShop } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
-import { dateTime, points, timeUntil } from "@/lib/format";
-import { TABS, type Tab } from "@/lib/tabs";
-import type { MarketRules } from "@/lib/types";
-
-
-const TAB_LABEL: Record<Tab, string> = {
-  markets: t.tabMarkets,
-  history: t.tabHistory,
-  leaderboard: t.tabLeaderboard,
-  safer: t.tabSafer,
-  account: t.tabAccount,
-};
+import { dateTimeUtc, points } from "@/lib/format";
+import { VIEW_TITLE, type Tab } from "@/lib/tabs";
+import type { MarketRules, MarketSummary, SlipQuote } from "@/lib/types";
+import { shortDateTimeUtc } from "@/lib/viz";
 
 /** Until the feed has answered, a slip may hold this many picks. */
 const FALLBACK_MAX_LEGS = 5;
@@ -34,19 +46,35 @@ const FALLBACK_MAX_LEGS = 5;
 /** How somebody arrived back from Stripe's payment page, if they did. */
 export type PurchaseReturn = "done" | "cancelled" | null;
 
+/** A question asked for by its page ("Make a forecast"), to open the game on. */
+export type AskedQuestion = { slug: string; question: string; category: string };
+
 export function Dashboard({
   initialTab,
   purchase = null,
+  links = {},
+  asked = null,
 }: {
   initialTab: Tab;
   purchase?: PurchaseReturn;
+  /** Each open question's public page, by its wording (see QuestionLinks). */
+  links?: Readonly<Record<string, string>>;
+  asked?: AskedQuestion | null;
 }) {
   const [rules, setRules] = useState<MarketRules | null>(null);
 
   return (
-    <SlipProvider maxLegs={rules?.max_legs ?? FALLBACK_MAX_LEGS}>
-      <Screen initialTab={initialTab} purchase={purchase} rules={rules} onRules={setRules} />
-    </SlipProvider>
+    <QuestionLinks links={links}>
+      <SlipProvider maxLegs={rules?.max_legs ?? FALLBACK_MAX_LEGS}>
+        <Screen
+          initialTab={initialTab}
+          purchase={purchase}
+          rules={rules}
+          onRules={setRules}
+          asked={asked}
+        />
+      </SlipProvider>
+    </QuestionLinks>
   );
 }
 
@@ -101,34 +129,52 @@ function PurchaseNotice({ outcome }: { outcome: Exclude<PurchaseReturn, null> })
 
   if (outcome === "cancelled") {
     return (
-      <p role="status" className="notice">
+      <p role="status" className="gm-note">
         {t.shopCancelled}
       </p>
     );
   }
   return (
-    <p role="status" className="notice notice-ok">
+    <p role="status" className="gm-note gm-note--line">
       {arrived ? t.shopArrived : t.shopThanks}
     </p>
   );
 }
+
+const VIEW_LEDE: Record<Exclude<Tab, "markets">, string> = {
+  history: t.historyLede,
+  leaderboard: t.leaderboardIntro,
+  safer: t.saferLede,
+  account: t.accountLede,
+};
 
 function Screen({
   initialTab,
   purchase,
   rules,
   onRules,
+  asked,
 }: {
   initialTab: Tab;
   purchase: PurchaseReturn;
   rules: MarketRules | null;
   onRules: (rules: MarketRules) => void;
+  asked: AskedQuestion | null;
 }) {
   const slip = useSlip();
+  const wide = useWide();
+  const { onBreak, limitReached } = usePlayer();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [historyToken, setHistoryToken] = useState(0);
-  const [placedFlash, setPlacedFlash] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
+  // Every question the feed has shown this visit, by id, at its latest price.
+  const [prices, setPrices] = useState<ReadonlyMap<string, MarketSummary>>(() => new Map());
+  const [placed, setPlaced] = useState<Receipt | null>(null);
+  // The slip's quote on screen: the cards of the questions on it show its prices.
+  const [quote, setQuote] = useState<SlipQuote | null>(null);
+  const quoted = useMemo(() => quotedPrices(quote), [quote]);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const placedTitleId = useId();
 
   useEffect(() => {
     // Only to know whether to offer the link at all. The card on the account
@@ -141,78 +187,122 @@ function Screen({
 
   const select = useCallback((next: Tab) => {
     setTab(next);
-    setPlacedFlash(false);
     // Keep the address in step so a reload, or a link from the help page,
-    // lands on the same tab — without a navigation, which would refetch the
-    // whole page for what is a change of view.
-    window.history.replaceState(null, "", next === "markets" ? "/play" : `/play?tab=${next}`);
+    // lands on the same view — without a navigation, which would refetch the
+    // whole page for what is a change of view. The title follows it.
+    window.history.replaceState(null, "", viewHref(next));
+    document.title = `${VIEW_TITLE[next]} · ${t.appName}`;
+    // A new view starts at its top, and says so to a screen reader.
+    window.scrollTo(0, 0);
+    window.requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }));
   }, []);
+
+  const seen = useCallback((markets: MarketSummary[]) => {
+    setPrices((current) => {
+      const next = new Map(current);
+      for (const market of markets) next.set(market.id, market);
+      return next;
+    });
+  }, []);
+
+  // A new pick puts the last confirmation away.
+  const hasPicks = slip.legs.length > 0;
+  useEffect(() => {
+    if (hasPicks) setPlaced(null);
+  }, [hasPicks]);
+
+  const onPlaced = useCallback((receipt: Receipt) => {
+    setHistoryToken((token) => token + 1);
+    setPlaced(receipt);
+  }, []);
+
+  const seeForecasts = useCallback(() => {
+    setPlaced(null);
+    select("history");
+  }, [select]);
+
+  // The confirmation's button has gone with it: the focus goes to the
+  // view's heading, as it does on a change of view, not to the page's end.
+  const donePlacing = useCallback(() => {
+    setPlaced(null);
+    window.requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }));
+  }, []);
+
+  // From a card to the slip: its stake on a wide screen, the sheet on a phone.
+  const { open: openSlip } = slip;
+  const reviewSlip = useCallback(() => {
+    if (wide) document.querySelector<HTMLElement>(".gm-rail .gm-stake input")?.focus();
+    else openSlip();
+  }, [wide, openSlip]);
+
+  const maxLegs = rules?.max_legs ?? slip.maxLegs;
+  // The folded slip at the foot: on a phone whenever the sheet is shut, on a
+  // wide screen only away from the questions, where the rail is not.
+  const showBar = hasPicks && !slip.isOpen && (!wide || tab !== "markets");
 
   return (
     <>
-      <header className="border-b border-line bg-surface">
-        <div className="container-page flex items-center justify-between gap-3 py-3">
-          <Wordmark href="/play" />
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/articles" className="hidden text-muted hover:text-ink sm:inline">
-              {t.navArticles}
-            </Link>
-            <Link href="/about" className="hidden text-muted hover:text-ink sm:inline">
-              {t.navAbout}
-            </Link>
-            <Link href="/help" className="text-muted hover:text-ink">
-              {t.navHelp}
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <GameBar view={tab} onView={select} />
 
-      <main id="main" className="container-page flex-1 space-y-5 pb-28 pt-5">
-        {purchase ? <PurchaseNotice outcome={purchase} /> : null}
+      {/* What is on the slip, said as it changes. In the page from the start
+          and empty until the first pick: a live region that arrives already
+          filled is not announced. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {hasPicks ? t.slipOpenBar(slip.legs.length) : ""}
+      </p>
 
-        <Summary
-          onOpenSafer={() => select("safer")}
-          onOpenShop={shopOpen ? () => select("account") : null}
-        />
+      <main id="main" className="gm flex-1">
+        {/* On the questions view of a wide screen the slip's rail runs from
+            the top of the column, beside the strip, so its button is on the
+            first screen as soon as there is a pick (game.css). */}
+        <div className="wrap gm-page" data-view={tab}>
+          {purchase ? <PurchaseNotice outcome={purchase} /> : null}
 
-        {/* Five tabs do not fit across a phone. They wrap onto two rows of
-            three and two rather than scroll sideways: a tab that has scrolled
-            out of sight is a tab nobody finds, and the one that fell off the
-            edge was "Safer play". */}
-        <div
-          role="tablist"
-          aria-label={t.appName}
-          className="grid grid-cols-6 gap-1 rounded-xl border border-line bg-surface p-1 sm:flex"
-        >
-          {TABS.map((entry, index) => (
-            <button
-              key={entry}
-              type="button"
-              role="tab"
-              id={`tab-${entry}`}
-              aria-selected={tab === entry}
-              aria-controls="tab-panel"
-              onClick={() => select(entry)}
-              className={`rounded-lg px-1 py-2 text-[0.8125rem] font-semibold sm:grow sm:px-3 sm:text-sm ${
-                index < 3 ? "col-span-2" : "col-span-3"
-              } ${tab === entry ? "bg-accent text-on-accent" : "text-muted hover:text-ink"}`}
-            >
-              {TAB_LABEL[entry]}
-            </button>
-          ))}
-        </div>
+          <Strip
+            onOpenSafer={() => select("safer")}
+            onOpenShop={shopOpen ? () => select("account") : null}
+          />
 
-        <div id="tab-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
-          {placedFlash && tab === "history" ? (
-            <p role="status" className="notice notice-ok mb-4">
-              {t.placed}
-            </p>
-          ) : null}
+          <header className="gm-head">
+            <h1 ref={heading} id="gm-view-title" tabIndex={-1} className="gm-title">
+              {tab === "account" ? t.accountTitle : VIEW_LABEL[tab]}
+            </h1>
+            {tab === "markets" ? (
+              <p className="gm-lede">
+                {/* On a phone only the second sentence, so a question's
+                    picks are on the first screen. */}
+                <span className="gm-lede__more">{t.marketsLedeSource} </span>
+                {t.marketsLedeHow(maxLegs)}
+              </p>
+            ) : (
+              <p className="gm-lede">{VIEW_LEDE[tab]}</p>
+            )}
+          </header>
 
           {tab === "markets" ? (
-            <MarketFeed onRules={onRules} />
+            <div className="gm-market">
+              <QuotedPrices prices={quoted}>
+                <ReviewSlip onReview={reviewSlip}>
+                  <MarketFeed onRules={onRules} onMarkets={seen} asked={asked} />
+                </ReviewSlip>
+              </QuotedPrices>
+              <aside className="gm-rail" aria-label={t.slipTitle}>
+                <div className="gm-panel">
+                  {wide && hasPicks && rules ? (
+                    <SlipRail rules={rules} prices={prices} onPlaced={onPlaced} onQuote={setQuote} />
+                  ) : wide && placed ? (
+                    <SlipPlaced receipt={placed} onSee={seeForecasts} onDone={donePlacing} />
+                  ) : (
+                    <SlipEmpty
+                      maxLegs={maxLegs}
+                      paused={onBreak ? t.onBreakNoPicks : limitReached ? t.limitReachedNoPicks : null}
+                    />
+                  )}
+                </div>
+              </aside>
+            </div>
           ) : tab === "history" ? (
-            <ForecastHistory refreshToken={historyToken} />
+            <ForecastHistory refreshToken={historyToken} prices={prices} />
           ) : tab === "leaderboard" ? (
             <LeaderboardPanel />
           ) : tab === "safer" ? (
@@ -223,34 +313,108 @@ function Screen({
         </div>
       </main>
 
-      {slip.legs.length > 0 && !slip.isOpen ? (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 backdrop-blur">
-          <div className="container-page flex items-center justify-between gap-3 py-3">
-            <p className="font-semibold">{t.slipOpenBar(slip.legs.length)}</p>
-            <button type="button" className="btn btn-primary" onClick={slip.open}>
-              {t.slipReview}
-            </button>
-          </div>
-        </div>
+      <TabBar view={tab} onView={select} />
+
+      {showBar ? (
+        <SlipBar onReview={wide ? () => select("markets") : slip.open} prices={prices} />
       ) : null}
 
-      {rules ? (
-        <SlipSheet
-          rules={rules}
-          onPlaced={() => {
-            setHistoryToken((token) => token + 1);
-            select("history");
-            setPlacedFlash(true);
-          }}
-        />
+      {!wide && rules ? (
+        <SlipSheet rules={rules} prices={prices} onPlaced={onPlaced} onQuote={setQuote} />
       ) : null}
 
-      <SessionReminder onTakeBreak={() => select("safer")} />
+      {!wide && placed && !hasPicks ? (
+        <PlacedSheet titleId={placedTitleId} onClose={donePlacing}>
+          <SlipPlaced
+            receipt={placed}
+            titleId={placedTitleId}
+            onSee={seeForecasts}
+            onDone={donePlacing}
+          />
+        </PlacedSheet>
+      ) : null}
+
+      <SessionReminder onTakeBreak={() => select("safer")} onSettings={() => select("account")} />
     </>
   );
 }
 
-function Summary({
+/** The slip, folded to one line at the foot of the screen. */
+function SlipBar({
+  onReview,
+  prices,
+}: {
+  onReview: () => void;
+  prices: ReadonlyMap<string, MarketSummary>;
+}) {
+  const slip = useSlip();
+  const last = slip.legs[slip.legs.length - 1];
+  const market = last ? prices.get(last.marketId) : undefined;
+
+  return (
+    <div className="gm-slipbar gm">
+      <div className="wrap gm-slipbar__in">
+        <p className="gm-slipbar__text">
+          <b>{t.slipOpenBar(slip.legs.length)}</b>
+          {last ? (
+            <span>
+              {last.side === "YES" ? t.yes : t.no}
+              {market ? ` · ${market.question}` : ` · ${last.question}`}
+            </span>
+          ) : null}
+        </p>
+        <button type="button" className="btn btn--primary" onClick={onReview}>
+          {t.slipReview}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The confirmation, on a phone, in the sheet the slip was in. */
+function PlacedSheet({
+  titleId,
+  onClose,
+  children,
+}: {
+  titleId: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  useFocusTrap(panel, true);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="gm-sheet gm">
+      <div className="gm-sheet__scrim" onClick={onClose} aria-hidden />
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="gm-sheet__panel"
+      >
+        <span className="gm-sheet__grip" aria-hidden />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The strip at the top of every view: the balance first and largest, the
+ * free daily points beside it, and the player's own limit or break when one
+ * applies. Nothing in it is for sale and nothing in it counts down.
+ */
+function Strip({
   onOpenSafer,
   onOpenShop,
 }: {
@@ -273,101 +437,126 @@ function Summary({
     }
     await refresh();
     // A confirmation, not a fixture: it has said its piece after a few
-    // seconds, and this card already carries enough standing notices.
+    // seconds, and this strip already carries enough standing lines.
     window.setTimeout(() => setFlash(null), 5000);
   }
 
   const { limits } = player;
+  const limit = limits.daily_limit;
+  const used = limit && limit.minor > 0 ? Math.min(100, (limits.daily_spent.minor / limit.minor) * 100) : 0;
+  const foot = player.is_guest || onOpenShop || player.is_admin;
 
   return (
-    <section className="card p-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted">{t.greeting(player.display_name)}</p>
-          <p className="mt-1 flex items-baseline gap-2">
-            <span className="text-4xl font-black tracking-tight tabular-nums">
-              {points(player.balance.minor)}
-            </span>
-            <span className="text-sm text-muted">{t.pointsUnit}</span>
+    <section className="gm-panel gm-strip" aria-label={t.balanceLabel}>
+      <div className="gm-strip__cells">
+        <div className="gm-stat">
+          <p className="gm-label">{t.balanceLabel}</p>
+          {/* "Your points" and the figure, as the front page draws it: the
+              label already says what the number counts. */}
+          <p className="gm-balance">
+            <Figure className="gm-balance__figure" text={points(player.balance.minor)} />
           </p>
         </div>
 
-        <div className="text-sm">
+        <div className="gm-stat">
+          <p className="gm-label">{t.dailyLabel}</p>
+          <p className="gm-stat__figure">
+            <Figure text={t.dailyAmount(player.daily_topup.display)} />
+          </p>
           {player.can_claim_daily ? (
-            <div className="flex items-center gap-3">
-              <span className="text-muted">{t.topUpReady(player.daily_topup.display)}</span>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => void claim()}
-                disabled={claiming}
-              >
-                {claiming ? t.topUpClaiming : t.topUpClaim}
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm gm-stat__action"
+              onClick={() => void claim()}
+              disabled={claiming}
+            >
+              {claiming ? t.topUpClaiming : t.dailyAdd(player.daily_topup.display)}
+            </button>
           ) : player.next_claim_at ? (
-            <p className="text-muted">{t.topUpNext(timeUntil(player.next_claim_at))}</p>
-          ) : null}
-          {/* After the free top-up, never instead of it, and in the same
-              place whatever the balance: it does not appear when somebody
-              runs out, because that is the moment not to be sold to. */}
-          {onOpenShop ? (
-            <p className="mt-1 text-right">
-              <button
-                type="button"
-                className="text-muted underline underline-offset-2 hover:text-ink"
-                onClick={onOpenShop}
-              >
-                {t.shopLink}
-              </button>
-            </p>
+            <>
+              <p className="gm-stat__line gm-wide-only">{t.dailyDone(dateTimeUtc(player.next_claim_at))}</p>
+              <p className="gm-stat__line gm-narrow-only">
+                {t.dailyNext(player.daily_topup.display, shortDateTimeUtc(player.next_claim_at))}
+              </p>
+            </>
           ) : null}
         </div>
+
+        {/* A break outranks a limit: it lasts longer. */}
+        {onBreak && limits.break_until ? (
+          <div className="gm-stat">
+            <p className="gm-label">{t.breakLabel}</p>
+            <p className="gm-stat__line text-ink">{t.breakUntil(dateTimeUtc(limits.break_until))}</p>
+            <p className="gm-stat__line">{t.breakPaused}</p>
+            <button type="button" className="gm-link gm-stat__action text-sm" onClick={onOpenSafer}>
+              {t.saferLink}
+            </button>
+          </div>
+        ) : limit ? (
+          <div className="gm-stat">
+            <p className="gm-label">{t.limitLabel}</p>
+            <p className="gm-stat__figure">
+              <Figure text={t.limitOf(limits.daily_spent.display, limit.display)} />
+            </p>
+            <div
+              className="gm-meter"
+              role="img"
+              aria-label={t.limitMeter(limits.daily_spent.display, limit.display)}
+              style={{ "--gm-used": `${used}%` } as CSSProperties}
+            >
+              <span />
+            </div>
+            <p className="gm-stat__line">{limitReached ? t.limitReachedShort : t.limitTodayLine}</p>
+            <button type="button" className="gm-link gm-stat__action text-sm" onClick={onOpenSafer}>
+              {t.saferLink}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {flash ? (
-        <p
-          role={flash.ok ? "status" : "alert"}
-          className={`notice mt-4 ${flash.ok ? "notice-ok" : "notice-error"}`}
-        >
+        <p role={flash.ok ? "status" : "alert"} className={flash.ok ? "gm-note" : "gm-note gm-error"}>
           {flash.text}
         </p>
       ) : null}
 
-      {onBreak && limits.break_until ? (
-        <p className="notice notice-warn mt-4">{t.breakBanner(dateTime(limits.break_until))}</p>
-      ) : null}
-
-      {limits.daily_limit ? (
-        <p className="mt-4 text-sm text-muted">
-          {limitReached
-            ? t.limitReachedBanner(limits.daily_limit.display)
-            : t.limitBanner(limits.daily_spent.display, limits.daily_limit.display)}{" "}
-          <button
-            type="button"
-            className="font-semibold text-accent underline underline-offset-2"
-            onClick={onOpenSafer}
-          >
-            {t.tabSafer}
-          </button>
-        </p>
-      ) : null}
-
-      {player.is_guest ? (
-        <p className="notice mt-4">
-          {t.guestBanner}{" "}
-          <Link href="/signup" className="font-semibold text-accent underline underline-offset-2">
-            {t.guestBannerAction}
-          </Link>
-        </p>
-      ) : null}
-
-      {player.is_admin ? (
-        <p className="mt-4 text-sm">
-          <Link href="/admin" className="font-semibold text-accent underline underline-offset-2">
-            {t.navAdmin}
-          </Link>
-        </p>
+      {foot ? (
+        <div className="gm-strip__foot">
+          {player.is_guest ? (
+            <>
+              <p className="gm-wide-only">
+                {t.guestBanner}{" "}
+                <Link href="/signup" prefetch={false} className="gm-link">
+                  {t.guestBannerAction}
+                </Link>
+              </p>
+              {/* A phone has room for one line: the link, which says it. The
+                  Account view explains what a guest account is. */}
+              <p className="gm-narrow-only">
+                <Link href="/signup" prefetch={false} className="gm-link gm-tap">
+                  {t.guestBannerShort}
+                </Link>
+              </p>
+            </>
+          ) : (
+            <span />
+          )}
+          <div className="gm-strip__links">
+            {/* After the free top-up, never instead of it, and in the same
+                place whatever the balance: it does not appear when somebody
+                runs out, because that is the moment not to be sold to. */}
+            {onOpenShop ? (
+              <button type="button" className="gm-link" onClick={onOpenShop}>
+                {t.shopLink}
+              </button>
+            ) : null}
+            {player.is_admin ? (
+              <Link href="/admin" prefetch={false} className="gm-link">
+                {t.navAdmin}
+              </Link>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </section>
   );

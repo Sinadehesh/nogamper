@@ -1,0 +1,27 @@
+The files in this folder are the page kit of tasteskill 2.5.1 (the design-taste-frontend
+skill), copied unmodified from the copy of the skill kept in this repository at
+.claude/skills/design-taste-frontend/assets (see .claude/skills/design-taste-frontend/NOTICE).
+
+  Source   https://github.com/Leonxlnx/taste-skill  (folder: skills/taste-skill)
+  Version  tasteskill 2.5.1, commit 952435f63acece7d2fcb4b4d3c1786c1c43603e0
+  Licence  MIT, see LICENSE in this folder. Copyright (c) 2026 Leonxlnx.
+
+Copied here, at the kit's own relative paths so its references resolve:
+
+  system.css, system.js
+  ui/cards.css, ui/ui.js, ui/base.css
+  motion/motion.css, motion/motion.js
+  backgrounds/backgrounds.css
+  layout/layout.css
+  icons/icon.css
+  effects/fx.js, effects/halftone-screen/effect.js, effects/halftone-screen/meta.json
+  moments/moments.js, moments/lib.js
+  moments/word-highlight/moment.js, moment.css, meta.json
+  moments/liquid-type/moment.js, moment.css, meta.json
+
+The front page (app/page.tsx) is the only page that runs the scripts above: the halftone-screen
+effect in its hero and the two moments (word-highlight, liquid-type).
+
+The site loads the stylesheets into the cascade layer "kit" (app/layout.tsx), so the site's
+own styles and every Tailwind utility win over them. Do not edit these files: replace them
+with the same files from a newer copy of the skill, and change the version above.
