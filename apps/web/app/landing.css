@@ -868,6 +868,16 @@
     padding: 28px;
     border-radius: var(--r-lg);
   }
+  /* A short list (two rows of one event) would leave half its screen bare.
+     On a laptop the lit panel keeps most of the screen, the list centred on
+     it, however many rows the day gives. */
+  @media (min-width: 1024px) {
+    .lp-moved .lp-moved__panel {
+      display: grid;
+      align-content: center;
+      min-height: min(60svh, 560px);
+    }
+  }
   .lp-movelist {
     position: relative;
     z-index: 1;

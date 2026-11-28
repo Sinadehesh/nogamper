@@ -73,7 +73,6 @@ export const t = {
     "are free and confidential.",
   footerHelpLink: "See where to get help",
   footerSaferTools: "Limits and breaks",
-  footerTerms: "Terms",
   footerCopyright: (year: number) => `© ${year} ${APP_NAME}`,
 
   // ----- shared -------------------------------------------------------------
@@ -984,6 +983,8 @@ export const viz = {
     low: string,
     high: string,
   ) => `From ${first} on ${firstAt} to ${last} on ${lastAt}. Lowest ${low}, highest ${high}.`,
+  chartFlat: (value: string, firstAt: string, lastAt: string) =>
+    `Unchanged at ${value} from ${firstAt} to ${lastAt}.`,
   chartSlider: "Price history",
   chartHint:
     "Use the arrow keys to step through the prices, Page Up and Page Down to move a day, " +

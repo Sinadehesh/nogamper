@@ -502,7 +502,6 @@ const FOOTER: FooterGroup[] = [
     links: [
       { href: "/mission", label: t.navMission },
       { href: "/support", label: t.navSupport },
-      { href: "/support#terms", label: t.footerTerms },
     ],
   },
 ];
@@ -520,6 +519,7 @@ const FOOTER: FooterGroup[] = [
  */
 export function SiteFooter({ close }: { close?: ReactNode }) {
   const year = new Date().getUTCFullYear();
+  const ColumnName = close ? "h3" : "h2";
   return (
     <footer
       className={close ? "footer closing footer--dark ground-inverse" : "footer footer--dark ground-inverse"}
@@ -546,11 +546,13 @@ export function SiteFooter({ close }: { close?: ReactNode }) {
             </div>
             {/* Each column's name is an h2: the footer's parts stand beside
                 the page's own sections, not inside its last one, and a page
-                with no h2 of its own (the 404) skips no level. Styled as the
-                kit styles its h3 here (app/globals.css). */}
+                with no h2 of its own (the 404) skips no level. Under the
+                front page's close, which has the footer's h2, they are its
+                h3s, as the kit writes them. Both look the same
+                (app/globals.css styles the h2 as the kit styles the h3). */}
             {FOOTER.map((group) => (
               <div key={group.title} className="span-2 footer__col">
-                <h2>{group.title}</h2>
+                <ColumnName>{group.title}</ColumnName>
                 <ul>
                   {group.links.map((link) => (
                     <li key={link.href}>

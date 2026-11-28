@@ -1563,16 +1563,22 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
   const opening = openingMark
     ? { text: pct(openingMark.v), t: openingMark.t }
     : { text: printed(first), t: first.t };
+  const lowText = printed(range?.low ?? last);
+  const highText = printed(range?.high ?? last);
+  // One figure the whole way: say it once, not four times.
+  const flat = opening.text === printedEnd && lowText === printedEnd && highText === printedEnd;
   const summary =
     points.length === 1 && opening.t === first.t
       ? viz.chartOne(printedEnd, shortDateUtc(last.t, reference))
-      : viz.chartSummary(
+      : flat
+        ? viz.chartFlat(printedEnd, shortDateUtc(opening.t, reference), shortDateUtc(last.t, reference))
+        : viz.chartSummary(
           opening.text,
           shortDateUtc(opening.t, reference),
           printedEnd,
           shortDateUtc(last.t, reference),
-          printed(range?.low ?? last),
-          printed(range?.high ?? last),
+          lowText,
+          highText,
         );
 
   const keyFigures: { term: string; value: string }[] = [
