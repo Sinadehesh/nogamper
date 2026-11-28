@@ -10,7 +10,7 @@ import { SlipFigures } from "@/components/viz";
 import { Figure } from "@/components/viz/Figure";
 import { placeSlip, quoteSlip, type SlipBody } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
-import { chance, parsePoints, points } from "@/lib/format";
+import { chance, parsePoints, points, sideChance } from "@/lib/format";
 import type { MarketRules, MarketSummary, Side, SlipQuote } from "@/lib/types";
 import type { SlipLegInput } from "@/lib/viz";
 
@@ -256,7 +256,7 @@ function SlipPanel({
           return {
             question: leg.question,
             side: leg.side === "NO" ? "NO" : "YES",
-            chance: quoted ? chance(quoted.probability) : "",
+            chance: quoted ? sideChance(quoted.probability, leg.side === "NO" ? "NO" : "YES") : "",
           };
         }),
         stake: points(result.data.stake.minor),
@@ -320,7 +320,7 @@ function SlipPanel({
               <p className="gm-leg__pick">
                 <span className="gm-side" data-side={leg.side === "YES" ? "yes" : "no"} aria-hidden />
                 {leg.probability !== "" ? (
-                  <Figure text={t.slipPick(sideWord(leg.side), chance(leg.probability))} />
+                  <Figure text={t.slipPick(sideWord(leg.side), sideChance(leg.probability, leg.side === "NO" ? "NO" : "YES"))} />
                 ) : (
                   sideWord(leg.side)
                 )}

@@ -2,10 +2,10 @@ import { bothSides, PickFace, Wording } from "@/components/game/Pick";
 import { ChanceReadout, SplitBar } from "@/components/viz";
 import { Figure } from "@/components/viz/Figure";
 import { categoryLabel, t } from "@/lib/copy";
-import { chance, points } from "@/lib/format";
+import { points } from "@/lib/format";
 import { fairOdds } from "@/lib/odds";
 import type { GameRules, Move, Moves } from "@/lib/types";
-import { closesOn, sideProbability, slipFigures } from "@/lib/viz";
+import { closesOn, slipFigures } from "@/lib/viz";
 
 /** The stake the picture shows a pick at: 100 points, in minor units. */
 const SHOWN_STAKE = 10_000;
@@ -14,10 +14,6 @@ const SHOWN_STAKE = 10_000;
  * The question the picture shows: one of the questions that moved, open and
  * well inside the game's band, so both picks are real ones. Null when there
  * is none to hand, and then there is no picture.
- *
- * Each side prints its own chance, so a price on a half (0.305) prints as
- * 31% and 70%. True, but a picture is read at a glance: where one is to
- * hand, it shows a question whose two sides print to 100.
  */
 export function previewQuestion(moves: Moves | null): Move | null {
   if (!moves) return null;
@@ -26,11 +22,8 @@ export function previewQuestion(moves: Moves | null): Move | null {
     const yes = Number(move.now);
     return yes >= 0.15 && yes <= 0.85;
   });
-  const even = inside.find(
-    (move) =>
-      Number.parseFloat(chance(move.now)) + Number.parseFloat(chance(sideProbability(move.now, "NO"))) === 100,
-  );
-  return even ?? inside[0] ?? all[0] ?? null;
+  // Both sides print as one pair (sideChance), so any of them adds up to 100%.
+  return inside[0] ?? all[0] ?? null;
 }
 
 /**

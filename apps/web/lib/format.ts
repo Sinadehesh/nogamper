@@ -104,6 +104,22 @@ export function chancePair(yesProbability: string | number): { yes: string; no: 
 }
 
 /**
+ * One side's chance, printed as its question prints the pair: a YES side by
+ * `chance()`, a NO side as the rest of the printed YES (`chancePair`). Printed
+ * on its own, a NO at 36.5% beside a YES at 63.5% could round up too: 101% in
+ * all. This way a card's two picks, a slip's lines and a question's page
+ * always add up to 100% and always agree. `probability` is that side's own
+ * (`probability.no` for a NO pick); odds are still worked out from it, never
+ * from the printed figure.
+ */
+export function sideChance(probability: string | number, side: "YES" | "NO"): string {
+  const parsed = Number(probability);
+  if (!Number.isFinite(parsed)) return String(probability);
+  if (side === "YES") return chance(parsed);
+  return chancePair(Math.round((1 - parsed) * 10_000) / 10_000).no;
+}
+
+/**
  * A change in a chance, formatted so that its three numbers add up.
  *
  * "From 56% to 31%, down 25 points" has to survive the reader's own

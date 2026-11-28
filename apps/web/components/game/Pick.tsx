@@ -1,6 +1,6 @@
 import { Figure } from "@/components/viz/Figure";
 import { t } from "@/lib/copy";
-import { chance, odds } from "@/lib/format";
+import { odds, sideChance } from "@/lib/format";
 import { fairOdds } from "@/lib/odds";
 import type { Side } from "@/lib/types";
 import { sideProbability } from "@/lib/viz";
@@ -14,9 +14,9 @@ import { sideProbability } from "@/lib/viz";
 export type Side2 = {
   side: Side;
   /**
-   * The side's own chance, printed by the game's `chance()`: the figure the
-   * slip, the confirmation and the forecasts print for the same pick, so a
-   * pick never reads one figure on its card and another on the slip.
+   * The side's chance as its question prints the pair (`sideChance()`): the
+   * figure the slip, the confirmation and the forecasts print for the same
+   * pick, and the two sides always add up to 100%.
    */
   chance: string;
   /** "pays 2.35×", or null when the game would not price this side. */
@@ -37,7 +37,7 @@ export function bothSides(
     const probability = side === "NO" && no !== undefined ? Number(no) : sideProbability(yes, side);
     return {
       side,
-      chance: chance(probability),
+      chance: sideChance(probability, side),
       pays: priceable(side, probability) ? t.pays(odds(fairOdds(probability))) : null,
     };
   };
