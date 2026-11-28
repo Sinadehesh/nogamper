@@ -868,6 +868,16 @@
     padding: 28px;
     border-radius: var(--r-lg);
   }
+  /* A short list (two rows of one event) would leave half its screen bare.
+     On a laptop the lit panel keeps most of the screen, the list centred on
+     it, however many rows the day gives. */
+  @media (min-width: 1024px) {
+    .lp-moved .lp-moved__panel {
+      display: grid;
+      align-content: center;
+      min-height: min(60svh, 560px);
+    }
+  }
   .lp-movelist {
     position: relative;
     z-index: 1;
@@ -962,12 +972,13 @@
 
   /* ----- a tablet, a tall tablet (820x1180 and the like) -------------------- */
 
-  /* On a tablet the margin's figures stand at the foot of the statement's
-     screen, so the screen holds the statement over its figures rather than
-     a statement over half a screen of bare ground. */
+  /* On a tablet the margin's figures stand a fifth of the screen under the
+     statement: the tall screen's room is shared between the two and the
+     section's foot, so there is neither a hole in the middle nor half a
+     screen of bare ground under the figures. */
   @media (min-width: 640px) and (max-width: 1023px) {
     .lp-margin .lp-margin__bars {
-      margin-top: auto;
+      margin-top: clamp(var(--s-8), 20svh, 240px);
     }
   }
 
