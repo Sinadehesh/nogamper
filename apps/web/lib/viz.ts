@@ -35,7 +35,8 @@ import { bookmakerTake, fairOdds } from "@/lib/odds";
 import type { HistoryPoint, Move, Moves, PublicQuestion, Side } from "@/lib/types";
 
 const LOCALE = "en-US";
-const HOUR = 3_600_000;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
 // ---------------------------------------------------------------------------
@@ -373,13 +374,14 @@ const SAME_MOMENT = 60_000;
  * the range, the chart's end and the sentences all agree with the line,
  * which ends on that reading and does not jump.
  *
- * For a closed or finished question it is the last point of its history, not
- * `probability`: that is the price the site stored when it stopped reading,
- * which can disagree with the chart by a long way (map 4.1). Only with no
- * history at all is it used.
+ * For a closed or finished question it is the last point of its history (a
+ * resolved one's last before its result, `seriesOf`), not `probability`:
+ * that is the price the site stored when it stopped reading, which can
+ * disagree with the chart by a long way (map 4.1). Only with no history at
+ * all is it used.
  */
 export function priceToShow(question: PublicQuestion, band: PriceBand = GAME_BAND): PriceReading {
-  const series = parseHistory(question.history);
+  const series = seriesOf(question);
   const last = series[series.length - 1];
   if (question.state === "open") {
     const value = clamp01(Number(question.probability.yes));
@@ -428,8 +430,40 @@ function round4(value: number): number {
 }
 
 /**
+ * How near to a moment the market's own series must have a reading to say
+ * where the question stood then. The series is hourly, with at most a
+ * two-hour step.
+ */
+const WINDOW_REACH = 2 * HOUR;
+
+/**
+ * How close that reading must be to the reference for a change the source
+ * left out to be read as none (see `changeWindows`).
+ */
+const UNCHANGED_WITHIN = 0.01;
+
+/** The market's own reading nearest to `t`, within `WINDOW_REACH`, or null. */
+function readingNear(question: PublicQuestion, t: number): ChartPoint | null {
+  // The site's own snapshots have holes, and record the held price.
+  if (question.history_source !== "source") return null;
+  let nearest: ChartPoint | null = null;
+  for (const point of seriesOf(question)) {
+    if (!nearest || Math.abs(point.t - t) < Math.abs(nearest.t - t)) nearest = point;
+  }
+  return nearest && Math.abs(nearest.t - t) <= WINDOW_REACH ? nearest : null;
+}
+
+/**
  * Where the question stood a day and a week before its change figures were
  * read: `reference − change`, at `measured_at − 24 h` and `− 7 d`.
+ *
+ * The source leaves a change of zero out of its answer (none of the hundreds
+ * it sends is ever 0), and the API passes it on as null, so a question that
+ * did not move reads as one with no figure. A null change is read as none
+ * when the market's own series confirms it: a reading near the window's
+ * start within a percentage point of the reference. Otherwise it stays
+ * unknown, and so does a window the series does not reach, such as a week
+ * for a question younger than a week (`youngerThan`).
  *
  * Use these for open questions only. A finished question's figures were read
  * before it closed, so "a day ago" would no longer be true.
@@ -439,9 +473,15 @@ export function changeWindows(question: PublicQuestion): ChangeWindows {
   const ref = Number(reference);
   const measured = measuredAt ? Date.parse(measuredAt) : Number.NaN;
   const window = (change: string | null, back: number): ChangeWindow | null => {
-    if (change === null || reference === null || !Number.isFinite(ref)) return null;
-    const delta = Number(change);
-    if (!Number.isFinite(delta) || !Number.isFinite(measured)) return null;
+    if (reference === null || !Number.isFinite(ref) || !Number.isFinite(measured)) return null;
+    let delta = 0;
+    if (change === null) {
+      const then = readingNear(question, measured - back);
+      if (!then || Math.abs(then.v - ref) > UNCHANGED_WITHIN) return null;
+    } else {
+      delta = Number(change);
+      if (!Number.isFinite(delta)) return null;
+    }
     return {
       was: clamp01(round4(ref - delta)),
       now: clamp01(ref),
@@ -453,6 +493,20 @@ export function changeWindows(question: PublicQuestion): ChangeWindows {
     week: window(question.changes.week, 7 * DAY),
     measuredAt,
   };
+}
+
+/**
+ * True when the market's own series starts well inside the last day (or
+ * week): the question is younger than that, so a missing change figure is
+ * missing "yet". The API sends a week of the series, so an older question's
+ * starts at that week's edge.
+ */
+export function youngerThan(question: PublicQuestion, window: "day" | "week"): boolean {
+  if (question.history_source !== "source") return false;
+  const first = seriesOf(question)[0];
+  const asOf = Date.parse(question.as_of);
+  if (!first || !Number.isFinite(asOf)) return false;
+  return first.t > asOf - (window === "day" ? DAY : 7 * DAY) + WINDOW_REACH;
 }
 
 // ---------------------------------------------------------------------------
@@ -686,13 +740,43 @@ export const gameFigures = { chance, odds, points };
 
 export type ChartPoint = { t: number; v: number };
 
-/** Points in time order, unreadable ones dropped, values held to 0..1. */
+/**
+ * Points in time order, unreadable ones dropped, values held to 0..1, and one
+ * reading to a minute. The market's hourly series has been seen to repeat an
+ * hour seconds apart (2:00:03 and 2:00:39, and no 3:00), and twice the same
+ * time; the chart's table lists times to the minute, so two such readings
+ * would be two rows of "2:00 AM" with two figures. They are one moment, and
+ * the later reading stands for it.
+ */
 export function parseHistory(history: HistoryPoint[]): ChartPoint[] {
-  return history
+  const points = history
     .map((point) => ({ t: Date.parse(point.at), v: Number(point.yes) }))
     .filter((point) => Number.isFinite(point.t) && Number.isFinite(point.v))
     .map((point) => ({ t: point.t, v: clamp01(point.v) }))
     .sort((a, b) => a.t - b.t);
+  const series: ChartPoint[] = [];
+  for (const point of points) {
+    const previous = series[series.length - 1];
+    if (previous && Math.floor(previous.t / MINUTE) === Math.floor(point.t / MINUTE)) {
+      series[series.length - 1] = point;
+    } else {
+      series.push(point);
+    }
+  }
+  return series;
+}
+
+/**
+ * A question's own series, as every part of its page reads it: the history
+ * (`parseHistory`), and for a resolved question only the readings up to its
+ * result. A reading after `resolved_at` is of a market already decided, and
+ * drawn on, it would put a last price days after "Settled on …" on the same
+ * page.
+ */
+function seriesOf(question: PublicQuestion): ChartPoint[] {
+  const points = parseHistory(question.history);
+  const settled = question.state === "resolved" && question.resolved_at ? Date.parse(question.resolved_at) : Number.NaN;
+  return Number.isFinite(settled) ? points.filter((point) => point.t <= settled + SAME_MOMENT) : points;
 }
 
 /** The longest gap a line may be drawn across, by where the history came from. */
@@ -1160,21 +1244,27 @@ export type LineChartOptions = {
   band?: PriceBand;
 };
 
-/**
- * Everything the price chart draws, worked out once on the server: the line,
- * where its markers and labels go at each width, the day ticks, the table
- * and the sentences that say the same in words.
- */
-export function lineChartModel(question: PublicQuestion, options: LineChartOptions = {}): LineChartModel {
-  const state = question.state;
-  const open = state === "open";
-  const resolved = state === "resolved" && (question.outcome === "yes" || question.outcome === "no");
-  const reference = question.as_of;
-  const band = options.band ?? GAME_BAND;
+/** The series the price chart draws, which the week's range is also taken from. */
+type DrawnSeries = {
+  /** The readings in time order (`seriesOf`), ending, for an open question, on the price shown. */
+  points: ChartPoint[];
+  /** The price the page leads with (`priceToShow`). */
+  live: PriceReading;
+  /** The points that are held prices, to print as their bounds. */
+  held: Set<ChartPoint>;
+};
 
-  const history = parseHistory(question.history);
+/**
+ * The line the chart draws, once for every part that reads it: the chart
+ * itself and the week's range (`weekRange`). Built twice, the two had
+ * different lows on one page: a reading within a minute of the live price
+ * gives way to it on the line (below), and a range taken from the raw
+ * history kept it.
+ */
+function drawnSeries(question: PublicQuestion, band: PriceBand): DrawnSeries {
+  const open = question.state === "open";
   const live = priceToShow(question, band);
-  const points = [...history];
+  const points = [...seriesOf(question)];
   // An open question's line ends at the price the page shows, so the chart
   // and the big figure above it say the same thing. Where that is the
   // market's own latest reading (a price held on the band's edge, or one
@@ -1209,6 +1299,36 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
   if (question.history_source === "own") {
     for (const point of points) if (onEdge(point.v, band)) held.add(point);
   }
+  return { points, live, held };
+}
+
+/**
+ * Where it stood a day and a week before the change figures were read, as
+ * points the chart marks and its high and low count, up to the line's end.
+ */
+function markPoints(windows: ChangeWindows | null, end: number): ChartPoint[] {
+  const marks: ChartPoint[] = [];
+  for (const window of [windows?.day, windows?.week]) {
+    if (!window) continue;
+    const at = Date.parse(window.at);
+    if (Number.isFinite(at) && at <= end) marks.push({ t: at, v: window.was });
+  }
+  return marks;
+}
+
+/**
+ * Everything the price chart draws, worked out once on the server: the line,
+ * where its markers and labels go at each width, the day ticks, the table
+ * and the sentences that say the same in words.
+ */
+export function lineChartModel(question: PublicQuestion, options: LineChartOptions = {}): LineChartModel {
+  const state = question.state;
+  const open = state === "open";
+  const resolved = state === "resolved" && (question.outcome === "yes" || question.outcome === "no");
+  const reference = question.as_of;
+  const band = options.band ?? GAME_BAND;
+
+  const { points, live, held } = drawnSeries(question, band);
   const printed = (point: ChartPoint): string => (held.has(point) ? pctHeld(point.v, band) : pct(point.v));
 
   const endWord = open ? viz.endNow : resolved ? viz.endResult : viz.endLast;
@@ -1506,23 +1626,41 @@ export function utcDay(t: number): number {
 export const MS = { HOUR, DAY } as const;
 
 /**
- * The lowest and highest price in a question's history, and the price to
- * show beside them (see `priceToShow`): what the 7-day range bar draws.
+ * The lowest and highest price of the week, and the price to show beside
+ * them (see `priceToShow`): what the 7-day range bar draws.
+ *
+ * Taken from what the chart draws (`drawnSeries`) and the marks it puts on
+ * it, so the range's low and high are the chart's: an open question's
+ * day-ago and week-ago figures are readings from this week too, and a
+ * sparse history of the site's own readings must not give a range they fall
+ * outside.
+ *
+ * `since` and `until` are the first and last moments those figures cover.
+ * A question younger than a week, a finished one whose history ends with its
+ * result, and one drawn from the site's own snapshots (with holes in them)
+ * cover less than the week their range is named for: say so from these.
  */
 export function weekRange(
   question: PublicQuestion,
   band: PriceBand = GAME_BAND,
-): { low: number; high: number; now: number; kind: PriceReading["kind"]; held?: boolean } | null {
-  const range = extremes(parseHistory(question.history));
-  if (!range) return null;
-  const shown = priceToShow(question, band);
-  // An open question's day-ago and week-ago figures are readings from this
-  // week too, and its chart marks them: a sparse history of the site's own
-  // readings must not give a range they fall outside.
+): {
+  low: number;
+  high: number;
+  now: number;
+  kind: PriceReading["kind"];
+  held?: boolean;
+  since: number;
+  until: number;
+} | null {
+  const { points, live: shown } = drawnSeries(question, band);
+  const last = points[points.length - 1];
+  if (!last) return null;
   const windows = question.state === "open" ? changeWindows(question) : null;
-  const marks = [windows?.day?.was, windows?.week?.was].filter((v): v is number => typeof v === "number");
-  const low = Math.min(range.low.v, shown.value, ...marks);
-  const high = Math.max(range.high.v, shown.value, ...marks);
+  const all = [...points, ...markPoints(windows, last.t)];
+  const values = all.map((point) => point.v);
+  // The price shown is the line's end; counted again in case it is not.
+  const low = Math.min(...values, shown.value);
+  const high = Math.max(...values, shown.value);
   // Held figures print as bounds (RangeBar's `held`): the price shown, when
   // it is held, and the site's own snapshots on the band's edge.
   const ownEdge = question.history_source === "own" && (onEdge(low, band) !== null || onEdge(high, band) !== null);
@@ -1532,6 +1670,8 @@ export function weekRange(
     now: shown.value,
     kind: shown.kind,
     ...(shown.held || ownEdge ? { held: true } : {}),
+    since: Math.min(...all.map((point) => point.t)),
+    until: last.t,
   };
 }
 

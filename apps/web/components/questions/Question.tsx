@@ -13,13 +13,16 @@ import {
   fromToArrow,
   GAME_BAND,
   inHundred,
+  MS,
   onEdge,
   type PriceBand,
   type PriceReading,
   pct,
   pctHeld,
   priceToShow,
+  shortDateUtc,
   weekRange,
+  youngerThan,
 } from "@/lib/viz";
 
 /** Yes or No, for a question resolved one way or the other; null otherwise. */
@@ -74,6 +77,37 @@ export function StateLine({ question, readAt }: { question: PublicQuestion; read
   );
 }
 
+type WeekRange = NonNullable<ReturnType<typeof weekRange>>;
+
+/**
+ * A week a range is named for. The API sends a week of the market's series,
+ * so a question's figures normally start just about seven days back.
+ */
+const FULL_WEEK = 6 * MS.DAY;
+
+/**
+ * The week's range in words, its title and the sentence under it, named for
+ * what its figures cover: "this week" only where they cover the week, and
+ * otherwise the dates. The site's own record says it is one, with gaps.
+ */
+export function rangeWords(question: PublicQuestion, range: WeekRange) {
+  const since = shortDateUtc(range.since, question.as_of);
+  const until = shortDateUtc(range.until, question.as_of);
+  const full = range.until - range.since >= FULL_WEEK;
+  if (question.history_source === "own") {
+    return { title: questionPage.rangeRecorded.title(since), sentence: questionPage.rangeRecorded.sentence(since), full };
+  }
+  if (full) return { title: questionPage.rangeTitle[range.kind], sentence: undefined, full };
+  if (range.kind === "live") {
+    return { title: questionPage.rangeSince.title(since), sentence: questionPage.rangeSince.sentence(since), full };
+  }
+  return {
+    title: questionPage.rangeBetween.title(since, until),
+    sentence: questionPage.rangeBetween.sentence(since, until),
+    full,
+  };
+}
+
 /**
  * What the market says, in three blocks: the chance (or, once resolved, the
  * answer), how it has changed, and the week's range. For a question that is
@@ -95,7 +129,13 @@ export function QuestionFigures({ question, band = GAME_BAND }: { question: Publ
   const day = windows?.day ? { was: windows.day.was, now: shown.value } : null;
   const week = windows?.week ? { was: windows.week.was, now: shown.value } : null;
   const range = weekRange(question, band);
+  const span = range ? rangeWords(question, range) : null;
   const cells = 1 + (day || week ? 1 : 0) + (range ? 1 : 0);
+  // A window without a figure: "yet" only for a question younger than it.
+  const none = {
+    day: youngerThan(question, "day") ? viz.noDay : questionPage.noFigure.day,
+    week: youngerThan(question, "week") ? viz.noWeek : questionPage.noFigure.week,
+  };
 
   return (
     <section className="qp-figures" aria-labelledby="now" data-cells={cells}>
@@ -124,13 +164,13 @@ export function QuestionFigures({ question, band = GAME_BAND }: { question: Publ
           <h3 id="changes" className="dp-label">
             {questionPage.changesTitle}
           </h3>
-          <ChangeLanes day={day} week={week} held={held} />
+          <ChangeLanes day={day} week={week} held={held} none={none} />
         </div>
       ) : null}
 
-      {range ? (
+      {range && span ? (
         <div className="qp-cell dp-panel">
-          <h3 className="dp-label">{questionPage.rangeTitle[range.kind]}</h3>
+          <h3 className="dp-label">{span.title}</h3>
           <RangeBar
             low={range.low}
             high={range.high}
@@ -138,6 +178,7 @@ export function QuestionFigures({ question, band = GAME_BAND }: { question: Publ
             kind={range.kind}
             size="large"
             held={range.held ? band : undefined}
+            describe={span.sentence}
           />
         </div>
       ) : null}
@@ -153,10 +194,21 @@ type Window = { was: number; now: number } | null;
  * figures are said once, in the line; the track shows size and direction and
  * tells a screen reader the change in words.
  */
-function ChangeLanes({ day, week, held }: { day: Window; week: Window; held?: PriceBand }) {
+function ChangeLanes({
+  day,
+  week,
+  held,
+  none,
+}: {
+  day: Window;
+  week: Window;
+  held?: PriceBand;
+  /** What a window without a figure says instead. */
+  none: { day: string; week: string };
+}) {
   const lanes = [
-    { key: "day", word: questionPage.windows.day, window: day, none: viz.noDay },
-    { key: "week", word: questionPage.windows.week, window: week, none: viz.noWeek },
+    { key: "day", word: questionPage.windows.day, window: day, none: none.day },
+    { key: "week", word: questionPage.windows.week, window: week, none: none.week },
   ];
   return (
     <div className="qp-lanes">
@@ -232,9 +284,13 @@ export function meaningOf(question: PublicQuestion, priceBand: PriceBand = GAME_
       const range = weekRange(question, priceBand);
       const figure = (value: number) => (range?.held ? pctHeld(value, priceBand) : pct(value));
       if (!outcome) return [words.last(count, band)];
+      if (!range) return [words.resolved(outcomeWord(outcome))];
+      const span = rangeWords(question, range);
       return [
         words.resolved(outcomeWord(outcome)),
-        ...(range ? [words.resolvedRange(figure(range.low), figure(range.high))] : []),
+        span.full && question.history_source !== "own"
+          ? words.resolvedRange(figure(range.low), figure(range.high))
+          : words.resolvedRangeFrom(shortDateUtc(range.since, question.as_of), figure(range.low), figure(range.high)),
       ];
     }
     case "void":

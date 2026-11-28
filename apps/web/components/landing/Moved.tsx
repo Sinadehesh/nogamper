@@ -20,11 +20,14 @@ export function Moved({
   moved,
   asOf,
   band = GAME_BAND,
+  read = true,
 }: {
   moved: { window: "day" | "week"; items: Move[] } | null;
   asOf: string | null;
   /** The game's band: a move's "now" is the game's price, held on it. */
   band?: PriceBand;
+  /** False when the moves could not be read, which is not "nothing moved". */
+  read?: boolean;
 }) {
   const window = moved?.window ?? "day";
   const groups = moved ? groupByEvent(moved.items) : [];
@@ -40,12 +43,15 @@ export function Moved({
       <div className="wrap grid grid--top">
         <div className="span-5 lp-moved__head">
           <h2 id="moved-h">{landing.movedTitle(window)}</h2>
-          <p className="t-lead">{moved ? landing.movedIntro(window) : landing.movedNone}</p>
+          <p className="t-lead">
+            {moved ? landing.movedIntro(window) : read ? landing.movedNone : landing.movedUnread}
+          </p>
           <a className="link" href="/moves">
             {landing.movedAll}
           </a>
-          {/* The one time on the page its figures are from: the hero's
-              question and these moves were read together. */}
+          {/* The one time on the page its figures are from: these moves',
+              and the hero's, which is drawn from the same answer when it is
+              one of them (data.ts, `asMoved`). */}
           {asOf ? <AsOf at={asOf} changing /> : null}
         </div>
         {/* The list as the game shows it, on the page's lit ground: real

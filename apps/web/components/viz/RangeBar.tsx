@@ -22,6 +22,12 @@ type RangeBarProps = {
    * `held`): a figure on its edge prints as its bound, "≤1%" or "≥99%".
    */
   held?: PriceBand;
+  /**
+   * The sentence that says the range in words, from its printed figures. By
+   * default "Over 7 days: …"; a range that covers less than the week names
+   * the dates it covers instead.
+   */
+  describe?: (low: string, high: string, nowWord: string, now: string) => string;
   className?: string;
 };
 
@@ -40,13 +46,22 @@ const NARROWEST = 236;
  * marked on it: a question that swung from 20% to 98% and one that sat at
  * 61% all week look as different as they are.
  */
-export function RangeBar({ low, high, now, kind = "live", size = "row", held, className }: RangeBarProps) {
+export function RangeBar({
+  low,
+  high,
+  now,
+  kind = "live",
+  size = "row",
+  held,
+  describe = viz.rangeSentence,
+  className,
+}: RangeBarProps) {
   const lo = Math.min(1, Math.max(0, Number(low)));
   const hi = Math.max(lo, Math.min(1, Math.max(0, Number(high))));
   const current = Math.min(hi, Math.max(lo, Number(now)));
   const nowWord = kind === "last" ? viz.rangeLast : viz.rangeNow;
   const figure = (value: number) => (held ? pctHeld(value, held) : pct(value));
-  const sentence = viz.rangeSentence(figure(lo), figure(hi), nowWord, figure(current));
+  const sentence = describe(figure(lo), figure(hi), nowWord, figure(current));
   const position = vars({ "--viz-low": at(lo), "--viz-high": at(hi), "--viz-now": at(current) });
 
   const rail = (children?: ReactNode) => (

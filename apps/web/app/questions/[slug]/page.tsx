@@ -9,12 +9,13 @@ import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { LineChart } from "@/components/viz";
 import { PRICE_SOURCE, questionPage } from "@/lib/content";
 import { categoryLabel, t } from "@/lib/copy";
+import { dateTimeUtc } from "@/lib/format";
 import { breadcrumbLd, pageMetadata } from "@/lib/seo";
 import { getQuestion } from "@/lib/server/questions";
 import { getRules } from "@/lib/server/rules";
 import { GAME_OPEN } from "@/lib/site";
 import type { PublicQuestion } from "@/lib/types";
-import { bandPercent, onEdge, pct, priceBand, priceToShow } from "@/lib/viz";
+import { MS, onEdge, pct, pctPair, priceBand, priceToShow } from "@/lib/viz";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -60,6 +61,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     index: question.state !== "void" && question.state !== "unfollowed",
   });
 }
+
+/**
+ * How much older than the page's own time the market's reading it shows may
+ * be before the page says when that reading is from.
+ */
+const READING_NOTE_AFTER_MS = MS.HOUR / 4;
 
 /** When the price on the page was read: the answer's own time, less the price's age. */
 function priceReadAt(question: PublicQuestion): string {
@@ -112,13 +119,25 @@ export default async function QuestionPage({ params }: Props) {
   // When the page's figures are from: when the market was last read, by the
   // API (the live price) or by the market's own series, whichever is later.
   // A reading that stands in for a held price is older than the live read
-  // that held it, and the chart's figures give its own time. Dated by the
-  // reading instead, a copy built a minute ago would look an hour old to the
-  // reader's clock, and the line would go looking for figures nobody has.
+  // that held it. Dated by the reading instead, a copy built a minute ago
+  // would look an hour old to the reader's clock, and the line would go
+  // looking for figures nobody has (AsOf).
   const datedAt = Date.parse(shown.at) > Date.parse(readAt) ? shown.at : readAt;
-  // Where the game's price for a pick sits on the band's edge it differs from
-  // the market's figure above, and the play panel says so, with the figures.
-  const gameEdge = open ? onEdge(question.probability.yes, band) : null;
+  // So where the chance shown is that older reading, by a quarter of an hour
+  // or more, a line under the date says when the reading is from, as the
+  // chart's own "Now" does: one figure, two times, each named.
+  const readingAt =
+    open && Date.parse(datedAt) - Date.parse(shown.at) >= READING_NOTE_AFTER_MS ? shown.at : null;
+  // Where the game's price for a pick sits on the band's edge it can differ
+  // from the market's figure above, and where it does (a reading beyond the
+  // edge, or a held price printed as its bound) the play panel says so, with
+  // the figures. Every figure in that line prints as the game prints a
+  // chance, so the band's "1.0%" is the "1.0%" of the price beside it.
+  const game = pctPair(question.probability.yes);
+  const gameDiffers =
+    open &&
+    onEdge(question.probability.yes, band) !== null &&
+    (shown.held === true || pct(shown.value) !== game.yes);
   const rules = (question.description ?? "")
     .split(/\n+/)
     .map((paragraph) => paragraph.trim())
@@ -167,6 +186,11 @@ export default async function QuestionPage({ params }: Props) {
             changing={open || question.state === "closed"}
             className="qp-asof"
           />
+          {readingAt ? (
+            <p className="qp-asof__reading text-sm leading-normal text-muted">
+              {questionPage.readingAt(dateTimeUtc(readingAt))}
+            </p>
+          ) : null}
 
           <section className="qp-chart" aria-labelledby="chart">
             <div className="qp-chart__head">
@@ -201,14 +225,9 @@ export default async function QuestionPage({ params }: Props) {
               <section className="qp-play dp-panel" aria-labelledby="play">
                 <h2 id="play">{questionPage.playTitle}</h2>
                 <p>{questionPage.playBody}</p>
-                {gameEdge ? (
+                {gameDiffers ? (
                   <p className="qp-play__band">
-                    {questionPage.playBand(
-                      bandPercent(band.min),
-                      bandPercent(band.max),
-                      pct(question.probability.yes),
-                      pct(question.probability.no),
-                    )}
+                    {questionPage.playBand(pct(band.min), pct(band.max), game.yes, game.no)}
                   </p>
                 ) : null}
                 <Link href="/play" className="btn btn--secondary">

@@ -26,6 +26,13 @@ export type FrontData = {
   moved: { window: "day" | "week"; items: Move[] } | null;
   /** The game's band, from the rules (or lib/viz.ts's copy of them). */
   band: PriceBand;
+  /**
+   * The one time the page's figures are from, for its `AsOf`: the moves'
+   * time, which is the hero's too when it is one of them (`asMoved`). A hero
+   * read on its own was read at another moment, and the page is then dated
+   * by the earlier of the two, so no figure on it is older than it says.
+   */
+  asOf: string | null;
   complete: boolean;
 };
 
@@ -75,16 +82,69 @@ function full(question: PublicQuestion): boolean {
   return points.length >= FULL_POINTS && !!first && !!last && last.t - first.t >= FULL_SPAN_MS;
 }
 
+/**
+ * The hero's question as the moves answer has it, when it is one of the
+ * moves. Its own answer is kept apart from the moves' and refreshed at
+ * another moment, so the two could give one question two chances on one
+ * page: "4.0%" in the hero over "From 32% to 3.2%" in its own row below. So
+ * the hero takes from the moves what its row shows: the price (the move's
+ * "now"), the moment (the moves' `as_of`, where its line then ends), and
+ * where it stood at the start of each window it is listed in (the move's
+ * "was", the chart's day-ago or week-ago mark). The rest, the line itself
+ * and the question's words, is its own answer's.
+ */
+function asMoved(question: PublicQuestion, moves: Moves): PublicQuestion {
+  const day = moves.day.find((move) => move.slug === question.slug);
+  const week = moves.week.find((move) => move.slug === question.slug);
+  const move = day ?? week;
+  const at = Date.parse(moves.as_of);
+  const now = Number(move?.now);
+  if (!move || !Number.isFinite(at) || !Number.isFinite(now)) return question;
+
+  // The change figures, from one reference: a listed window's change is to
+  // the move's "was" (so the chart's mark is the row's figure exactly); one
+  // not listed keeps its own answer's.
+  const own = question.changes.reference === null ? Number.NaN : Number(question.changes.reference);
+  const reference = Number.isFinite(own) ? own : now;
+  const changeTo = (was: string) => (reference - Number(was)).toFixed(4);
+  const changes: PublicQuestion["changes"] = {
+    ...question.changes,
+    reference: reference.toFixed(4),
+    day: day ? changeTo(day.was) : Number.isFinite(own) ? question.changes.day : null,
+    week: week ? changeTo(week.was) : Number.isFinite(own) ? question.changes.week : null,
+    measured_at: move.measured_at,
+  };
+  return {
+    ...question,
+    probability: { ...question.probability, yes: move.now, no: (1 - now).toFixed(4), age_seconds: 0, stale: false },
+    changes,
+    history: question.history.filter((point) => Date.parse(point.at) <= at),
+    as_of: moves.as_of,
+  };
+}
+
+/** Whether the hero's figures are the moves': it is one of them. */
+const listed = (question: PublicQuestion, moves: Moves | null) =>
+  !!moves && [...moves.day, ...moves.week].some((move) => move.slug === question.slug);
+
 /** The first of the questions tried with a full history, else the first that can be shown at all. */
-async function firstShowable(slugs: string[], band: PriceBand): Promise<PublicQuestion | null> {
+async function firstShowable(slugs: string[], band: PriceBand, moves: Moves | null): Promise<PublicQuestion | null> {
   let fallback: PublicQuestion | null = null;
   for (const slug of slugs.slice(0, HERO_TRIES)) {
     const answer = await getQuestion(slug);
-    if (answer.status !== "ok" || !showable(answer.data, band)) continue;
-    if (full(answer.data)) return answer.data;
-    fallback ??= answer.data;
+    if (answer.status !== "ok") continue;
+    const question = moves ? asMoved(answer.data, moves) : answer.data;
+    if (!showable(question, band)) continue;
+    if (full(question)) return question;
+    fallback ??= question;
   }
   return fallback;
+}
+
+/** When an open question's live price was read: its answer's time, less the price's age. */
+function readAt(question: PublicQuestion): string {
+  const read = Date.parse(question.as_of) - (question.probability.age_seconds || 0) * 1000;
+  return Number.isFinite(read) ? new Date(read).toISOString() : question.as_of;
 }
 
 /** Any open question, from the index, for a day on which nothing moved. */
@@ -151,12 +211,19 @@ export async function frontData(): Promise<FrontData> {
     hero = await firstShowable(
       unique([...bySize(moves.day), ...bySize(moves.week)]).map((move) => move.slug),
       band,
+      moves,
     );
   }
-  if (!hero) hero = await firstShowable(await anyOpenSlugs(), band);
+  if (!hero) hero = await firstShowable(await anyOpenSlugs(), band, moves);
 
   const { step, others } = moves ? stepQuestions(moves, hero?.slug ?? null) : { step: null, others: [] };
   const moved = moves ? movedList(moves) : null;
+
+  let asOf = moves?.as_of ?? null;
+  if (hero && !listed(hero, moves)) {
+    const heroAt = readAt(hero);
+    asOf = asOf === null || Date.parse(heroAt) < Date.parse(asOf) ? heroAt : asOf;
+  }
 
   return {
     rules,
@@ -166,6 +233,7 @@ export async function frontData(): Promise<FrontData> {
     others,
     moved,
     band,
+    asOf,
     complete: Boolean(moves && hero),
   };
 }

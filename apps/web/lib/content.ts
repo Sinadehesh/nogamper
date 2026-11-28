@@ -271,6 +271,8 @@ export const landing = {
       ? "The questions whose chance changed most since yesterday, read from the market."
       : "The questions whose chance changed most in the past week, read from the market.",
   movedNone: "No question's chance has changed much lately. Every move is listed on its own page.",
+  // When the moves could not be read at all, which is not "nothing moved".
+  movedUnread: "The moves could not be read just now. They are read from the market every few minutes.",
   movedAll: "See every move",
   movedListHead: (window: "day" | "week") => (window === "day" ? "Past day" : "Past week"),
   movedMeta: (category: string, event: string) => `${category} · ${event}`,
@@ -1255,8 +1257,30 @@ export const questionPage = {
   // Each over a track: "In the last day 97% → 22%", from where it stood then
   // to the price at the top of the page.
   windows: { day: "In the last day", week: "In the last week" },
+  // A window with no figure, for a question that is not younger than it (one
+  // that is says "No figure for the week yet").
+  noFigure: { day: "No figure for the day", week: "No figure for the week" },
 
+  // The week's range, named for the week only where its figures cover one.
+  // Otherwise it says the dates they cover: a question younger than a week, a
+  // finished one whose figures end with it, and the site's own record, which
+  // has holes in it.
   rangeTitle: { live: "Lowest and highest this week", last: "Lowest and highest in its last week" },
+  rangeSince: {
+    title: (since: string) => `Lowest and highest since ${since}`,
+    sentence: (since: string) => (low: string, high: string, nowWord: string, now: string) =>
+      `Since ${since}: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
+  },
+  rangeBetween: {
+    title: (from: string, to: string) => `Lowest and highest, ${from} to ${to}`,
+    sentence: (from: string, to: string) => (low: string, high: string, nowWord: string, now: string) =>
+      `From ${from} to ${to}: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
+  },
+  rangeRecorded: {
+    title: (since: string) => `Lowest and highest recorded since ${since}`,
+    sentence: (since: string) => (low: string, high: string, nowWord: string, now: string) =>
+      `Of the prices recorded since ${since}, with gaps: lowest ${low}, highest ${high}. ${nowWord} ${now}.`,
+  },
 
   // Not "the last week": a new question has less than a week to show, and a
   // finished one's week is not the last. The dates are under the chart.
@@ -1303,6 +1327,9 @@ export const questionPage = {
     resolved: (outcome: string) => `The answer was ${outcome}.`,
     resolvedRange: (low: string, high: string) =>
       `In its last week of trading, the market's chance of yes ran between ${low} and ${high}.`,
+    // When its figures cover less than that week (see rangeSince).
+    resolvedRangeFrom: (from: string, low: string, high: string) =>
+      `From ${from} to its result, the market's chance of yes ran between ${low} and ${high}.`,
     void: "Its source cancelled it, so there is no answer to measure a forecast against.",
     unfollowed: `${APP_NAME} no longer reads this market, so the figures above are the last it saw.`,
   },
@@ -1318,9 +1345,14 @@ export const questionPage = {
     "nothing else to win or lose.",
   playCta: "Make a forecast",
   // Shown in that panel when the game's price for this question sits on the
-  // edge of its band, so differs from the market's figure above.
+  // edge of its band and so differs from the market's figure above. Every
+  // figure in it prints as the game prints a chance.
   playBand: (low: string, high: string, yes: string, no: string) =>
-    `The game prices every pick between ${low} and ${high}: here, yes at ${yes} and no at ${no}.`,
+    `The game prices every pick between ${low} and ${high}, so here yes is at ${yes} and no at ${no}.`,
+
+  // Under the line that dates the page, when the chance shown is the
+  // market's own last reading and that is a while older than the page.
+  readingAt: (when: string) => `The chance shown is the market's latest reading, from ${when}.`,
   movesLink: "See what else moved",
 };
 

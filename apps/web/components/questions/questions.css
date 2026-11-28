@@ -785,6 +785,12 @@
     margin-top: var(--s-3);
   }
 
+  /* When the chance shown is the market's own reading, a while older than
+     the page: its time, under the line that dates the page. */
+  .qp-asof__reading {
+    margin-top: var(--s-1);
+  }
+
   .qp-chart {
     margin-top: var(--s-8);
   }

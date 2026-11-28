@@ -41,7 +41,8 @@ export const metadata = pageMetadata({
 export default async function LandingPage() {
   const data = await frontData();
   if (!data.complete) keepEarlierCopy("The front page's questions");
-  const asOf = data.moves?.as_of ?? null;
+  // The one time the page's figures are from (`frontData`'s `asOf`).
+  const asOf = data.asOf;
 
   return (
     <>
@@ -56,7 +57,7 @@ export default async function LandingPage() {
         <Keeps rules={data.rules} />
         <Margin rules={data.rules} />
         <Faq />
-        <Moved moved={data.moved} asOf={asOf} band={data.band} />
+        <Moved moved={data.moved} asOf={asOf} band={data.band} read={data.moves !== null} />
       </main>
 
       <SiteFooter close={<Close rules={data.rules} />} />
