@@ -4,7 +4,7 @@ import { getRules } from "@/lib/server/rules";
 import { getMoves, getQuestion } from "@/lib/server/questions";
 import { publicApiAnswer } from "@/lib/server/public";
 import type { GameRules, Move, Moves, PublicQuestion, QuestionIndex } from "@/lib/types";
-import { groupByEvent, type PriceBand, parseHistory, priceBand } from "@/lib/viz";
+import { groupByEvent, type PriceBand, parseHistory, priceBand, priceToShow } from "@/lib/viz";
 
 /**
  * What the front page is drawn from: the rules, the moves, and one open
@@ -46,15 +46,20 @@ const FULL_POINTS = 24;
  * it: a question the hero can show whole. The hero puts the market's chance
  * beside the game's two picks and the slip one makes, and those must be one
  * figure. A live price on the edge of the game's band is held there (a
- * market at 0.4% is dealt at 1%), so such a question is never the hero's.
+ * market at 0.4% is dealt at 1%), so such a question is never the hero's;
+ * nor is one whose price is out of date, which the game will not deal at,
+ * or one whose page leads with a figure other than the game's price
+ * (`priceToShow`).
  */
 function showable(question: PublicQuestion, band: PriceBand): boolean {
   const yes = Number(question.probability.yes);
   return (
     question.state === "open" &&
+    !question.probability.stale &&
     parseHistory(question.history).length >= 2 &&
     yes > band.min &&
-    yes < band.max
+    yes < band.max &&
+    priceToShow(question, band).value === yes
   );
 }
 

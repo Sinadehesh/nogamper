@@ -285,7 +285,7 @@ export const t = {
   placedSee: "See your forecasts",
   placedDone: "Done",
   quoting: "Pricing…",
-  keepBrowsing: "Add another question",
+  keepBrowsing: "Back to the questions",
   discardOpen: "Clear slip",
   discardTitle: "Clear this slip?",
   discardBody: (count: number) =>
@@ -428,7 +428,7 @@ export const t = {
   shopClosed: "Nothing is for sale at the moment.",
   shopNoneTitle: "Buying points",
   shopNone: (daily: string) =>
-    `Points are not for sale here. Everyone gets ${daily} free every day, and that is the only way to get more.`,
+    `Points are not for sale here. Everyone gets ${daily} free every day; the rest come from forecasts that are right.`,
   shopAdultRequired: "Please confirm that you are old enough.",
   shopUnknownPack: "That pack is no longer on sale. Reload the page and choose again.",
   shopUnavailable: "Payment is unavailable right now. Nothing was charged. Please try later.",
@@ -506,6 +506,8 @@ export const t = {
 
   // ----- account ------------------------------------------------------------
   accountTitle: "Your account",
+  // The first card on the account view: the view itself is "Your account".
+  accountDetails: "Your details",
   accountSignIn: "How you sign in",
   accountGuestKeep:
     "A guest account is a cookie in this browser. Add an email and a password to keep your " +

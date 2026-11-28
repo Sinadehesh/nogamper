@@ -44,7 +44,9 @@ export function StatusBanner() {
   const tone = healthy ? "notice-ok" : report.layer === "degraded" ? "notice-warn" : "notice-error";
 
   return (
-    <section className={`notice ${tone} !text-ink`}>
+    // A div, not a section: the kit gives a section directly in main a page's
+    // rhythm and no padding of its own.
+    <div className={`notice ${tone} !text-ink`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="font-bold">
           {healthy ? t.statusTitleHealthy : t.statusTitleProblem}
@@ -88,7 +90,7 @@ export function StatusBanner() {
           ) : (
             <ul className="mt-1 space-y-1 text-sm">
               {report.runs.map((run) => (
-                <li key={run.job_name} className="tabular-nums">
+                <li key={run.job_name}>
                   <span className="font-mono font-semibold">{run.job_name}</span>{" "}
                   <span className={run.outcome === "ok" ? "text-muted" : "font-semibold text-danger"}>
                     {t.statusRunLine(
@@ -105,7 +107,7 @@ export function StatusBanner() {
           )}
         </>
       ) : null}
-    </section>
+    </div>
   );
 }
 
@@ -113,7 +115,7 @@ function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className="font-semibold tabular-nums">{value}</dd>
+      <dd className="font-semibold">{value}</dd>
     </div>
   );
 }

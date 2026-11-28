@@ -81,7 +81,7 @@ export default function AdminPlayersPage() {
       ) : (
         <article className="card overflow-x-auto p-4">
           <p className="mb-2 text-xs text-muted">{t.adminShowing(players.length, total)}</p>
-          <table className="table">
+          <table className="table rd-admin-wide">
             <thead>
               <tr>
                 <th scope="col">{t.adminColPlayer}</th>
@@ -112,7 +112,7 @@ export default function AdminPlayersPage() {
                   </td>
                   <td className="num">{points(player.balance.minor)}</td>
                   <td className="num">{points(player.staked.minor)}</td>
-                  <td className={`num ${player.net.minor >= 0 ? "text-yes" : "text-no"}`}>
+                  <td className="num">
                     {signedPoints(player.net.minor)}
                   </td>
                   <td className="num">
@@ -220,7 +220,7 @@ function AdjustForm({
           <label htmlFor={amountId} className="label">{t.adminAdjustAmount}</label>
           <input
             id={amountId}
-            className="field tabular-nums"
+            className="field"
             inputMode="numeric"
             value={amount}
             onChange={(event) => setAmount(event.target.value)}

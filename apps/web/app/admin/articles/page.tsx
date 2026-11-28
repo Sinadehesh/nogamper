@@ -153,7 +153,7 @@ function ReviewCard({
 
       <button
         type="button"
-        className="btn btn-quiet btn-sm -ms-3"
+        className="btn btn-quiet btn-sm -ms-3 self-start"
         aria-expanded={reading}
         onClick={() => setReading((current) => !current)}
       >

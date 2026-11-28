@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import "@/components/reading/reading.css";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { StatusBanner } from "@/components/admin/StatusBanner";
 import { SiteFooter } from "@/components/SiteChrome";
@@ -20,7 +21,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <>
       <AdminNav />
-      <main id="main" className="container-page flex-1 space-y-5 py-5">
+      <main id="main" className="rd rd-admin container-page flex-1 space-y-5 py-5">
         <StatusBanner />
         {children}
       </main>

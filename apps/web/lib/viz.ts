@@ -17,8 +17,9 @@
  * - **The market's own reading, not the game's held price.** The API holds
  *   an open question's live price inside the game's band (1% to 99%, see
  *   `PriceBand`). Where it is held there and the market's own latest reading
- *   lies beyond, the pages show that reading (`priceToShow`); where nothing
- *   says where the market stands, the held price prints as the bound it is
+ *   lies beyond, the pages show that reading (`priceToShow`), as they do
+ *   wherever that reading is newer than the live price; where nothing says
+ *   where the market stands, the held price prints as the bound it is
  *   ("≤1%"), never as a price (`pctHeld`).
  * - **A change is "from 54% to 62%"**, and its size, where prose needs one, is
  *   in percentage points taken from the two figures as printed, so a reader's
@@ -338,22 +339,39 @@ export type PriceReading = {
   held?: boolean;
 };
 
-/** How old the market's own latest reading may be and still stand for "now". */
+/**
+ * How long before the live price the market's own latest reading may have
+ * been read and still say where a held price lies beyond the band's edge.
+ */
 const READING_MAX_AGE = 3 * HOUR;
+
+/** Two readings this close in time are one moment. */
+const SAME_MOMENT = 60_000;
 
 /**
  * The price a question's page leads with.
  *
- * For an open question that is the live price, with one exception. The API
- * holds the live price inside the game's band (`PriceBand`), so a market at
- * 0.4% comes back as 1%. When the live price sits on the band's edge and the
- * market's own latest reading (the last point of the source's history, read
- * within 3 hours of `as_of`) lies beyond it, that reading is the price: it
- * is shown as "live", at its own time, and the readout, the bars, the range,
- * the chart's end and the sentences all agree with the line, which then does
- * not jump at its end. A reading exactly on the edge says the market is
- * there, and the live price stands. With no such reading the live price is
- * all there is, and it is marked `held`.
+ * For an open question that is the live price, with two exceptions, both
+ * from the market's own latest reading: the last point of the source's
+ * history. (The site's own snapshots are of the API's price, so they never
+ * count as one.)
+ *
+ * - **A reading newer than the live price** is the price. The live price is
+ *   then older than what the market has said since, usually one the API fell
+ *   back on when it could not read the market (it says `stale`), hours old,
+ *   while the market's own series went on: a page that led with it would put
+ *   "21%" over a line that ends at 0.1%.
+ * - **A live price held on the band's edge.** The API holds the live price
+ *   inside the game's band (`PriceBand`), so a market at 0.4% comes back as
+ *   1%. When the reading was read at most 3 hours before the live price (in
+ *   normal running, within 3 hours of `as_of`) and lies beyond the edge, that
+ *   reading is the price. A reading exactly on the edge says the market is
+ *   there, and the live price stands. With no such reading the live price is
+ *   all there is, and it is marked `held`.
+ *
+ * A reading is shown as "live", at its own time, so the readout, the bars,
+ * the range, the chart's end and the sentences all agree with the line,
+ * which ends on that reading and does not jump.
  *
  * For a closed or finished question it is the last point of its history, not
  * `probability`: that is the price the site stored when it stopped reading,
@@ -367,18 +385,23 @@ export function priceToShow(question: PublicQuestion, band: PriceBand = GAME_BAN
     const value = clamp01(Number(question.probability.yes));
     const asOf = Date.parse(question.as_of);
     const readAt = asOf - (question.probability.age_seconds || 0) * 1000;
-    const at = new Date(Number.isFinite(readAt) ? readAt : asOf).toISOString();
+    const liveAt = Number.isFinite(readAt) ? readAt : asOf;
+    const at = new Date(liveAt).toISOString();
+    // The market's own latest reading, if it has one by the time of the answer.
+    const reading =
+      question.history_source === "source" && last && !(last.t > asOf + SAME_MOMENT) ? last : null;
+    const reported = (point: ChartPoint): PriceReading => ({
+      value: point.v,
+      at: new Date(point.t).toISOString(),
+      kind: "live",
+    });
+    if (reading && reading.t > liveAt + SAME_MOMENT) return reported(reading);
+
     const edge = onEdge(value, band);
     if (!edge) return { value, at, kind: "live" };
-
-    // Held on the edge. Only the source's own history is the market's: the
-    // site's snapshots are of the held price.
-    const reading =
-      question.history_source === "source" && last && asOf - last.t <= READING_MAX_AGE ? last : null;
-    if (reading && (edge === "min" ? reading.v < band.min : reading.v > band.max)) {
-      return { value: reading.v, at: new Date(reading.t).toISOString(), kind: "live" };
-    }
-    if (reading && onEdge(reading.v, band) === edge) return { value, at, kind: "live" };
+    const recent = reading && liveAt - reading.t <= READING_MAX_AGE ? reading : null;
+    if (recent && (edge === "min" ? recent.v < band.min : recent.v > band.max)) return reported(recent);
+    if (recent && onEdge(recent.v, band) === edge) return { value, at, kind: "live" };
     return { value, at, kind: "live", held: true };
   }
   if (last) {
@@ -1154,10 +1177,11 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
   const points = [...history];
   // An open question's line ends at the price the page shows, so the chart
   // and the big figure above it say the same thing. Where that is the
-  // market's own latest reading (a price held on the band's edge), it is the
-  // line's last point already, and the line ends there rather than jump to
-  // the held price. With no history there is no line to end, and the chart
-  // says so rather than draw one lonely dot.
+  // market's own latest reading (a price held on the band's edge, or one
+  // newer than the live price), it is the line's last point already, and the
+  // line ends there rather than jump to the held or older price. With no
+  // history there is no line to end, and the chart says so rather than draw
+  // one lonely dot.
   let heldEnd: ChartPoint | null = null;
   const readAt = Date.parse(live.at);
   const latest = points[points.length - 1];

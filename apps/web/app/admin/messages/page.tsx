@@ -111,7 +111,7 @@ function MessageCard({
           <span className="font-mono font-bold tracking-widest">{message.player_code}</span>{" "}
           <span>{message.display_name}</span>{" "}
           {message.is_guest ? <span className="chip">{t.adminGuestTag}</span> : null}
-          <span className="block text-xs text-muted tabular-nums">
+          <span className="block text-xs text-muted">
             {points(message.balance.minor)} {t.pts} · {message.player_status} ·{" "}
             {timeAgo(message.created_at)}
           </span>

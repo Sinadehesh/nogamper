@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -15,7 +16,14 @@ import {
 
 import { AccountPanel } from "@/components/AccountPanel";
 import { ForecastHistory } from "@/components/ForecastHistory";
-import { QuestionLinks, useWide } from "@/components/game/context";
+import {
+  QuestionLinks,
+  QuotedPrices,
+  quotedPrices,
+  ReviewSlip,
+  useWide,
+} from "@/components/game/context";
+import { useFocusTrap } from "@/components/game/trap";
 import { GameBar, TabBar, VIEW_LABEL, viewHref } from "@/components/game/views";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { MarketFeed } from "@/components/MarketFeed";
@@ -29,7 +37,7 @@ import { claimTopUp, getShop } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
 import { dateTimeUtc, points } from "@/lib/format";
 import type { Tab } from "@/lib/tabs";
-import type { MarketRules, MarketSummary } from "@/lib/types";
+import type { MarketRules, MarketSummary, SlipQuote } from "@/lib/types";
 
 /** Until the feed has answered, a slip may hold this many picks. */
 const FALLBACK_MAX_LEGS = 5;
@@ -141,12 +149,16 @@ function Screen({
 }) {
   const slip = useSlip();
   const wide = useWide();
+  const { onBreak, limitReached } = usePlayer();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [historyToken, setHistoryToken] = useState(0);
   const [shopOpen, setShopOpen] = useState(false);
   // Every question the feed has shown this visit, by id, at its latest price.
   const [prices, setPrices] = useState<ReadonlyMap<string, MarketSummary>>(() => new Map());
   const [placed, setPlaced] = useState<Receipt | null>(null);
+  // The slip's quote on screen: the cards of the questions on it show its prices.
+  const [quote, setQuote] = useState<SlipQuote | null>(null);
+  const quoted = useMemo(() => quotedPrices(quote), [quote]);
   const heading = useRef<HTMLHeadingElement>(null);
   const placedTitleId = useId();
 
@@ -194,6 +206,20 @@ function Screen({
     select("history");
   }, [select]);
 
+  // The confirmation's button has gone with it: the focus goes to the
+  // view's heading, as it does on a change of view, not to the page's end.
+  const donePlacing = useCallback(() => {
+    setPlaced(null);
+    window.requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }));
+  }, []);
+
+  // From a card to the slip: its stake on a wide screen, the sheet on a phone.
+  const { open: openSlip } = slip;
+  const reviewSlip = useCallback(() => {
+    if (wide) document.querySelector<HTMLElement>(".gm-rail .gm-stake input")?.focus();
+    else openSlip();
+  }, [wide, openSlip]);
+
   const maxLegs = rules?.max_legs ?? slip.maxLegs;
   // The folded slip at the foot: on a phone whenever the sheet is shut, on a
   // wide screen only away from the questions, where the rail is not.
@@ -223,19 +249,22 @@ function Screen({
 
           {tab === "markets" ? (
             <div className="gm-market">
-              <MarketFeed onRules={onRules} onMarkets={seen} />
+              <QuotedPrices prices={quoted}>
+                <ReviewSlip onReview={reviewSlip}>
+                  <MarketFeed onRules={onRules} onMarkets={seen} />
+                </ReviewSlip>
+              </QuotedPrices>
               <aside className="gm-rail" aria-label={t.slipTitle}>
                 <div className="gm-panel">
                   {wide && hasPicks && rules ? (
-                    <SlipRail rules={rules} prices={prices} onPlaced={onPlaced} />
+                    <SlipRail rules={rules} prices={prices} onPlaced={onPlaced} onQuote={setQuote} />
                   ) : wide && placed ? (
-                    <SlipPlaced
-                      receipt={placed}
-                      onSee={seeForecasts}
-                      onDone={() => setPlaced(null)}
-                    />
+                    <SlipPlaced receipt={placed} onSee={seeForecasts} onDone={donePlacing} />
                   ) : (
-                    <SlipEmpty maxLegs={maxLegs} />
+                    <SlipEmpty
+                      maxLegs={maxLegs}
+                      paused={onBreak ? t.onBreakNoPicks : limitReached ? t.limitReachedNoPicks : null}
+                    />
                   )}
                 </div>
               </aside>
@@ -258,15 +287,17 @@ function Screen({
         <SlipBar onReview={wide ? () => select("markets") : slip.open} prices={prices} />
       ) : null}
 
-      {!wide && rules ? <SlipSheet rules={rules} prices={prices} onPlaced={onPlaced} /> : null}
+      {!wide && rules ? (
+        <SlipSheet rules={rules} prices={prices} onPlaced={onPlaced} onQuote={setQuote} />
+      ) : null}
 
       {!wide && placed && !hasPicks ? (
-        <PlacedSheet titleId={placedTitleId} onClose={() => setPlaced(null)}>
+        <PlacedSheet titleId={placedTitleId} onClose={donePlacing}>
           <SlipPlaced
             receipt={placed}
             titleId={placedTitleId}
             onSee={seeForecasts}
-            onDone={() => setPlaced(null)}
+            onDone={donePlacing}
           />
         </PlacedSheet>
       ) : null}
@@ -318,6 +349,9 @@ function PlacedSheet({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const panel = useRef<HTMLDivElement>(null);
+  useFocusTrap(panel, true);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -329,7 +363,13 @@ function PlacedSheet({
   return (
     <div className="gm-sheet gm">
       <div className="gm-sheet__scrim" onClick={onClose} aria-hidden />
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="gm-sheet__panel">
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="gm-sheet__panel"
+      >
         <span className="gm-sheet__grip" aria-hidden />
         {children}
       </div>
@@ -379,9 +419,10 @@ function Strip({
       <div className="gm-strip__cells">
         <div className="gm-stat">
           <p className="gm-label">{t.balanceLabel}</p>
+          {/* "Your points" and the figure, as the front page draws it: the
+              label already says what the number counts. */}
           <p className="gm-balance">
             <Figure className="gm-balance__figure" text={points(player.balance.minor)} />
-            <span className="gm-balance__unit">{t.pointsUnit}</span>
           </p>
         </div>
 

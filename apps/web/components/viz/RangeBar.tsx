@@ -28,6 +28,12 @@ type RangeBarProps = {
 const TICKS = [0, 25, 50, 75, 100];
 const WORD_PX = 11;
 const FIGURE_PX = 20;
+/**
+ * The narrowest the large bar is drawn: the question page's range cell on a
+ * 320px screen is 238px. Its labels are laid out at this width, so they stay
+ * clear of each other wherever it is drawn wider (`layoutTrackLabels`).
+ */
+const NARROWEST = 236;
 
 /**
  * The week's range as a band on a fixed 0-to-100 track, with the price now
@@ -88,10 +94,17 @@ export function RangeBar({ low, high, now, kind = "live", size = "row", held, cl
   }));
   const nowText = `${nowWord} ${figure(current)}`;
   const nowWidth = Math.ceil(monoWidth(nowText, WORD_PX)) + 8;
-  const layout = layoutTrackLabels(labels.map(({ x, width, r }) => ({ x, width, r })));
-  // The line under the track names the price now; it may need room too.
-  const padLeft = Math.max(layout.padLeft, nowWidth / 2 - current * 300 + 2, 0);
-  const padRight = Math.max(layout.padRight, nowWidth / 2 - (1 - current) * 300 + 2, 0);
+  // The line under the track names the price now, and near an end it needs
+  // room beside the track. That room is kept first, and the labels above are
+  // laid out on the rail that is left, never on a wider one than is drawn.
+  const nowLeft = Math.max(0, nowWidth / 2 - current * NARROWEST + 2);
+  const nowRight = Math.max(0, nowWidth / 2 - (1 - current) * NARROWEST + 2);
+  const layout = layoutTrackLabels(
+    labels.map(({ x, width, r }) => ({ x, width, r })),
+    NARROWEST - nowLeft - nowRight,
+  );
+  const padLeft = Math.max(layout.padLeft, nowLeft);
+  const padRight = Math.max(layout.padRight, nowRight);
   const rows = Math.max(0, ...layout.places.map((place) => place.row)) + 1;
 
   return (

@@ -93,7 +93,9 @@ export function OxFigure() {
         <div className="rd-ox__axis" aria-hidden="true">
           {TICKS.map((tick) => (
             <span key={tick} style={{ left: `${share(tick)}%` }}>
-              {tick === TICKS[TICKS.length - 1] ? words.pounds(lb(tick)) : lb(tick)}
+              {/* The unit once, on the first label: it starts flush left, where
+                  a last label centred on its tick would run past the edge. */}
+              {tick === TICKS[0] ? words.pounds(lb(tick)) : lb(tick)}
             </span>
           ))}
         </div>

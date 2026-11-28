@@ -8,9 +8,8 @@ import { MoveTrack } from "@/components/viz";
 import { Figure } from "@/components/viz/Figure";
 import { getSlips } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
-import { dateTimeUtc, points } from "@/lib/format";
+import { chance, dateTimeUtc, points } from "@/lib/format";
 import type { LegStatus, MarketSummary, SettledLeg, Slip, SlipStatus } from "@/lib/types";
-import { pct } from "@/lib/viz";
 
 const FILTERS: { label: string; status?: SlipStatus }[] = [
   { label: t.historyAll },
@@ -203,7 +202,7 @@ function TicketLeg({
         <p className="gm-tleg__line">
           <span className="inline-flex items-center gap-2">
             <span className="gm-side" data-side={leg.side === "NO" ? "no" : "yes"} aria-hidden />
-            <b>{then !== null ? <Figure text={t.slipPick(side, pct(then))} /> : side}</b>
+            <b>{then !== null ? <Figure text={t.slipPick(side, chance(then))} /> : side}</b>
           </span>
           {leg.status !== "PENDING" ? <span>{mark.label}</span> : <span className="sr-only">{mark.label}</span>}
           {leg.resolution && leg.resolution !== "VOID" ? (

@@ -5,13 +5,14 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { usePlayer } from "@/components/PlayerProvider";
 import { useSlip } from "@/components/SlipProvider";
 import { Wording } from "@/components/game/Pick";
+import { useFocusTrap } from "@/components/game/trap";
 import { SlipFigures } from "@/components/viz";
 import { Figure } from "@/components/viz/Figure";
 import { placeSlip, quoteSlip, type SlipBody } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
-import { parsePoints, points } from "@/lib/format";
+import { chance, parsePoints, points } from "@/lib/format";
 import type { MarketRules, MarketSummary, Side, SlipQuote } from "@/lib/types";
-import { pct, type SlipLegInput } from "@/lib/viz";
+import type { SlipLegInput } from "@/lib/viz";
 
 /**
  * The slip: review the picks, choose a stake, confirm.
@@ -41,6 +42,8 @@ type SlipProps = {
   /** The questions the feed has shown, by id: a pick's chance before the server's quote is in. */
   prices: ReadonlyMap<string, MarketSummary>;
   onPlaced: (receipt: Receipt) => void;
+  /** The quote on screen, or null: the cards of the questions on it show its prices. */
+  onQuote?: (quote: SlipQuote | null) => void;
 };
 
 function defaultStake(rules: MarketRules, available: number): number {
@@ -81,8 +84,10 @@ export function SlipSheet(props: SlipProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [slip]);
 
-  // The sheet takes the focus when it opens and hands it back when it shuts.
+  // The sheet takes the focus when it opens and hands it back when it shuts,
+  // and the Tab key stays inside it while it is open.
   const { isOpen } = slip;
+  useFocusTrap(panel, isOpen);
   useEffect(() => {
     if (!isOpen) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -114,6 +119,7 @@ function SlipPanel({
   rules,
   prices,
   onPlaced,
+  onQuote,
   mode,
   titleId,
 }: SlipProps & { mode: "rail" | "sheet"; titleId?: string }) {
@@ -143,6 +149,15 @@ function SlipPanel({
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const discardBox = useRef<HTMLDivElement>(null);
+  const clearButton = useRef<HTMLButtonElement>(null);
+  useFocusTrap(discardBox, confirmClear);
+
+  // Keeping the slip puts the question away and the focus back where it was.
+  const keepSlip = useCallback(() => {
+    setConfirmClear(false);
+    window.requestAnimationFrame(() => clearButton.current?.focus());
+  }, []);
 
   const legCount = slip.legs.length;
 
@@ -163,9 +178,19 @@ function SlipPanel({
     idempotencyKey.current = crypto.randomUUID();
   }, [bodySignature]);
 
+  // The feed's own price for each pick. When a refresh of the feed moves
+  // one, the slip asks for a new quote, so the slip and the cards move
+  // together rather than a minute apart.
+  const feedPrices = slip.legs.map((leg) => prices.get(leg.marketId)?.probability.yes ?? "").join(" ");
+
+  // A stake outside the rules is said under the field, and the server would
+  // only refuse it, so it is not sent.
+  const inBounds = stake >= rules.min_stake.minor && stake <= rules.max_stake.minor;
+
   useEffect(() => {
-    if (!active || legCount === 0 || stake <= 0) {
+    if (!active || legCount === 0 || !inBounds) {
       setQuote(null);
+      setQuoting(false);
       return;
     }
 
@@ -191,7 +216,13 @@ function SlipPanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [body, legCount, stake, active, refresh]);
+  }, [body, legCount, inBounds, active, refresh, feedPrices]);
+
+  // The cards follow the quote on screen, and let go of it when it goes.
+  useEffect(() => {
+    onQuote?.(quote);
+  }, [quote, onQuote]);
+  useEffect(() => () => onQuote?.(null), [onQuote]);
 
   // Each pick's own side and chance: the server's quote once it is in, the
   // price the card showed until then. The two agree unless the price moved.
@@ -225,7 +256,7 @@ function SlipPanel({
           return {
             question: leg.question,
             side: leg.side === "NO" ? "NO" : "YES",
-            chance: quoted ? pct(quoted.probability) : "",
+            chance: quoted ? chance(quoted.probability) : "",
           };
         }),
         stake: points(result.data.stake.minor),
@@ -268,7 +299,7 @@ function SlipPanel({
 
   const single = legCount === 1;
   const payout = quote ? points(quote.potential_payout.minor) : null;
-  const chanceRight = quote ? pct(quote.win_probability) : null;
+  const chanceRight = quote ? chance(quote.win_probability) : null;
 
   return (
     <section className="gm-slip relative" aria-labelledby={headingId}>
@@ -289,7 +320,7 @@ function SlipPanel({
               <p className="gm-leg__pick">
                 <span className="gm-side" data-side={leg.side === "YES" ? "yes" : "no"} aria-hidden />
                 {leg.probability !== "" ? (
-                  <Figure text={t.slipPick(sideWord(leg.side), pct(leg.probability))} />
+                  <Figure text={t.slipPick(sideWord(leg.side), chance(leg.probability))} />
                 ) : (
                   sideWord(leg.side)
                 )}
@@ -368,31 +399,35 @@ function SlipPanel({
         </div>
       </div>
 
-      <div className="gm-receipt" aria-live="polite" aria-atomic="true">
-        <p className="gm-receipt__line">
-          <Figure text={t.slipStakeLine(points(stake))} />
-        </p>
-        <p className="gm-receipt__big">
-          {payout ? <Figure text={t.slipPaysLine(payout)} /> : quoting ? t.quoting : "—"}
-        </p>
-        {single && chanceRight ? (
+      {/* What the slip comes to, anything the game refuses, and the button:
+          kept in view at the foot of the rail or the sheet however long the
+          slip grows, so what a stake returns is never out of sight of the
+          button that places it. */}
+      <div className="gm-slip__actions">
+        <div className="gm-receipt" aria-live="polite" aria-atomic="true">
+          <p className="gm-receipt__line">
+            <Figure text={t.slipStakeLine(points(stake))} />
+          </p>
           <p className="gm-receipt__big">
-            <Figure text={t.slipChanceLine(chanceRight)} />
+            {payout ? <Figure text={t.slipPaysLine(payout)} /> : quoting ? t.quoting : "—"}
+          </p>
+          {single && chanceRight ? (
+            <p className="gm-receipt__big">
+              <Figure text={t.slipChanceLine(chanceRight)} />
+            </p>
+          ) : null}
+          {quote?.capped ? (
+            <p className="gm-receipt__note">{t.cappedAt(quote.payout_cap.display)}</p>
+          ) : null}
+          {!single && quote ? <p className="gm-receipt__note">{t.slipAllMustWin(legCount)}</p> : null}
+        </div>
+
+        {error && !fieldError ? (
+          <p role="alert" className="gm-error">
+            {error}
           </p>
         ) : null}
-        {quote?.capped ? (
-          <p className="gm-receipt__note">{t.cappedAt(quote.payout_cap.display)}</p>
-        ) : null}
-        {!single && quote ? <p className="gm-receipt__note">{t.slipAllMustWin(legCount)}</p> : null}
-      </div>
 
-      {error && !fieldError ? (
-        <p role="alert" className="gm-note gm-error">
-          {error}
-        </p>
-      ) : null}
-
-      <div className="gm-slip__actions">
         <button
           type="button"
           className="btn btn--primary"
@@ -401,6 +436,9 @@ function SlipPanel({
         >
           {placing ? t.placing : t.placeForecast(points(stake))}
         </button>
+      </div>
+
+      <div className="gm-slip__after">
         <div className="gm-slip__minor">
           {mode === "sheet" ? (
             <button type="button" className="gm-quiet" onClick={slip.close}>
@@ -409,7 +447,12 @@ function SlipPanel({
           ) : (
             <span />
           )}
-          <button type="button" className="gm-quiet" onClick={() => setConfirmClear(true)}>
+          <button
+            ref={clearButton}
+            type="button"
+            className="gm-quiet"
+            onClick={() => setConfirmClear(true)}
+          >
             {t.discardOpen}
           </button>
         </div>
@@ -419,10 +462,18 @@ function SlipPanel({
       {confirmClear ? (
         <div className="gm-discard">
           <div
+            ref={discardBox}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby={discardTitleId}
             aria-describedby={discardBodyId}
+            onKeyDown={(event) => {
+              // Escape answers this question (keep), not the sheet around it.
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                keepSlip();
+              }
+            }}
           >
             <p id={discardTitleId} className="gm-h gm-h--sm">
               {t.discardTitle}
@@ -435,7 +486,7 @@ function SlipPanel({
                 type="button"
                 className="btn btn-secondary btn-sm"
                 autoFocus
-                onClick={() => setConfirmClear(false)}
+                onClick={keepSlip}
               >
                 {t.discardKeep}
               </button>
@@ -457,19 +508,28 @@ function SlipPanel({
   );
 }
 
-/** Before the first pick: what the slip is for. */
-export function SlipEmpty({ maxLegs }: { maxLegs: number }) {
+/**
+ * Before the first pick: what the slip is for. On a break or at the day's
+ * limit no pick can be made, and it says that instead of asking for one.
+ */
+export function SlipEmpty({ maxLegs, paused = null }: { maxLegs: number; paused?: string | null }) {
   return (
     <section className="gm-slip-empty" aria-labelledby="gm-slip-empty">
       <h2 id="gm-slip-empty" className="gm-h">
         {t.slipTitle}
       </h2>
-      <p className="gm-label">{t.slipEmptyTitle}</p>
-      <p className="gm-small">{t.slipEmptyBody(maxLegs)}</p>
-      <div className="gm-slip-empty__art" aria-hidden>
-        <span />
-        <span />
-      </div>
+      {paused ? (
+        <p className="gm-small">{paused}</p>
+      ) : (
+        <>
+          <p className="gm-label">{t.slipEmptyTitle}</p>
+          <p className="gm-small">{t.slipEmptyBody(maxLegs)}</p>
+          <div className="gm-slip-empty__art" aria-hidden>
+            <span />
+            <span />
+          </div>
+        </>
+      )}
     </section>
   );
 }

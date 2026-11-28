@@ -1333,7 +1333,7 @@ export const articlesPage = {
   title: "Plain answers, no sales pitch",
   lede:
     "How odds and prediction markets really work, and how to step back from gambling when " +
-    "it stops being fun. Written carefully, with the sources listed.",
+    "it stops being fun. Each guide lists its sources at the end.",
 
   // The way in for somebody new: the first guide shown large, the next two
   // beside it. A slug that is not a guide is skipped.

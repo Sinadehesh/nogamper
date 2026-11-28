@@ -2,7 +2,7 @@
 
 import { useId } from "react";
 
-import { useQuestionPage } from "@/components/game/context";
+import { useQuestionPage, useQuotedPrice, useReviewSlip } from "@/components/game/context";
 import { bothSides, PickFace, Wording } from "@/components/game/Pick";
 import { useSlip } from "@/components/SlipProvider";
 import { ChanceReadout, SplitBar } from "@/components/viz";
@@ -23,7 +23,7 @@ const SOON_MS = 48 * 60 * 60 * 1000;
  * how likely the thing is, which is the number that is actually true.
  */
 export function MarketCard({
-  market,
+  market: listed,
   rules,
   paused,
   readAt,
@@ -37,7 +37,13 @@ export function MarketCard({
 }) {
   const slip = useSlip();
   const titleId = useId();
+  // On a quoted slip, the price the slip shows; else the feed's.
+  const quoted = useQuotedPrice(listed.id);
+  const market: MarketSummary = quoted
+    ? { ...listed, probability: { ...listed.probability, yes: quoted.yes, no: quoted.no } }
+    : listed;
   const page = useQuestionPage(market.question);
+  const review = useReviewSlip();
   const blocked = slip.blockedBecause(market);
   const stale = market.probability.stale;
   const chosen: Side | null = slip.has(market.id, "YES")
@@ -111,7 +117,14 @@ export function MarketCard({
       </div>
 
       {chosen ? (
-        <p className="gm-card__note gm-card__note--on">{t.onSlip(chosen === "YES" ? t.yes : t.no)}</p>
+        <p className="gm-card__note gm-card__note--on">
+          {t.onSlip(chosen === "YES" ? t.yes : t.no)}{" "}
+          {review ? (
+            <button type="button" className="gm-link gm-card__review" onClick={review}>
+              {t.slipReview}
+            </button>
+          ) : null}
+        </p>
       ) : settled ? (
         <p className="gm-card__note">{t.settledAlreadyHint}</p>
       ) : blocked ? (

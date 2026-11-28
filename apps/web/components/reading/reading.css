@@ -31,11 +31,14 @@
 
   /* ----- the page's opening ------------------------------------------------ */
 
+  /* Each link is a 44px target; the trail's margins take back the extra
+     height, so the line sits where a 32px one would. */
   .rd-trail {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--s-1) var(--s-2);
+    gap: 0 var(--s-2);
+    margin-block: -6px;
     font-size: var(--t-small);
     line-height: 1.5;
     color: var(--rd-ink-2);
@@ -43,7 +46,7 @@
   .rd-trail a {
     display: inline-flex;
     align-items: center;
-    min-height: 32px;
+    min-height: 44px;
     transition: color var(--dur) var(--ease);
   }
   .rd-trail a:hover {
@@ -249,9 +252,12 @@
   .rd-toc-m .rd-toc__list {
     margin: 0 var(--s-4) var(--s-4);
   }
+  /* A 44px row, its words centred in it; the number sits on the first line
+     of the words. */
   .rd-toc-m .rd-toc__list a {
     min-height: 44px;
-    align-items: center;
+    align-content: center;
+    align-items: baseline;
     font-size: var(--t-body);
   }
   .rd-toc-m .rd-toc__n {
@@ -466,10 +472,11 @@
      scrolls inside its frame and never drags the page sideways. */
 
   .rd-table {
+    --rd-table-bg: color-mix(in oklab, var(--surface) 55%, var(--bg));
     margin-inline: 0;
     border: 1px solid var(--line);
     border-radius: var(--r-md);
-    background: color-mix(in oklab, var(--surface) 55%, var(--bg));
+    background: var(--rd-table-bg);
     overflow: hidden;
   }
   .rd-prose > .rd-table {
@@ -483,9 +490,17 @@
     min-width: min(100%, 24rem);
     max-width: 100%;
   }
-  .rd-table--figures th.rd-num {
+  /* (Two classes, so it outranks the no-wrap rule for figure cells below.) */
+  .rd-table.rd-table--figures th.rd-num {
     white-space: normal;
     min-width: 6.5rem;
+  }
+  /* On a phone the columns take what their words and figures need, so a
+     table of three or four columns of figures fits without scrolling. */
+  @media (max-width: 639px) {
+    .rd-table.rd-table--figures th.rd-num {
+      min-width: 0;
+    }
   }
   .rd-table__cap {
     display: flex;
@@ -505,9 +520,20 @@
     text-transform: uppercase;
     color: var(--muted);
   }
+  /* A shade on any side that has more table beyond it. The two covers move
+     with the table (background-attachment: local) and hide a shade once the
+     scroll reaches that end; the shades stay put at the frame's edges. A
+     table cut exactly between two columns otherwise looks complete. */
   .rd-table__scroll {
     overflow-x: auto;
     overscroll-behavior-x: contain;
+    background:
+      linear-gradient(to right, var(--rd-table-bg) 30%, transparent) left / 3rem 100% no-repeat local,
+      linear-gradient(to left, var(--rd-table-bg) 30%, transparent) right / 3rem 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, color-mix(in oklab, var(--ink) 22%, transparent), transparent)
+        left / 0.875rem 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, color-mix(in oklab, var(--ink) 22%, transparent), transparent)
+        right / 0.875rem 100% no-repeat scroll;
   }
   .rd-table__scroll:focus-visible {
     outline-offset: -2px;
@@ -561,6 +587,12 @@
     .rd-table th,
     .rd-table td {
       padding-inline: var(--s-3);
+    }
+    /* The first column names its row in a word or two: on a phone it gives
+       its width to the column of sentences beside it, so a table of three
+       columns fits at 390 without scrolling. */
+    .rd-table td:first-child:not(.rd-num) {
+      min-width: 6rem;
     }
   }
 
@@ -2251,5 +2283,25 @@
     justify-content: flex-end;
     gap: var(--s-2);
     margin-top: var(--s-5);
+  }
+
+  /* ----- the operator's pages: a light pass --------------------------------
+     A table's words keep the text face and its own punctuation. Schibsted's
+     tabular figures make every point and comma digit-wide ("1 , 000",
+     "example . test"), so a column of figures is set in mono instead, where
+     every glyph is one width: the digits line up and the comma stays a
+     comma. */
+  .rd-admin .table {
+    font-variant-numeric: normal;
+  }
+  .rd-admin .table td.num,
+  .rd-admin-fig {
+    font-family: var(--font-mono);
+    font-size: 0.93em;
+  }
+  /* The players' table keeps its columns on a phone and scrolls in its own
+     frame, rather than breaking an email address every few letters. */
+  .rd-admin-wide {
+    min-width: 60rem;
   }
 }

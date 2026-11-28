@@ -17,17 +17,17 @@ export function AdminNav() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-surface">
-      <div className="container-page flex flex-wrap items-center gap-x-4 gap-y-2 py-3 text-sm">
-        <Link href="/play" className="font-semibold text-muted hover:text-ink">
+      <div className="container-page flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-sm">
+        <Link href="/play" className="inline-flex min-h-11 items-center font-semibold text-muted hover:text-ink">
           {t.adminBack}
         </Link>
-        <nav className="flex gap-1">
+        <nav className="flex flex-wrap gap-1">
           {LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               aria-current={pathname === link.href ? "page" : undefined}
-              className={`rounded-lg px-3 py-1.5 font-semibold ${
+              className={`inline-flex min-h-11 items-center rounded-full px-3.5 font-semibold ${
                 pathname === link.href ? "bg-accent text-on-accent" : "text-muted hover:text-ink"
               }`}
             >

@@ -686,7 +686,6 @@
     width: 100%;
     border-collapse: collapse;
     font-size: var(--t-small);
-    font-variant-numeric: tabular-nums;
   }
   .table th {
     text-align: left;
@@ -713,8 +712,11 @@
   .table td:last-child {
     padding-right: 0;
   }
+  /* Figures line up in their own column. Only there: tabular figures in
+     Schibsted Grotesk set "," and "." a whole digit wide ("1 , 000"). */
   .table .num {
     text-align: right;
+    font-variant-numeric: tabular-nums;
   }
   .table tr.is-me td {
     background: color-mix(in oklab, var(--accent) 9%, transparent);

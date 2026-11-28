@@ -105,9 +105,17 @@ export default async function QuestionPage({ params }: Props) {
   const open = question.state === "open";
   const readAt = priceReadAt(question);
   const band = priceBand(gameRules);
-  // The figure the page leads with, and when it was read: the market's own
-  // latest reading where the API holds the live price on the game's band.
+  // The figure the page leads with: the market's own latest reading where
+  // the API holds the live price on the game's band, or where that reading
+  // is newer than the live price.
   const shown = priceToShow(question, band);
+  // When the page's figures are from: when the market was last read, by the
+  // API (the live price) or by the market's own series, whichever is later.
+  // A reading that stands in for a held price is older than the live read
+  // that held it, and the chart's figures give its own time. Dated by the
+  // reading instead, a copy built a minute ago would look an hour old to the
+  // reader's clock, and the line would go looking for figures nobody has.
+  const datedAt = Date.parse(shown.at) > Date.parse(readAt) ? shown.at : readAt;
   // Where the game's price for a pick sits on the band's edge it differs from
   // the market's figure above, and the play panel says so, with the figures.
   const gameEdge = open ? onEdge(question.probability.yes, band) : null;
@@ -152,12 +160,10 @@ export default async function QuestionPage({ params }: Props) {
           {/* For an open question the line dates its price, which is the
               figure the page is about and can be older than the answer it
               came in: a server just woken has the prices it went to sleep
-              with. Where the live price is held on the game's band, that
-              figure is the market's own reading, dated by its own time. A
-              page that can still change is watched for a newer copy; one
-              that is finished is not. */}
+              with. A page that can still change is watched for a newer copy;
+              one that is finished is not. */}
           <AsOf
-            at={open ? shown.at : question.as_of}
+            at={open ? datedAt : question.as_of}
             changing={open || question.state === "closed"}
             className="qp-asof"
           />

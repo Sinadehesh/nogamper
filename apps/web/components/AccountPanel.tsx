@@ -35,7 +35,7 @@ export function AccountPanel({ onOpenSafer }: { onOpenSafer: () => void }) {
 
   return (
     <section className="gm-feed" aria-labelledby="gm-view-title">
-      <div className="gm-tools">
+      <div className="gm-tools gm-tools--flow">
         <ProfileCard />
         {player.is_guest ? <KeepCard /> : <PasswordCard />}
         <ReminderCard />
@@ -84,7 +84,7 @@ function ProfileCard() {
 
   return (
     <article className="gm-panel gm-tool" aria-labelledby={titleId}>
-      <Head id={titleId} title={t.accountTitle} />
+      <Head id={titleId} title={t.accountDetails} />
 
       <dl className="gm-facts">
         <div>

@@ -6,6 +6,36 @@ export type ContentsEntry = { id: string; text: string };
 
 const number = (index: number) => String(index + 1).padStart(2, "0");
 
+/** "1. Tell one person": a heading that carries its own number. */
+const OWN_NUMBER = /^(\d{1,2}[.)])\s+/;
+
+/**
+ * Each entry's number and words. When the headings carry their own numbers
+ * the list shows those, once, and none for a section without one (a guide's
+ * "Sources" is not step 11); otherwise it numbers every entry itself.
+ */
+function Entry({ entry, index, own }: { entry: ContentsEntry; index: number; own: boolean }) {
+  if (!own) {
+    return (
+      <>
+        <span className="rd-toc__n" aria-hidden="true">
+          {number(index)}
+        </span>
+        <span>{entry.text}</span>
+      </>
+    );
+  }
+  const match = OWN_NUMBER.exec(entry.text);
+  return (
+    <>
+      <span className="rd-toc__n">{match ? match[1] : null}</span>{" "}
+      <span>{match ? entry.text.slice(match[0].length) : entry.text}</span>
+    </>
+  );
+}
+
+const hasOwnNumbers = (entries: ContentsEntry[]) => entries.some((entry) => OWN_NUMBER.test(entry.text));
+
 /**
  * A page's contents beside its text, from 1024px. It marks the section being
  * read: the last heading that has passed a line a third of the way down the
@@ -45,6 +75,7 @@ export function Contents({ entries, label }: { entries: ContentsEntry[]; label: 
     };
   }, [entries]);
 
+  const own = hasOwnNumbers(entries);
   return (
     <nav className="rd-toc" aria-labelledby="contents-label">
       <p id="contents-label" className="rd-toc__label">
@@ -54,10 +85,7 @@ export function Contents({ entries, label }: { entries: ContentsEntry[]; label: 
         {entries.map((entry, index) => (
           <li key={entry.id}>
             <a href={`#${entry.id}`} aria-current={current === entry.id ? "location" : undefined}>
-              <span className="rd-toc__n" aria-hidden="true">
-                {number(index)}
-              </span>
-              <span>{entry.text}</span>
+              <Entry entry={entry} index={index} own={own} />
             </a>
           </li>
         ))}
@@ -76,6 +104,7 @@ export function ContentsDisclosure({
   label: string;
   count: string;
 }) {
+  const own = hasOwnNumbers(entries);
   return (
     <details className="rd-toc-m">
       <summary>
@@ -90,10 +119,7 @@ export function ContentsDisclosure({
           {entries.map((entry, index) => (
             <li key={entry.id}>
               <a href={`#${entry.id}`}>
-                <span className="rd-toc__n" aria-hidden="true">
-                  {number(index)}
-                </span>
-                <span>{entry.text}</span>
+                <Entry entry={entry} index={index} own={own} />
               </a>
             </li>
           ))}
