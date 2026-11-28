@@ -1,13 +1,14 @@
 import Link from "next/link";
 
+import "@/components/reading/reading.css";
 import { JsonLd } from "@/components/JsonLd";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { articlesPage } from "@/lib/content";
 import { t } from "@/lib/copy";
-import { date } from "@/lib/format";
+import { dateUtc } from "@/lib/format";
 import { breadcrumbLd, listLd, pageMetadata } from "@/lib/seo";
 import { listReaderArticles } from "@/lib/server/articles";
-import { TOPICS, allEditorial } from "@/lib/server/editorial";
+import { TOPICS, allEditorial, type Editorial } from "@/lib/server/editorial";
 
 export const metadata = pageMetadata({
   title: articlesPage.metaTitle,
@@ -15,9 +16,18 @@ export const metadata = pageMetadata({
   path: "/articles",
 });
 
+/**
+ * The guides: a way in for somebody new (three in order, the first shown
+ * large), then every guide by topic as a list to scan, then what readers have
+ * written, which takes a line when there is nothing yet.
+ */
 export default async function ArticlesPage() {
   const guides = allEditorial();
   const fromReaders = await listReaderArticles();
+  const bySlug = new Map(guides.map((guide) => [guide.slug, guide]));
+  const path = articlesPage.startPath
+    .map((slug) => bySlug.get(slug))
+    .filter((guide): guide is Editorial => guide !== undefined);
 
   return (
     <>
@@ -35,84 +45,131 @@ export default async function ArticlesPage() {
       />
       <SiteHeader />
 
-      <main id="main" className="container-page flex-1 py-10 sm:py-14">
-        <div className="max-w-3xl">
-          <h1 className="text-4xl font-black tracking-tight sm:text-5xl">{articlesPage.title}</h1>
-          <p className="mt-4 text-lg text-muted">{articlesPage.lede}</p>
-        </div>
+      <main id="main" className="flex-1">
+        <div className="wrap dp rd">
+          <header className="dp-head">
+            <h1>{articlesPage.title}</h1>
+            <p className="dp-lede">{articlesPage.lede}</p>
+          </header>
 
-        {TOPICS.map((topic) => {
-          const inTopic = guides.filter((guide) => guide.topic === topic);
-          if (inTopic.length === 0) return null;
-          return (
-            <section key={topic} className="mt-12" aria-labelledby={`topic-${topic}`}>
-              <h2 id={`topic-${topic}`} className="text-2xl font-bold tracking-tight">
-                {articlesPage.topics[topic].title}
-              </h2>
-              <p className="mt-1 max-w-2xl text-muted">{articlesPage.topics[topic].blurb}</p>
-              <ul className="mt-5 grid gap-3 md:grid-cols-2">
-                {inTopic.map((guide) => (
+          {path.length > 0 ? (
+            <section className="rd-section" aria-labelledby="start">
+              <div className="rd-section__head">
+                <h2 id="start" className="dp-h2">
+                  {articlesPage.startTitle}
+                </h2>
+                <p>{articlesPage.startIntro}</p>
+              </div>
+              <ol className="rd-path" role="list">
+                {path.map((guide, index) => (
                   <li key={guide.slug}>
                     <Link
                       href={`/articles/${guide.slug}`}
-                      className="card block h-full p-5 hover:border-muted"
+                      className={index === 0 ? "rd-step rd-step--lead" : "rd-step"}
+                      prefetch={false}
                     >
-                      <h3 className="text-lg font-bold leading-snug">{guide.title}</h3>
-                      <p className="mt-2 text-sm text-muted">{guide.description}</p>
-                      <p className="mt-3 text-xs text-muted">
-                        {t.articleReading(guide.readingMinutes)}
-                      </p>
+                      <span className="rd-step__n" aria-hidden="true">
+                        {index + 1}
+                      </span>
+                      <span className="rd-step__title">{guide.title}</span>
+                      {index === 0 ? <span className="rd-step__text">{guide.description}</span> : null}
+                      <span className="rd-step__meta">
+                        {articlesPage.topics[guide.topic].title} · {t.articleReading(guide.readingMinutes)}
+                      </span>
                     </Link>
                   </li>
                 ))}
-              </ul>
+              </ol>
             </section>
-          );
-        })}
+          ) : null}
 
-        <section className="mt-14" aria-labelledby="readers">
-          <h2 id="readers" className="text-2xl font-bold tracking-tight">
-            {articlesPage.readersTitle}
-          </h2>
-          <p className="mt-1 max-w-2xl text-muted">{articlesPage.readersIntro}</p>
+          <section className="rd-section" aria-labelledby="guides">
+            <div className="rd-section__head">
+              <h2 id="guides" className="dp-h2">
+                {articlesPage.groupsTitle}
+              </h2>
+            </div>
 
-          {fromReaders.length === 0 ? (
-            <p className="mt-5 text-muted">{articlesPage.readersEmpty}</p>
-          ) : (
-            <ul className="mt-5 grid gap-3 md:grid-cols-2">
-              {fromReaders.map((article) => (
-                <li key={article.slug}>
-                  <Link
-                    href={`/articles/${article.slug}`}
-                    className="card block h-full p-5 hover:border-muted"
-                  >
-                    <h3 className="text-lg font-bold leading-snug">{article.title}</h3>
-                    <p className="mt-2 text-sm text-muted">{article.summary}</p>
-                    <p className="mt-3 text-xs text-muted">
-                      {t.articleBy(article.author)} · {date(article.published_at)} ·{" "}
-                      {t.articleReading(article.reading_minutes)}
-                    </p>
+            {TOPICS.map((topic) => {
+              const inTopic = guides.filter((guide) => guide.topic === topic);
+              if (inTopic.length === 0) return null;
+              return (
+                <section key={topic} className="rd-group" aria-labelledby={`topic-${topic}`}>
+                  <div className="rd-group__head">
+                    <h3 id={`topic-${topic}`} className="rd-step__title">
+                      {articlesPage.topics[topic].title}
+                    </h3>
+                    <p>{articlesPage.topics[topic].blurb}</p>
+                    <p className="rd-group__count">{articlesPage.guideCount(inTopic.length)}</p>
+                  </div>
+                  <ul className="rd-rows" role="list">
+                    {inTopic.map((guide) => (
+                      <li key={guide.slug}>
+                        <Link href={`/articles/${guide.slug}`} className="rd-row" prefetch={false}>
+                          <span className="rd-row__title">{guide.title}</span>
+                          <span className="rd-row__text">{guide.description}</span>
+                          <span className="rd-row__meta">{t.articleReading(guide.readingMinutes)}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </section>
+
+          <section className="rd-section rd-group" aria-labelledby="readers">
+            <div className="rd-group__head">
+              <h2 id="readers" className="rd-step__title">
+                {articlesPage.readersTitle}
+              </h2>
+              {fromReaders.length > 0 ? <p>{articlesPage.readersIntro}</p> : null}
+            </div>
+
+            {fromReaders.length === 0 ? (
+              <p className="rd-oneline self-start">
+                <span>{articlesPage.readersEmpty}</span>
+                <Link href="/write" className="dp-link" prefetch={false}>
+                  {articlesPage.writeCta}
+                </Link>
+              </p>
+            ) : (
+              <div className="flex flex-col gap-5">
+                <ul className="rd-rows" role="list">
+                  {fromReaders.map((article) => (
+                    <li key={article.slug}>
+                      <Link href={`/articles/${article.slug}`} className="rd-row" prefetch={false}>
+                        <span className="rd-row__title">{article.title}</span>
+                        <span className="rd-row__text">
+                          {article.summary}
+                          <br />
+                          {t.articleBy(article.author)} · {dateUtc(article.published_at)}
+                        </span>
+                        <span className="rd-row__meta">{t.articleReading(article.reading_minutes)}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <p className="rd-oneline">
+                  <span>
+                    <strong className="font-medium text-ink">{articlesPage.writeTitle}</strong>{" "}
+                    {articlesPage.writeBody}
+                  </span>
+                  <Link href="/write" className="dp-link" prefetch={false}>
+                    {articlesPage.writeCta}
                   </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+                </p>
+              </div>
+            )}
+          </section>
 
-          <div className="notice mt-6 max-w-2xl">
-            <h3 className="font-bold">{articlesPage.writeTitle}</h3>
-            <p className="mt-1 text-sm">{articlesPage.writeBody}</p>
-            <Link href="/write" className="btn btn-secondary btn-sm mt-3">
-              {articlesPage.writeCta}
-            </Link>
-          </div>
-        </section>
-
-        <section className="mt-14 max-w-2xl" aria-labelledby="method">
-          <h2 id="method" className="text-lg font-bold">
-            {articlesPage.methodTitle}
-          </h2>
-          <p className="mt-2 text-sm text-muted">{articlesPage.method}</p>
-        </section>
+          <section className="rd-section rd-measure" aria-labelledby="method">
+            <h2 id="method" className="rd-small-h">
+              {articlesPage.methodTitle}
+            </h2>
+            <p className="rd-fine mt-2">{articlesPage.method}</p>
+          </section>
+        </div>
       </main>
 
       <SiteFooter />

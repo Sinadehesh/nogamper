@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { GameBar } from "@/components/game/views";
 import { getProfile } from "@/lib/api";
 import { t } from "@/lib/copy";
 import { SIGNED_IN_COOKIE } from "@/lib/session-marker";
@@ -92,13 +93,18 @@ export function PlayerProvider({
 
   if (signedOut) {
     return (
-      <main id="main" className="container-page flex flex-1 flex-col items-center justify-center py-20 text-center">
-        <h1 className="text-2xl font-bold">{t.errorSessionTitle}</h1>
-        <p className="mt-2 text-muted">{t.errorSessionBody}</p>
-        <Link href="/login" className="btn btn-primary mt-6">
-          {t.navSignIn}
-        </Link>
-      </main>
+      <>
+        <GameBar />
+        <main id="main" className="gm flex-1">
+          <div className="wrap gm-closed">
+            <h1>{t.errorSessionTitle}</h1>
+            <p className="dp-lede">{t.errorSessionBody}</p>
+            <Link href="/login" prefetch={false} className="btn btn--primary">
+              {t.navSignIn}
+            </Link>
+          </div>
+        </main>
+      </>
     );
   }
 

@@ -3,12 +3,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { JsonLd } from "@/components/JsonLd";
-import { Prose } from "@/components/Prose";
-import { StartActions } from "@/components/SignedIn";
-import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
+import { NotOpenYet } from "@/components/NotOpenYet";
+import { renderProse } from "@/components/Prose";
+import type { ContentsEntry } from "@/components/reading/Contents";
+import { ReadingLayout } from "@/components/reading/ReadingLayout";
+import { Sources } from "@/components/reading/Sources";
+import { MainAction, SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { articlesPage } from "@/lib/content";
 import { t } from "@/lib/copy";
-import { calendarDate, date } from "@/lib/format";
+import { calendarDate, dateUtc } from "@/lib/format";
 import { articleLd, breadcrumbLd, pageMetadata } from "@/lib/seo";
 import { getReaderArticle } from "@/lib/server/articles";
 import { allEditorial, getEditorial, type Editorial } from "@/lib/server/editorial";
@@ -63,44 +66,45 @@ export default async function ArticlePage({ params }: Props) {
   return <FromReader article={article} />;
 }
 
-function Trail({ section, sectionId }: { section?: string; sectionId?: string }) {
+function Trail({ section, sectionId }: { section: string; sectionId: string }) {
   return (
-    <nav aria-label={t.articleBack} className="text-sm text-muted">
-      <Link href="/articles" className="hover:text-ink">
+    <nav aria-label={t.articleBack} className="rd-trail">
+      <Link href="/articles" prefetch={false}>
         {t.navArticles}
       </Link>
-      {section ? (
-        <>
-          <span aria-hidden className="mx-2">
-            /
-          </span>
-          <Link href={`/articles#${sectionId}`} className="hover:text-ink">
-            {section}
-          </Link>
-        </>
-      ) : null}
+      <span aria-hidden="true" className="rd-trail__sep">
+        /
+      </span>
+      <Link href={`/articles#${sectionId}`} prefetch={false}>
+        {section}
+      </Link>
     </nav>
   );
 }
 
-/** What every article ends with: where real help is, and what this site is. */
+/** What every article ends with: where real help is, and the game, once. */
 function Closing() {
   return (
     <>
-      <p className="notice mt-10 max-w-2xl text-sm">
+      <p className="rd-note">
         {t.articleNotAdvice} {t.articleHelpPrompt}{" "}
-        <Link href="/help" className="font-semibold text-accent underline underline-offset-2">
+        <Link href="/help" prefetch={false}>
           {t.articleHelpLink}
         </Link>
       </p>
 
-      <aside className="card mt-6 max-w-2xl p-5">
-        <h2 className="text-lg font-bold">{t.articleTryTitle}</h2>
-        <p className="mt-1 text-sm text-muted">{t.articleTryBody}</p>
-        <div className="mt-4 flex flex-wrap items-start gap-3">
-          <StartActions secondary={false} />
-          <Link href="/mission" className="btn btn-quiet">
-            {t.navMission}
+      <aside className="rd-try" aria-labelledby="try">
+        <h2 id="try">{t.articleTryTitle}</h2>
+        <p>{t.articleTryBody}</p>
+        <div className="rd-try__actions">
+          <MainAction fallback={<NotOpenYet />}>
+            <svg className="m-arrow" viewBox="0 0 12 12" aria-hidden="true">
+              <path className="m-arrow__stem" d="M1 6h8" />
+              <path className="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5" />
+            </svg>
+          </MainAction>
+          <Link href="/mission" className="dp-link" prefetch={false}>
+            {articlesPage.tryOther}
           </Link>
         </div>
       </aside>
@@ -115,6 +119,11 @@ function Guide({ guide }: { guide: Editorial }) {
     .filter((other) => other.slug !== guide.slug)
     .sort((a, b) => Number(b.topic === guide.topic) - Number(a.topic === guide.topic))
     .slice(0, 3);
+  const { body, headings } = renderProse(guide.body);
+  const entries: ContentsEntry[] = [
+    ...headings.filter((heading) => heading.depth === 2),
+    { id: "sources", text: t.articleSources },
+  ];
 
   return (
     <>
@@ -137,78 +146,60 @@ function Guide({ guide }: { guide: Editorial }) {
       />
       <SiteHeader />
 
-      <main id="main" className="container-page flex-1 py-10 sm:py-14">
-        <article>
-          <Trail section={topic.title} sectionId={`topic-${guide.topic}`} />
-          <h1 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-tight sm:text-5xl">
-            {guide.title}
-          </h1>
-          <p className="mt-4 max-w-2xl text-lg text-muted">{guide.description}</p>
-          <p className="mt-4 text-sm text-muted">
-            {t.articleByTeam} ·{" "}
-            <time dateTime={guide.published}>
-              {t.articlePublished(calendarDate(guide.published))}
-            </time>
-            {guide.updated !== guide.published ? (
+      <main id="main" className="flex-1">
+        <div className="wrap dp rd">
+          <ReadingLayout
+            label={articlesPage.tocLabel}
+            count={articlesPage.tocCount(entries.length)}
+            head={
               <>
-                {" · "}
-                <time dateTime={guide.updated}>
-                  {t.articleUpdated(calendarDate(guide.updated))}
-                </time>
+                <Trail section={topic.title} sectionId={`topic-${guide.topic}`} />
+                <h1 className="rd-title">{guide.title}</h1>
+                <p className="dp-lede">{guide.description}</p>
+                <p className="rd-byline">
+                  <span>{t.articleByTeam}</span>
+                  <time dateTime={guide.published}>
+                    {t.articlePublished(calendarDate(guide.published))}
+                  </time>
+                  {guide.updated !== guide.published ? (
+                    <time dateTime={guide.updated}>
+                      {t.articleUpdated(calendarDate(guide.updated))}
+                    </time>
+                  ) : null}
+                  <span>{t.articleReading(guide.readingMinutes)}</span>
+                </p>
               </>
-            ) : null}
-            {" · "}
-            {t.articleReading(guide.readingMinutes)}
-          </p>
+            }
+            entries={entries}
+            end={
+              <>
+                <Sources id="sources" title={t.articleSources} sources={guide.sources} />
+                <Closing />
+              </>
+            }
+          >
+            {body}
+          </ReadingLayout>
 
-          <div className="mt-8">
-            <Prose markdown={guide.body} />
-          </div>
-
-          <section className="mt-10 max-w-2xl" aria-labelledby="sources">
-            <h2 id="sources" className="text-lg font-bold">
-              {t.articleSources}
-            </h2>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-              {guide.sources.map((source) => (
-                <li key={source.href}>
-                  <a
-                    href={source.href}
-                    rel="noopener noreferrer"
-                    className="text-accent underline underline-offset-2"
-                  >
-                    {source.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <Closing />
-        </article>
-
-        {related.length > 0 ? (
-          <section className="mt-12" aria-labelledby="more">
-            <h2 id="more" className="text-xl font-bold tracking-tight">
-              {t.articleMore}
-            </h2>
-            <ul className="mt-4 grid gap-3 md:grid-cols-3">
-              {related.map((other) => (
-                <li key={other.slug}>
-                  <Link
-                    href={`/articles/${other.slug}`}
-                    className="card block h-full p-4 hover:border-muted"
-                  >
-                    <h3 className="font-bold leading-snug">{other.title}</h3>
-                    <p className="mt-2 text-xs text-muted">
-                      {t.articleReading(other.readingMinutes)}
-                    </p>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
+          {related.length > 0 ? (
+            <section className="rd-next" aria-labelledby="more">
+              <h2 id="more" className="dp-h2">
+                {t.articleMore}
+              </h2>
+              <ul className="rd-next__list" role="list">
+                {related.map((other) => (
+                  <li key={other.slug}>
+                    <Link href={`/articles/${other.slug}`} className="rd-card" prefetch={false}>
+                      <span className="rd-card__kicker">{articlesPage.topics[other.topic].title}</span>
+                      <span className="rd-card__title">{other.title}</span>
+                      <span className="rd-card__meta">{t.articleReading(other.readingMinutes)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
       </main>
 
       <SiteFooter />
@@ -219,6 +210,8 @@ function Guide({ guide }: { guide: Editorial }) {
 function FromReader({ article }: { article: PublishedArticle }) {
   const path = `/articles/${article.slug}`;
   const edited = article.edited_at.slice(0, 10) !== article.published_at.slice(0, 10);
+  const { body, headings } = renderProse(article.body, true);
+  const entries: ContentsEntry[] = headings.filter((heading) => heading.depth === 2);
 
   return (
     <>
@@ -242,38 +235,42 @@ function FromReader({ article }: { article: PublishedArticle }) {
       />
       <SiteHeader />
 
-      <main id="main" className="container-page flex-1 py-10 sm:py-14">
-        <article>
-          <Trail section={articlesPage.readersTitle} sectionId="readers" />
-          <p className="chip mt-4">{t.articleFromReader}</p>
-          <h1 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-tight sm:text-5xl">
-            {article.title}
-          </h1>
-          <p className="mt-4 max-w-2xl text-lg text-muted">{article.summary}</p>
-          <p className="mt-4 text-sm text-muted">
-            {t.articleBy(article.author)} ·{" "}
-            <time dateTime={article.published_at}>
-              {t.articlePublished(date(article.published_at))}
-            </time>
-            {edited ? (
+      <main id="main" className="flex-1">
+        <div className="wrap dp rd">
+          <ReadingLayout
+            label={articlesPage.tocLabel}
+            count={articlesPage.tocCount(entries.length)}
+            head={
               <>
-                {" · "}
-                <time dateTime={article.edited_at}>
-                  {t.articleUpdated(date(article.edited_at))}
-                </time>
+                <Trail section={articlesPage.readersTitle} sectionId="readers" />
+                <p className="rd-chip">{t.articleFromReader}</p>
+                <h1 className="rd-title">{article.title}</h1>
+                <p className="dp-lede">{article.summary}</p>
+                <p className="rd-byline">
+                  <strong>{t.articleBy(article.author)}</strong>
+                  <time dateTime={article.published_at}>
+                    {t.articlePublished(dateUtc(article.published_at))}
+                  </time>
+                  {edited ? (
+                    <time dateTime={article.edited_at}>
+                      {t.articleUpdated(dateUtc(article.edited_at))}
+                    </time>
+                  ) : null}
+                  <span>{t.articleReading(article.reading_minutes)}</span>
+                </p>
               </>
-            ) : null}
-            {" · "}
-            {t.articleReading(article.reading_minutes)}
-          </p>
-
-          <div className="mt-8">
-            <Prose markdown={article.body} fromReader />
-          </div>
-
-          <p className="mt-10 max-w-2xl text-sm text-muted">{t.articleReaderNote}</p>
-          <Closing />
-        </article>
+            }
+            entries={entries}
+            end={
+              <>
+                <p className="rd-reader-note">{t.articleReaderNote}</p>
+                <Closing />
+              </>
+            }
+          >
+            {body}
+          </ReadingLayout>
+        </div>
       </main>
 
       <SiteFooter />

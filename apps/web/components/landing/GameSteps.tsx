@@ -3,7 +3,7 @@ import { Figure } from "@/components/viz/Figure";
 import { landing } from "@/lib/content";
 import { categoryLabel, t } from "@/lib/copy";
 import type { GameRules, Move } from "@/lib/types";
-import { closesOn, pct, pctDigits } from "@/lib/viz";
+import { closesOn, pctDigits, pctHeld, priceBand } from "@/lib/viz";
 
 import { payoutFor, sides, stakeShown, TWO_ON_A_PHONE } from "./figures";
 import { PickPair } from "./PickPair";
@@ -35,6 +35,9 @@ export function GameSteps({
   const choices = yes !== null ? sides(yes, rules) : null;
   const payout = yes !== null && choices?.[0]?.pays ? payoutFor(yes, rules) : null;
   const rows = step ? [step, ...others] : [];
+  // A move's "now" is the game's price, held on its band: printed so that
+  // it is never false (data.ts keeps these questions 5 points clear anyway).
+  const band = priceBand(rules);
 
   return (
     // Two screens on a phone, where the three steps stack (--hm, layout-v4.md).
@@ -61,7 +64,7 @@ export function GameSteps({
                       className="ui lp-frag lp-list"
                       role="img"
                       aria-label={landing.stepListLabel(
-                        rows.map((row) => ({ question: row.question, chance: pct(row.now) })),
+                        rows.map((row) => ({ question: row.question, chance: pctHeld(row.now, band) })),
                       )}
                     >
                       <div className="lp-frag__head" aria-hidden="true">
@@ -78,7 +81,7 @@ export function GameSteps({
                             {categoryLabel(row.category)} · {closesOn(row.closes_at, asOf ?? undefined)}
                           </span>
                           <span className="lp-row__q">{row.question}</span>
-                          <Figure className="lp-row__chance" text={pct(row.now)} />
+                          <Figure className="lp-row__chance" text={pctHeld(row.now, band)} />
                         </div>
                       ))}
                     </div>

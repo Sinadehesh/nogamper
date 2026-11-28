@@ -6,12 +6,20 @@
  * makes it interactive. No clock is read anywhere: a page built once and
  * cached says what was true at its `as_of`, and "now" always means that.
  *
- * Three rules hold throughout.
+ * Four rules hold throughout.
  *
- * - **Chances print whole**, with one decimal under 1% and above 99%, where a
- *   whole number would print a false 0% or 100%. The rounding is the same
- *   float `toFixed` that `lib/format.ts` uses, so a price never prints one
- *   way here and another on a game card.
+ * - **Chances print as the game prints them**: whole in the middle, with one
+ *   decimal under 9.5% and over 90.5%, the rule of the game's `chance()` in
+ *   `lib/format.ts`, with its float `toFixed` rounding. So a price never
+ *   prints one way here and another on a game card or a slip beside it. Only
+ *   where one decimal would still print a false 0% or 100% does a chance
+ *   print as "<0.1%" or ">99.9%".
+ * - **The market's own reading, not the game's held price.** The API holds
+ *   an open question's live price inside the game's band (1% to 99%, see
+ *   `PriceBand`). Where it is held there and the market's own latest reading
+ *   lies beyond, the pages show that reading (`priceToShow`); where nothing
+ *   says where the market stands, the held price prints as the bound it is
+ *   ("≤1%"), never as a price (`pctHeld`).
  * - **A change is "from 54% to 62%"**, and its size, where prose needs one, is
  *   in percentage points taken from the two figures as printed, so a reader's
  *   own subtraction agrees with the page.
@@ -37,17 +45,23 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-/** The digits a chance prints with: one under 1% and above 99%, else none. */
+/**
+ * The digits a chance prints with: one under 9.5% and over 90.5%, else none.
+ * The game's own rule (`chance()` in lib/format.ts), tested the same way on
+ * the probability itself, so the two agree at every edge.
+ */
 export function pctDigits(probability: number): 0 | 1 {
-  const scaled = probability * 100;
-  return scaled < 1 || scaled > 99 ? 1 : 0;
+  return probability < 0.095 || probability > 0.905 ? 1 : 0;
 }
 
 /**
- * A chance as a percentage: "62%", "0.5%", "99.5%".
+ * A chance as a percentage: "62%", "5.5%", "0.4%", "99.5%".
  *
- * At one decimal a chance can still round to a false 0.0% or 100.0%; it then
- * prints as "<0.1%" or ">99.9%", which is what it is.
+ * For every chance the game can show (1% to 99%) this is exactly what the
+ * game's `chance()` prints, so a figure here and a pick's price beside it
+ * never differ. Below and above that, one decimal can still round to a false
+ * 0.0% or 100.0%; such a chance prints as "<0.1%" or ">99.9%", which is what
+ * it is. Certainty either way prints whole: "0%" and "100%".
  */
 export function pct(probability: number | string): string {
   const parsed = Number(probability);
@@ -62,14 +76,92 @@ export function pct(probability: number | string): string {
   return `${text}%`;
 }
 
+// ---------------------------------------------------------------------------
+// The game's band: where the API holds an open question's live price
+// ---------------------------------------------------------------------------
+
+/**
+ * The chances the game deals at: `min_prob` to `max_prob` in /v1/rules.
+ *
+ * The API holds every open question's live price inside this band. Its price
+ * reader keeps the market's midpoint to it (`fetch_token_price` in
+ * apps/api/backend/clients/clob.py), and so does discovery (`_clamp` in
+ * clients/gamma.py), so a market at 0.4% comes back as "0.0100". That is the
+ * price the game deals at, and the game keeps it. It is not what the market
+ * says. The rest of a question's answer is the market's own and is not held:
+ * the source's history, the change figures and the price they were measured
+ * to (`changes.reference`), and a move's `was`. The site's own snapshots
+ * (`history_source` "own") record the held price, and so does a move's `now`.
+ */
+export type PriceBand = { min: number; max: number };
+
+/**
+ * The band for code that has no rules to hand. It mirrors /v1/rules
+ * (`min_prob` "0.01", `max_prob` "0.99"); where the rules can be read, use
+ * `priceBand(rules)`, which comes back to this only when they cannot.
+ */
+export const GAME_BAND: PriceBand = { min: 0.01, max: 0.99 };
+
+/** The band from the rules, or `GAME_BAND` when they could not be read. */
+export function priceBand(rules?: { min_prob: string; max_prob: string } | null): PriceBand {
+  const min = Number(rules?.min_prob);
+  const max = Number(rules?.max_prob);
+  return Number.isFinite(min) && Number.isFinite(max) && min > 0 && min < max && max < 1
+    ? { min, max }
+    : GAME_BAND;
+}
+
+/**
+ * The edge of the band a price sits exactly on, at the API's four places, or
+ * null. A held price sits there: a market at 0.4% and one at exactly 1% both
+ * come back as "0.0100", so on its own such a price says only "1% or less".
+ */
+export function onEdge(value: number | string, band: PriceBand = GAME_BAND): "min" | "max" | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const at = round4(parsed);
+  if (at === round4(band.min)) return "min";
+  if (at === round4(band.max)) return "max";
+  return null;
+}
+
+/** One of the band's edges as a percentage: "1%", "99%", "1.5%". */
+export function bandPercent(edge: number): string {
+  return marginPercent(edge);
+}
+
+/**
+ * A price that may be held at the band's edge, printed so that it is not
+ * false. Exactly on an edge it stands for that edge or anything beyond it, so
+ * it prints as the bound it is, "≤1%" or "≥99%"; anywhere else it is a price,
+ * printed as `pct` prints it.
+ */
+export function pctHeld(value: number | string, band: PriceBand = GAME_BAND): string {
+  const edge = onEdge(value, band);
+  if (edge === "min") return `≤${bandPercent(band.min)}`;
+  if (edge === "max") return `≥${bandPercent(band.max)}`;
+  return pct(value);
+}
+
+/** The band as No sees it: Yes held at 1% is No held at 99%. */
+function mirrorBand(band: PriceBand): PriceBand {
+  return { min: round4(1 - band.max), max: round4(1 - band.min) };
+}
+
 /**
  * Yes and No, printed so that they add up to 100: No is taken from Yes as
  * printed, at the same precision.
+ *
+ * `held` is for a Yes that is a held price: on the band's edge both sides
+ * print as the bounds they are ("≤1%" and "≥99%").
  */
-export function pctPair(yesProbability: number | string): { yes: string; no: string } {
+export function pctPair(yesProbability: number | string, held?: PriceBand): { yes: string; no: string } {
   const parsed = Number(yesProbability);
   if (!Number.isFinite(parsed)) return { yes: viz.missing, no: viz.missing };
   const value = clamp01(parsed);
+  if (held && onEdge(value, held)) {
+    return { yes: pctHeld(value, held), no: pctHeld(round4(1 - value), mirrorBand(held)) };
+  }
   const yes = pct(value);
   const mirror: Record<string, string> = { "0%": "100%", "100%": "0%", "<0.1%": ">99.9%", ">99.9%": "<0.1%" };
   const mirrored = mirror[yes];
@@ -82,13 +174,23 @@ export function pctPair(yesProbability: number | string): { yes: string; no: str
 export type PrintedChange = {
   was: string;
   now: string;
-  /** In percentage points, from the printed figures: "8", "11.5". */
+  /**
+   * In percentage points, from the printed figures: "8", "11.5". Empty when
+   * `now` is a held price, which stands for a range and so has no one size.
+   */
   size: string;
   direction: "up" | "down" | "flat";
 };
 
-/** A change in a chance, as printed: its two ends, and a size that adds up. */
-export function printedChange(was: number | string, now: number | string): PrintedChange {
+/**
+ * A change in a chance, as printed: its two ends, and a size that adds up.
+ *
+ * `held` is for a `now` that may be a held price (a move's `now` is the
+ * game's): exactly on the band's edge it prints as a bound ("≤1%"), the size
+ * is not known, and the direction is known only from a start inside the band
+ * ("flat" otherwise, which here means "cannot be told").
+ */
+export function printedChange(was: number | string, now: number | string, held?: PriceBand): PrintedChange {
   const from = Number(was);
   const to = Number(now);
   if (!Number.isFinite(from) || !Number.isFinite(to)) {
@@ -96,6 +198,16 @@ export function printedChange(was: number | string, now: number | string): Print
   }
   const a = clamp01(from);
   const b = clamp01(to);
+  const edge = held ? onEdge(b, held) : null;
+  if (held && edge) {
+    const toward = edge === "min" ? a > held.min : a < held.max;
+    return {
+      was: pct(a),
+      now: pctHeld(b, held),
+      size: "",
+      direction: toward ? (edge === "min" ? "down" : "up") : "flat",
+    };
+  }
   const digitsA = pctDigits(a);
   const digitsB = pctDigits(b);
   const digits = Math.max(digitsA, digitsB);
@@ -110,33 +222,41 @@ export function printedChange(was: number | string, now: number | string): Print
   };
 }
 
-/** "from 54% to 62%", or "unchanged at 62%". */
-export function fromTo(was: number | string, now: number | string, start = false): string {
-  const change = printedChange(was, now);
+/**
+ * "from 54% to 62%", or "unchanged at 62%". With `held` (see `printedChange`),
+ * a held `now` whose change cannot be told is said as itself: "now ≤1%".
+ */
+export function fromTo(was: number | string, now: number | string, start = false, held?: PriceBand): string {
+  const change = printedChange(was, now, held);
   if (change.direction === "flat") {
+    if (!change.size) return `${start ? viz.rangeNow : viz.now} ${change.now}`;
     return start ? viz.unchangedStart(change.now) : viz.unchanged(change.now);
   }
   return start ? viz.fromToStart(change.was, change.now) : viz.fromTo(change.was, change.now);
 }
 
-/** "54% → 62%", or "62%" when the two print the same. */
-export function fromToArrow(was: number | string, now: number | string): string {
-  const change = printedChange(was, now);
+/** "54% → 62%", or "62%" when the two print the same (or a held `now` cannot be told from its start). */
+export function fromToArrow(was: number | string, now: number | string, held?: PriceBand): string {
+  const change = printedChange(was, now, held);
   return change.direction === "flat" ? change.now : viz.arrow(change.was, change.now);
 }
 
-/** "up 8 percentage points", "down 1 percentage point", or "" when flat. */
-export function changeSize(was: number | string, now: number | string): string {
-  const change = printedChange(was, now);
-  if (change.direction === "flat") return "";
+/** "up 8 percentage points", "down 1 percentage point", or "" when flat or not known. */
+export function changeSize(was: number | string, now: number | string, held?: PriceBand): string {
+  const change = printedChange(was, now, held);
+  if (change.direction === "flat" || !change.size) return "";
   return change.direction === "up" ? viz.up(change.size) : viz.down(change.size);
 }
 
-/** "From 54% to 62%, up 8 percentage points." — a change, for a screen reader. */
-export function changeSentence(was: number | string, now: number | string): string {
-  const change = printedChange(was, now);
+/**
+ * "From 54% to 62%, up 8 percentage points." — a change, for a screen reader.
+ * A held `now` has no one size, so its sentence ends at it: "From 3.5% to ≤1%."
+ */
+export function changeSentence(was: number | string, now: number | string, held?: PriceBand): string {
+  const change = printedChange(was, now, held);
+  if (!change.size) return `${fromTo(was, now, true, held)}.`;
   if (change.direction === "flat") return `${viz.unchangedStart(change.now)}.`;
-  return viz.sentence(fromTo(was, now, true), changeSize(was, now));
+  return viz.sentence(fromTo(was, now, true, held), changeSize(was, now, held));
 }
 
 // ---------------------------------------------------------------------------
@@ -209,29 +329,65 @@ export type PriceReading = {
   at: string;
   /** "live" for an open question; "last" once it has closed. */
   kind: "live" | "last";
+  /**
+   * True when the figure is a price held on the game's band (see
+   * `PriceBand`) and nothing says where the market stands beyond it: print it
+   * as the bound it is (`pctHeld`, or the parts' `held` prop), never as a
+   * price.
+   */
+  held?: boolean;
 };
+
+/** How old the market's own latest reading may be and still stand for "now". */
+const READING_MAX_AGE = 3 * HOUR;
 
 /**
  * The price a question's page leads with.
  *
- * For an open question that is the live price. For a closed or finished one
- * it is the last point of its history, not `probability`: that is the price
- * the site stored when it stopped reading, which can disagree with the chart
- * by a long way (map 4.1). Only with no history at all is it used.
+ * For an open question that is the live price, with one exception. The API
+ * holds the live price inside the game's band (`PriceBand`), so a market at
+ * 0.4% comes back as 1%. When the live price sits on the band's edge and the
+ * market's own latest reading (the last point of the source's history, read
+ * within 3 hours of `as_of`) lies beyond it, that reading is the price: it
+ * is shown as "live", at its own time, and the readout, the bars, the range,
+ * the chart's end and the sentences all agree with the line, which then does
+ * not jump at its end. A reading exactly on the edge says the market is
+ * there, and the live price stands. With no such reading the live price is
+ * all there is, and it is marked `held`.
+ *
+ * For a closed or finished question it is the last point of its history, not
+ * `probability`: that is the price the site stored when it stopped reading,
+ * which can disagree with the chart by a long way (map 4.1). Only with no
+ * history at all is it used.
  */
-export function priceToShow(question: PublicQuestion): PriceReading {
-  if (question.state === "open") {
-    const readAt = Date.parse(question.as_of) - (question.probability.age_seconds || 0) * 1000;
-    return {
-      value: clamp01(Number(question.probability.yes)),
-      at: new Date(Number.isFinite(readAt) ? readAt : Date.parse(question.as_of)).toISOString(),
-      kind: "live",
-    };
-  }
+export function priceToShow(question: PublicQuestion, band: PriceBand = GAME_BAND): PriceReading {
   const series = parseHistory(question.history);
   const last = series[series.length - 1];
-  if (last) return { value: last.v, at: new Date(last.t).toISOString(), kind: "last" };
-  return { value: clamp01(Number(question.probability.yes)), at: question.as_of, kind: "last" };
+  if (question.state === "open") {
+    const value = clamp01(Number(question.probability.yes));
+    const asOf = Date.parse(question.as_of);
+    const readAt = asOf - (question.probability.age_seconds || 0) * 1000;
+    const at = new Date(Number.isFinite(readAt) ? readAt : asOf).toISOString();
+    const edge = onEdge(value, band);
+    if (!edge) return { value, at, kind: "live" };
+
+    // Held on the edge. Only the source's own history is the market's: the
+    // site's snapshots are of the held price.
+    const reading =
+      question.history_source === "source" && last && asOf - last.t <= READING_MAX_AGE ? last : null;
+    if (reading && (edge === "min" ? reading.v < band.min : reading.v > band.max)) {
+      return { value: reading.v, at: new Date(reading.t).toISOString(), kind: "live" };
+    }
+    if (reading && onEdge(reading.v, band) === edge) return { value, at, kind: "live" };
+    return { value, at, kind: "live", held: true };
+  }
+  if (last) {
+    // The site's own snapshots are of the held price: on an edge, a bound.
+    const held = question.history_source === "own" && onEdge(last.v, band) !== null;
+    return { value: last.v, at: new Date(last.t).toISOString(), kind: "last", ...(held ? { held } : {}) };
+  }
+  const value = clamp01(Number(question.probability.yes));
+  return { value, at: question.as_of, kind: "last", ...(onEdge(value, band) ? { held: true } : {}) };
 }
 
 export type ChangeWindow = { was: number; now: number; at: string };
@@ -675,7 +831,13 @@ export type ChartTick = {
   placements: Record<BreakpointId, Placement & { text: "long" | "short" }>;
 };
 
-export type ChartRow = { t: number; v: number; note: string | null };
+export type ChartRow = {
+  t: number;
+  v: number;
+  note: string | null;
+  /** The figure to print, where it is not `pct(v)`: a held price's bound ("≤1%"). */
+  text?: string;
+};
 
 export type LineChartModel = {
   state: PublicQuestion["state"];
@@ -971,6 +1133,8 @@ function placeTicks(ticks: { fx: number; long: string; short: string; first: boo
 export type LineChartOptions = {
   /** Draw the day-ago and week-ago markers (open questions only). */
   references?: boolean;
+  /** The game's band, from the rules where they are to hand (see `priceToShow`). */
+  band?: PriceBand;
 };
 
 /**
@@ -983,20 +1147,45 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
   const open = state === "open";
   const resolved = state === "resolved" && (question.outcome === "yes" || question.outcome === "no");
   const reference = question.as_of;
+  const band = options.band ?? GAME_BAND;
 
   const history = parseHistory(question.history);
-  const live = priceToShow(question);
+  const live = priceToShow(question, band);
   const points = [...history];
-  // An open question's line ends at the live price, so the chart and the big
-  // figure above it say the same thing. With no history there is no line to
-  // end, and the chart says so rather than draw one lonely dot.
-  if (open && history.length) {
-    const readAt = Date.parse(live.at);
-    const last = points[points.length - 1];
-    if (Number.isFinite(readAt) && (!last || readAt > last.t + 60_000)) {
-      points.push({ t: readAt, v: live.value });
+  // An open question's line ends at the price the page shows, so the chart
+  // and the big figure above it say the same thing. Where that is the
+  // market's own latest reading (a price held on the band's edge), it is the
+  // line's last point already, and the line ends there rather than jump to
+  // the held price. With no history there is no line to end, and the chart
+  // says so rather than draw one lonely dot.
+  let heldEnd: ChartPoint | null = null;
+  const readAt = Date.parse(live.at);
+  const latest = points[points.length - 1];
+  if (open && latest && Number.isFinite(readAt) && !(latest.t === readAt && latest.v === live.value)) {
+    const end = { t: readAt, v: live.value };
+    const before = points[points.length - 2];
+    if (live.held) {
+      // A held price is not the market's reading: it follows it, and never
+      // takes its place.
+      if (readAt > latest.t + 60_000 || (readAt > latest.t && latest.v !== live.value)) {
+        points.push(end);
+        heldEnd = end;
+      }
+    } else if (readAt > latest.t + 60_000) {
+      points.push(end);
+    } else if (Math.abs(readAt - latest.t) <= 60_000 && latest.v !== live.value && (!before || before.t < readAt)) {
+      // Two readings within a minute of each other are one moment: the one
+      // the page leads with stands for it, so the line ends on its figure.
+      points[points.length - 1] = end;
     }
   }
+  // A held price prints as its bound: the live one at the end, and each of
+  // the site's own snapshots (which record the held price) on the band's edge.
+  const held = new Set<ChartPoint>(heldEnd ? [heldEnd] : []);
+  if (question.history_source === "own") {
+    for (const point of points) if (onEdge(point.v, band)) held.add(point);
+  }
+  const printed = (point: ChartPoint): string => (held.has(point) ? pctHeld(point.v, band) : pct(point.v));
 
   const endWord = open ? viz.endNow : resolved ? viz.endResult : viz.endLast;
 
@@ -1016,7 +1205,12 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
       rules: [],
       end_label: {
         v: resolved ? (question.outcome === "yes" ? 1 : 0) : live.value,
-        value: resolved && question.outcome ? viz.resultWord(question.outcome) : pct(live.value),
+        value:
+          resolved && question.outcome
+            ? viz.resultWord(question.outcome)
+            : live.held
+              ? pctHeld(live.value, band)
+              : pct(live.value),
         word: endWord,
         outcome: resolved ? question.outcome : null,
       },
@@ -1091,7 +1285,7 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
     });
   }
 
-  const printedEnd = pct(last.v);
+  const printedEnd = printed(last);
   const nearEnd = (t: number) => Math.abs(fx(t) - fx(last.t)) < 0.04;
 
   // Where it stood a day and a week before the change figures were read.
@@ -1115,12 +1309,12 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
   // "A day ago 91%". When a mark or the end is the extreme, its own label
   // already says so and no second one is added.
   const range = extremes([...points, ...refPoints].sort((a, b) => a.t - b.t));
-  if (range && pct(range.low.v) !== pct(range.high.v)) {
+  if (range && printed(range.low) !== printed(range.high)) {
     for (const [id, point, word] of [
       ["high", range.high, viz.high],
       ["low", range.low, viz.low],
     ] as const) {
-      const value = pct(point.v);
+      const value = printed(point);
       const isEnd = point === last || (nearEnd(point.t) && value === printedEnd);
       // A ring already marks the spot when a reference is the high or the low.
       const ringThere = markers.some(
@@ -1205,24 +1399,24 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
       noteParts.push(viz.noteGap(String(Math.round(gap / HOUR))));
     }
     const note = noteParts.filter(Boolean).join(". ");
-    return { t: point.t, v: point.v, note: note || null };
+    return { t: point.t, v: point.v, note: note || null, ...(held.has(point) ? { text: printed(point) } : {}) };
   });
 
   // The same, said in words.
   const summary =
     points.length === 1
-      ? viz.chartOne(pct(last.v), shortDateUtc(last.t, reference))
+      ? viz.chartOne(printedEnd, shortDateUtc(last.t, reference))
       : viz.chartSummary(
-          pct(first.v),
+          printed(first),
           shortDateUtc(first.t, reference),
-          pct(last.v),
+          printedEnd,
           shortDateUtc(last.t, reference),
-          pct(range?.low.v ?? last.v),
-          pct(range?.high.v ?? last.v),
+          printed(range?.low ?? last),
+          printed(range?.high ?? last),
         );
 
   const keyFigures: { term: string; value: string }[] = [
-    { term: open ? viz.keyNow : viz.keyLast, value: viz.keyAt(pct(last.v), shortDateTimeUtc(last.t)) },
+    { term: open ? viz.keyNow : viz.keyLast, value: viz.keyAt(printedEnd, shortDateTimeUtc(last.t)) },
   ];
   if (windows?.day) {
     keyFigures.push({ term: viz.keyDayAgo, value: viz.keyAt(pct(windows.day.was), shortDateTimeUtc(windows.day.at)) });
@@ -1231,8 +1425,8 @@ export function lineChartModel(question: PublicQuestion, options: LineChartOptio
     keyFigures.push({ term: viz.keyWeekAgo, value: viz.keyAt(pct(windows.week.was), shortDateTimeUtc(windows.week.at)) });
   }
   if (range) {
-    keyFigures.push({ term: viz.keyLow, value: viz.keyAt(pct(range.low.v), shortDateTimeUtc(range.low.t)) });
-    keyFigures.push({ term: viz.keyHigh, value: viz.keyAt(pct(range.high.v), shortDateTimeUtc(range.high.t)) });
+    keyFigures.push({ term: viz.keyLow, value: viz.keyAt(printed(range.low), shortDateTimeUtc(range.low.t)) });
+    keyFigures.push({ term: viz.keyHigh, value: viz.keyAt(printed(range.high), shortDateTimeUtc(range.high.t)) });
   }
   if (state === "closed") {
     keyFigures.push({ term: viz.keyClosed, value: shortDateTimeUtc(question.closes_at) });
@@ -1293,20 +1487,27 @@ export const MS = { HOUR, DAY } as const;
  */
 export function weekRange(
   question: PublicQuestion,
-): { low: number; high: number; now: number; kind: PriceReading["kind"] } | null {
+  band: PriceBand = GAME_BAND,
+): { low: number; high: number; now: number; kind: PriceReading["kind"]; held?: boolean } | null {
   const range = extremes(parseHistory(question.history));
   if (!range) return null;
-  const shown = priceToShow(question);
+  const shown = priceToShow(question, band);
   // An open question's day-ago and week-ago figures are readings from this
   // week too, and its chart marks them: a sparse history of the site's own
   // readings must not give a range they fall outside.
   const windows = question.state === "open" ? changeWindows(question) : null;
   const marks = [windows?.day?.was, windows?.week?.was].filter((v): v is number => typeof v === "number");
+  const low = Math.min(range.low.v, shown.value, ...marks);
+  const high = Math.max(range.high.v, shown.value, ...marks);
+  // Held figures print as bounds (RangeBar's `held`): the price shown, when
+  // it is held, and the site's own snapshots on the band's edge.
+  const ownEdge = question.history_source === "own" && (onEdge(low, band) !== null || onEdge(high, band) !== null);
   return {
-    low: Math.min(range.low.v, shown.value, ...marks),
-    high: Math.max(range.high.v, shown.value, ...marks),
+    low,
+    high,
     now: shown.value,
     kind: shown.kind,
+    ...(shown.held || ownEdge ? { held: true } : {}),
   };
 }
 
@@ -1314,10 +1515,21 @@ export function weekRange(
 // Labels over a 0-to-100 track (MoveTrack and RangeBar, large)
 // ---------------------------------------------------------------------------
 
-/** Schibsted Grotesk with tabular figures: every glyph 0.635em, but "." and ",", set proportional, 0.287em. */
+/**
+ * A figure's width in Schibsted Grotesk at 500, as `<Figure>` sets it: the
+ * digits tabular (0.635em), and everything else at its own width, as
+ * measured in the browser: "." and "," 0.29em, "%" 0.87em, "<", ">" and "×"
+ * 0.635em. A sign the face's Latin files lack ("≤", "≥") is drawn from
+ * another face, whose width is not known here: a generous 0.7em.
+ */
 export function figureWidth(text: string, fontPx: number): number {
   let em = 0;
-  for (const char of text) em += char === "." || char === "," ? 0.287 : 0.635;
+  for (const char of text) {
+    if (char === "." || char === ",") em += 0.29;
+    else if (char === "%") em += 0.87;
+    else if (char.charCodeAt(0) > 0xff) em += 0.7;
+    else em += 0.635;
+  }
   return em * fontPx;
 }
 
@@ -1461,16 +1673,18 @@ export type ChanceBand =
   | "yesAlmost";
 
 /**
- * How many in 100 a chance is, as `pct` prints it: 22 for "22%". A figure that
- * prints with a decimal is under 1 or over 99, and is said so, never rounded
- * to a false 0 or 100.
+ * How many in 100 a chance is, as `pct` prints it: 22 for "22%", 5.5 for
+ * "5.5%". A figure under 1% or over 99% is said so, never rounded to a
+ * false 0 or 100.
  */
 export function inHundred(probability: number | string): number | "under1" | "over99" {
   const printed = pct(probability);
   if (printed === viz.missing) return Number.NaN;
-  const value = Number(printed.replace(/[<>%]/g, ""));
-  if (printed.startsWith("<") || (printed.includes(".") && value < 50)) return "under1";
-  if (printed.startsWith(">") || (printed.includes(".") && value > 50)) return "over99";
+  if (printed.startsWith("<")) return "under1";
+  if (printed.startsWith(">")) return "over99";
+  const value = Number(printed.replace(/%/g, ""));
+  if (value > 0 && value < 1) return "under1";
+  if (value > 99 && value < 100) return "over99";
   return value;
 }
 

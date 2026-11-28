@@ -56,7 +56,7 @@ export default async function LandingPage() {
         <Keeps rules={data.rules} />
         <Margin rules={data.rules} />
         <Faq />
-        <Moved moved={data.moved} asOf={asOf} />
+        <Moved moved={data.moved} asOf={asOf} band={data.band} />
       </main>
 
       <SiteFooter close={<Close rules={data.rules} />} />

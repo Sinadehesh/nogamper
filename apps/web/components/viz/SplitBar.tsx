@@ -1,7 +1,7 @@
 import "./viz.css";
 
 import { viz } from "@/lib/copy";
-import { pctPair } from "@/lib/viz";
+import { type PriceBand, pctPair } from "@/lib/viz";
 
 import { at, cx, vars } from "./style";
 
@@ -12,6 +12,8 @@ type SplitBarProps = {
   size?: "sm" | "md" | "lg";
   /** Print "Yes 62%" and "No 38%" above the bar. Off where the figures are beside it already. */
   labels?: boolean;
+  /** The game's band, when `yes` is a price held on it: its figures print as bounds. */
+  held?: PriceBand;
   className?: string;
 };
 
@@ -22,10 +24,10 @@ type SplitBarProps = {
  * Neither side is drawn as the one to pick. A screen reader is told both
  * figures in words whatever `labels` says.
  */
-export function SplitBar({ yes, size = "md", labels = true, className }: SplitBarProps) {
+export function SplitBar({ yes, size = "md", labels = true, held, className }: SplitBarProps) {
   const value = Math.min(1, Math.max(0, Number(yes)));
   const valid = Number.isFinite(value);
-  const pair = pctPair(value);
+  const pair = pctPair(value, held);
 
   return (
     <span className={cx("viz-split", `viz-split--${size}`, className)} style={vars({ "--viz-yes": valid ? at(value) : 50 })}>

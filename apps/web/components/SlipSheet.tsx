@@ -4,20 +4,44 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { usePlayer } from "@/components/PlayerProvider";
 import { useSlip } from "@/components/SlipProvider";
+import { Wording } from "@/components/game/Pick";
+import { SlipFigures } from "@/components/viz";
+import { Figure } from "@/components/viz/Figure";
 import { placeSlip, quoteSlip, type SlipBody } from "@/lib/api";
 import { errorMessage, t } from "@/lib/copy";
-import { chance, odds, parsePoints, points } from "@/lib/format";
-import type { MarketRules, SlipQuote } from "@/lib/types";
+import { parsePoints, points } from "@/lib/format";
+import type { MarketRules, MarketSummary, Side, SlipQuote } from "@/lib/types";
+import { pct, type SlipLegInput } from "@/lib/viz";
 
 /**
  * The slip: review the picks, choose a stake, confirm.
  *
+ * Beside the feed on a wide screen (SlipRail), in a sheet from the foot of
+ * the screen on a phone or a tablet (SlipSheet). One panel either way, in the
+ * order and the words of the front page's picture of it: "Your forecast",
+ * then each pick ("Yes at 22%"), then the stake ("100 points"), then what it
+ * pays ("pays 462 if right").
+ *
  * Three things here are deliberate omissions rather than oversights. There is
  * no "max" button, because staking everything should take typing it. There is
  * no nudge to add another pick. And the chance of the slip coming in sits
- * directly above what it would pay, at the same size — a big number and how
+ * directly beside what it would pay, at the same size: a big number and how
  * unlikely it is belong in the same glance.
  */
+
+/** What was placed, for the confirmation, in the slip's own words. */
+export type Receipt = {
+  picks: { question: string; side: Side; chance: string }[];
+  stake: string;
+  payout: string;
+};
+
+type SlipProps = {
+  rules: MarketRules;
+  /** The questions the feed has shown, by id: a pick's chance before the server's quote is in. */
+  prices: ReadonlyMap<string, MarketSummary>;
+  onPlaced: (receipt: Receipt) => void;
+};
 
 function defaultStake(rules: MarketRules, available: number): number {
   // A modest fixed opening stake — five times the minimum — rather than a
@@ -34,18 +58,76 @@ function quickStakes(rules: MarketRules, available: number): number[] {
     .filter((amount) => amount <= ceiling);
 }
 
-export function SlipSheet({
+const sideWord = (side: Side) => (side === "YES" ? t.yes : t.no);
+
+/** The slip beside the feed, on a wide screen. */
+export function SlipRail(props: SlipProps) {
+  return <SlipPanel {...props} mode="rail" />;
+}
+
+/** The slip in a sheet from the foot of a phone's or a tablet's screen. */
+export function SlipSheet(props: SlipProps) {
+  const slip = useSlip();
+  const titleId = useId();
+  const panel = useRef<HTMLDivElement>(null);
+
+  // Escape closes, as it does for every dialog.
+  useEffect(() => {
+    if (!slip.isOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") slip.close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [slip]);
+
+  // The sheet takes the focus when it opens and hands it back when it shuts.
+  const { isOpen } = slip;
+  useEffect(() => {
+    if (!isOpen) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panel.current?.focus({ preventScroll: true });
+    return () => opener?.focus({ preventScroll: true });
+  }, [isOpen]);
+
+  if (!slip.isOpen) return null;
+
+  return (
+    <div className="gm-sheet gm">
+      <div className="gm-sheet__scrim" onClick={slip.close} aria-hidden />
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="gm-sheet__panel"
+      >
+        <span className="gm-sheet__grip" aria-hidden />
+        <SlipPanel {...props} mode="sheet" titleId={titleId} />
+      </div>
+    </div>
+  );
+}
+
+function SlipPanel({
   rules,
+  prices,
   onPlaced,
-}: {
-  rules: MarketRules;
-  onPlaced: () => void;
-}) {
+  mode,
+  titleId,
+}: SlipProps & { mode: "rail" | "sheet"; titleId?: string }) {
   const slip = useSlip();
   const { player, refresh } = usePlayer();
   const balance = player.balance.minor;
-  const titleId = useId();
+  const ownTitleId = useId();
+  const headingId = titleId ?? ownTitleId;
   const stakeId = useId();
+  const stakeNoteId = useId();
+  const discardTitleId = useId();
+  const discardBodyId = useId();
+  // The rail is on screen whenever it holds a pick; the sheet when it is open.
+  const active = mode === "rail" || slip.isOpen;
 
   // What is left of a daily limit the player set, or null when there is none.
   // The server enforces it; this is so the slip can say so before the button
@@ -82,7 +164,7 @@ export function SlipSheet({
   }, [bodySignature]);
 
   useEffect(() => {
-    if (!slip.isOpen || legCount === 0 || stake <= 0) {
+    if (!active || legCount === 0 || stake <= 0) {
       setQuote(null);
       return;
     }
@@ -109,7 +191,19 @@ export function SlipSheet({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [body, legCount, stake, slip.isOpen, refresh]);
+  }, [body, legCount, stake, active, refresh]);
+
+  // Each pick's own side and chance: the server's quote once it is in, the
+  // price the card showed until then. The two agree unless the price moved.
+  const priced: (SlipLegInput & { question: string; marketId: string })[] = slip.legs.map((leg) => {
+    const quoted = quote?.legs.find((entry) => entry.market_id === leg.marketId);
+    const market = prices.get(leg.marketId);
+    const probability =
+      quoted?.probability ??
+      (market ? (leg.side === "YES" ? market.probability.yes : market.probability.no) : "");
+    return { side: leg.side, probability, question: leg.question, marketId: leg.marketId };
+  });
+  const allPriced = priced.every((leg) => leg.probability !== "");
 
   const place = useCallback(async () => {
     if (!quote || placing) return;
@@ -123,10 +217,24 @@ export function SlipSheet({
     setPlacing(false);
 
     if (result.ok) {
+      // Named from the quote the player confirmed and the slip the server
+      // kept: what was placed, not what the page expected to place.
+      const receipt: Receipt = {
+        picks: result.data.legs.map((leg) => {
+          const quoted = quote.legs.find((entry) => entry.market_id === leg.market_id);
+          return {
+            question: leg.question,
+            side: leg.side === "NO" ? "NO" : "YES",
+            chance: quoted ? pct(quoted.probability) : "",
+          };
+        }),
+        stake: points(result.data.stake.minor),
+        payout: points(result.data.potential_payout.minor),
+      };
       slip.clear();
       setQuote(null);
       await refresh();
-      onPlaced();
+      onPlaced(receipt);
       return;
     }
 
@@ -140,238 +248,292 @@ export function SlipSheet({
     setError(errorMessage(result.code));
   }, [body, quote, placing, slip, refresh, onPlaced]);
 
-  // Escape closes, as it does for every dialog.
-  useEffect(() => {
-    if (!slip.isOpen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") slip.close();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [slip]);
-
-  if (!slip.isOpen) return null;
+  if (legCount === 0) return null;
 
   const short = stake - balance;
   const overLimit = allowance !== null && stake > allowance;
-  const profit = quote ? quote.potential_payout.minor - quote.stake.minor : 0;
+  // Said under the field, in the order a player would fix them.
+  const fieldError =
+    stake > 0 && stake < rules.min_stake.minor
+      ? t.stakeTooSmall(rules.min_stake.display)
+      : stake > rules.max_stake.minor
+        ? t.stakeTooLarge(rules.max_stake.display)
+        : short > 0
+          ? t.notEnough(points(short))
+          : overLimit
+            ? allowance
+              ? t.overLimit(points(allowance))
+              : t.overLimitNone
+            : null;
+
+  const single = legCount === 1;
+  const payout = quote ? points(quote.potential_payout.minor) : null;
+  const chanceRight = quote ? pct(quote.win_probability) : null;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={slip.close} aria-hidden />
+    <section className="gm-slip relative" aria-labelledby={headingId}>
+      <header className="gm-slip__head">
+        <h2 id={headingId} className="gm-h">
+          {t.slipTitle}
+        </h2>
+        <span className="gm-slip__count">{t.slipLegCount(legCount, slip.maxLegs)}</span>
+      </header>
 
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="relative z-10 flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden
-                   rounded-t-2xl border border-line bg-surface shadow-2xl sm:rounded-2xl"
-      >
-        <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-          <div>
-            <h2 id={titleId} className="text-lg font-bold">
-              {t.slipTitle}
-            </h2>
-            <p className="text-xs text-muted">{t.slipLegCount(legCount, slip.maxLegs)}</p>
-          </div>
-          <button type="button" className="btn btn-quiet btn-sm" onClick={slip.close}>
-            {t.close}
-          </button>
-        </header>
-
-        <div className="space-y-4 overflow-y-auto px-4 py-4">
-          <ul className="space-y-2">
-            {slip.legs.map((leg) => {
-              const priced = quote?.legs.find((entry) => entry.market_id === leg.marketId);
-              return (
-                <li key={leg.marketId} className="flex items-start gap-3 rounded-xl bg-sunken p-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium leading-snug">{leg.question}</p>
-                    <p className="mt-1 text-xs text-muted">
-                      <span
-                        className={`font-bold ${leg.side === "YES" ? "text-yes" : "text-no"}`}
-                      >
-                        {leg.side === "YES" ? t.yes : t.no}
-                      </span>
-                      {priced ? (
-                        <span className="tabular-nums">
-                          {" · "}
-                          {chance(priced.probability)} · {odds(priced.locked_odds)}
-                        </span>
-                      ) : null}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-quiet btn-sm !min-h-8 !px-2"
-                    onClick={() => slip.remove(leg.marketId)}
-                    aria-label={t.removeLeg}
-                  >
-                    ×
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-
-          <div>
-            <div className="flex items-baseline justify-between">
-              <label htmlFor={stakeId} className="label">
-                {t.stake}
-              </label>
-              <span className="text-xs text-muted tabular-nums">
-                {t.balance}: {points(balance)}
-              </span>
+      <ul className="gm-legs">
+        {priced.map((leg) => (
+          <li key={leg.marketId} className="gm-leg">
+            <div className="min-w-0">
+              <p className="gm-leg__q">
+                <Wording text={leg.question} />
+              </p>
+              <p className="gm-leg__pick">
+                <span className="gm-side" data-side={leg.side === "YES" ? "yes" : "no"} aria-hidden />
+                {leg.probability !== "" ? (
+                  <Figure text={t.slipPick(sideWord(leg.side), pct(leg.probability))} />
+                ) : (
+                  sideWord(leg.side)
+                )}
+              </p>
             </div>
-            <input
-              id={stakeId}
-              className="field text-xl font-bold tabular-nums"
-              inputMode="numeric"
-              value={draft}
-              aria-invalid={short > 0 || overLimit ? true : undefined}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setStake(parsePoints(event.target.value));
-              }}
-              onBlur={() => setDraft(points(stake))}
-            />
-            <div className="mt-2 flex flex-wrap gap-2">
-              {quickStakes(rules, available).map((amount) => (
-                <button
-                  key={amount}
-                  type="button"
-                  className="btn btn-secondary btn-sm tabular-nums"
-                  onClick={() => {
-                    setStake(amount);
-                    setDraft(points(amount));
-                  }}
-                >
-                  {points(amount)}
-                </button>
-              ))}
-            </div>
-            <p className="hint">
-              {t.stakeHint(rules.min_stake.display, rules.max_stake.display)}
-              {allowance !== null ? ` ${t.limitLeft(points(allowance))}` : null}
-            </p>
-          </div>
-
-          <dl className="space-y-2 rounded-xl border border-line p-3 text-sm">
-            <Row
-              label={t.combinedOdds}
-              value={quote ? odds(quote.combined_odds) : quoting ? t.quoting : "—"}
-            />
-            <div className="border-t border-line pt-2">
-              <dt className="text-muted">{t.winChance}</dt>
-              <dd className="text-2xl font-black tabular-nums">
-                {quote ? chance(quote.win_probability) : "—"}
-              </dd>
-            </div>
-            <div className="border-t border-line pt-2">
-              <dt className="text-muted">{t.toWin}</dt>
-              <dd className="text-2xl font-black tabular-nums">
-                {quote ? `${points(quote.potential_payout.minor)} ${t.pts}` : "—"}
-              </dd>
-              {quote ? <p className="text-xs text-muted">{t.profit(points(profit))}</p> : null}
-              {quote?.capped ? (
-                <p className="mt-1 text-xs text-warn">{t.cappedAt(quote.payout_cap.display)}</p>
-              ) : null}
-            </div>
-          </dl>
-
-          {quote ? (
-            <p className="text-xs text-muted">
-              {t.winChanceNote(chance(quote.win_probability))}{" "}
-              {legCount > 1 ? t.slipAllMustWin(legCount) : null}
-            </p>
-          ) : null}
-
-          {short > 0 ? (
-            <p role="alert" className="notice notice-warn">
-              {t.notEnough(points(short))}
-            </p>
-          ) : overLimit ? (
-            <p role="alert" className="notice notice-warn">
-              {allowance ? t.overLimit(points(allowance)) : t.overLimitNone}
-            </p>
-          ) : error ? (
-            <p role="alert" className="notice notice-error">
-              {error}
-            </p>
-          ) : null}
-        </div>
-
-        <footer className="space-y-2 border-t border-line px-4 py-3">
-          <button
-            type="button"
-            className="btn btn-primary w-full"
-            disabled={!quote || quoting || placing || short > 0 || overLimit}
-            onClick={() => void place()}
-          >
-            {placing ? t.placing : t.placeForecast(points(stake))}
-          </button>
-          <div className="flex items-center justify-between gap-2">
-            <button type="button" className="btn btn-quiet btn-sm" onClick={slip.close}>
-              {t.keepBrowsing}
-            </button>
             <button
               type="button"
-              className="btn btn-quiet btn-sm"
-              onClick={() => setConfirmClear(true)}
+              className="gm-x"
+              onClick={() => slip.remove(leg.marketId)}
+              aria-label={t.removeLegOf(leg.question)}
             >
-              {t.discardOpen}
+              <svg viewBox="0 0 14 14" aria-hidden="true">
+                <path d="M3 3l8 8M11 3l-8 8" />
+              </svg>
             </button>
-          </div>
-          <p className="text-center text-[0.7rem] text-muted">{t.noMargin}</p>
-        </footer>
+          </li>
+        ))}
+      </ul>
 
-        {confirmClear ? (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-            <div
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby="discard-title"
-              aria-describedby="discard-body"
-              className="card w-full max-w-xs p-4"
+      {/* Two picks or more: the chance shrinking pick by pick. Its return line
+          is the receipt's below, in the front page's words. */}
+      {!single && allPriced ? (
+        <SlipFigures legs={priced} stakeMinor={stake} rules={rules} className="gm-slip__steps" />
+      ) : null}
+
+      <div className="gm-stake">
+        <label htmlFor={stakeId} className="label">
+          {t.stake}
+        </label>
+        <div className="gm-stake__row">
+          <input
+            id={stakeId}
+            className="field"
+            inputMode="numeric"
+            autoComplete="off"
+            value={draft}
+            aria-invalid={fieldError ? true : undefined}
+            aria-describedby={stakeNoteId}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setStake(parsePoints(event.target.value));
+            }}
+            onBlur={() => setDraft(points(stake))}
+          />
+          <span className="gm-stake__unit" aria-hidden>
+            {t.stakeUnit}
+          </span>
+        </div>
+        <div id={stakeNoteId}>
+          {fieldError ? (
+            <p role="alert" className="gm-error">
+              {fieldError}
+            </p>
+          ) : null}
+          <p className="gm-stake__hint">
+            {t.stakeHint(rules.min_stake.display, rules.max_stake.display)}{" "}
+            {t.stakeHave(points(balance))}
+            {allowance !== null ? ` ${t.limitLeft(points(allowance))}` : null}
+          </p>
+        </div>
+        <div className="gm-chips" role="group" aria-label={t.quickStakes}>
+          {quickStakes(rules, available).map((amount) => (
+            <button
+              key={amount}
+              type="button"
+              className="gm-chip"
+              aria-pressed={stake === amount}
+              onClick={() => {
+                setStake(amount);
+                setDraft(points(amount));
+              }}
             >
-              <p id="discard-title" className="font-bold">
-                {t.discardTitle}
-              </p>
-              <p id="discard-body" className="mt-1 text-sm text-muted">
-                {t.discardBody(legCount)}
-              </p>
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setConfirmClear(false)}
-                >
-                  {t.discardKeep}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger btn-sm"
-                  onClick={() => {
-                    setConfirmClear(false);
-                    slip.clear();
-                  }}
-                >
-                  {t.discardConfirm}
-                </button>
-              </div>
+              <Figure text={points(amount)} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="gm-receipt" aria-live="polite" aria-atomic="true">
+        <p className="gm-receipt__line">
+          <Figure text={t.slipStakeLine(points(stake))} />
+        </p>
+        <p className="gm-receipt__big">
+          {payout ? <Figure text={t.slipPaysLine(payout)} /> : quoting ? t.quoting : "—"}
+        </p>
+        {single && chanceRight ? (
+          <p className="gm-receipt__big">
+            <Figure text={t.slipChanceLine(chanceRight)} />
+          </p>
+        ) : null}
+        {quote?.capped ? (
+          <p className="gm-receipt__note">{t.cappedAt(quote.payout_cap.display)}</p>
+        ) : null}
+        {!single && quote ? <p className="gm-receipt__note">{t.slipAllMustWin(legCount)}</p> : null}
+      </div>
+
+      {error && !fieldError ? (
+        <p role="alert" className="gm-note gm-error">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="gm-slip__actions">
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={!quote || quoting || placing || Boolean(fieldError)}
+          onClick={() => void place()}
+        >
+          {placing ? t.placing : t.placeForecast(points(stake))}
+        </button>
+        <div className="gm-slip__minor">
+          {mode === "sheet" ? (
+            <button type="button" className="gm-quiet" onClick={slip.close}>
+              {t.keepBrowsing}
+            </button>
+          ) : (
+            <span />
+          )}
+          <button type="button" className="gm-quiet" onClick={() => setConfirmClear(true)}>
+            {t.discardOpen}
+          </button>
+        </div>
+        <p className="gm-slip__foot">{t.noMargin}</p>
+      </div>
+
+      {confirmClear ? (
+        <div className="gm-discard">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby={discardTitleId}
+            aria-describedby={discardBodyId}
+          >
+            <p id={discardTitleId} className="gm-h gm-h--sm">
+              {t.discardTitle}
+            </p>
+            <p id={discardBodyId} className="gm-small">
+              {t.discardBody(legCount)}
+            </p>
+            <div className="btn-row">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                autoFocus
+                onClick={() => setConfirmClear(false)}
+              >
+                {t.discardKeep}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={() => {
+                  setConfirmClear(false);
+                  slip.clear();
+                }}
+              >
+                {t.discardConfirm}
+              </button>
             </div>
           </div>
-        ) : null}
-      </section>
-    </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/** Before the first pick: what the slip is for. */
+export function SlipEmpty({ maxLegs }: { maxLegs: number }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-muted">{label}</dt>
-      <dd className="font-semibold tabular-nums">{value}</dd>
-    </div>
+    <section className="gm-slip-empty" aria-labelledby="gm-slip-empty">
+      <h2 id="gm-slip-empty" className="gm-h">
+        {t.slipTitle}
+      </h2>
+      <p className="gm-label">{t.slipEmptyTitle}</p>
+      <p className="gm-small">{t.slipEmptyBody(maxLegs)}</p>
+      <div className="gm-slip-empty__art" aria-hidden>
+        <span />
+        <span />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * After a forecast is placed: what was placed, plainly, in the slip's words.
+ * No celebration; the player decides what comes next.
+ */
+export function SlipPlaced({
+  receipt,
+  onSee,
+  onDone,
+  titleId,
+}: {
+  receipt: Receipt;
+  onSee: () => void;
+  onDone: () => void;
+  titleId?: string;
+}) {
+  const ownId = useId();
+  const heading = useRef<HTMLHeadingElement>(null);
+  // The button that placed it has gone; the confirmation takes the focus.
+  useEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+  }, []);
+
+  return (
+    <section className="gm-done" aria-labelledby={titleId ?? ownId}>
+      <h2 ref={heading} id={titleId ?? ownId} tabIndex={-1} className="gm-h">
+        {t.placedTitle}
+      </h2>
+      <div className="gm-receipt">
+        <p className="gm-label">{t.slipTitle}</p>
+        {receipt.picks.map((pick, index) => (
+          <div key={index}>
+            <p className="gm-receipt__line">
+              <Wording text={pick.question} />
+            </p>
+            <p className="gm-leg__pick">
+              <span className="gm-side" data-side={pick.side === "YES" ? "yes" : "no"} aria-hidden />
+              {pick.chance ? (
+                <Figure text={t.slipPick(sideWord(pick.side), pick.chance)} />
+              ) : (
+                sideWord(pick.side)
+              )}
+            </p>
+          </div>
+        ))}
+        <p className="gm-receipt__line mt-2">
+          <Figure text={t.slipStakeLine(receipt.stake)} />
+        </p>
+        <p className="gm-receipt__big">
+          <Figure text={t.slipPaysLine(receipt.payout)} />
+        </p>
+      </div>
+      <p className="gm-small">{t.placedBody}</p>
+      <div className="gm-done__actions">
+        <button type="button" className="btn btn--secondary" onClick={onSee}>
+          {t.placedSee}
+        </button>
+        <button type="button" className="gm-quiet" onClick={onDone}>
+          {t.placedDone}
+        </button>
+      </div>
+    </section>
   );
 }

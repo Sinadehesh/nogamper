@@ -6,8 +6,9 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { usePlayer } from "@/components/PlayerProvider";
 import { getShop, setSpendLimit, startCheckout } from "@/lib/api";
 import { price } from "@/lib/content";
+import { Figure } from "@/components/viz/Figure";
 import { errorMessage, t } from "@/lib/copy";
-import { date, dateTime } from "@/lib/format";
+import { date, dateTimeUtc } from "@/lib/format";
 import type { Shop, ShopBlock } from "@/lib/types";
 
 /**
@@ -64,7 +65,7 @@ function blockedText(shop: Shop, block: ShopBlock, until: string | null): string
     case "account_required":
       return t.shopNeedsAccount;
     case "on_break":
-      return until ? t.shopOnBreakUntil(dateTime(until)) : t.shopOnBreak;
+      return until ? t.shopOnBreakUntil(dateTimeUtc(until)) : t.shopOnBreak;
     case "shop_closed_by_you":
       return t.shopClosedByYou;
     case "spend_limit_reached":
@@ -91,7 +92,20 @@ export function ShopCard({ onOpenSafer }: { onOpenSafer: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!shop || !shop.open || !shop.mine) return null;
+  if (!shop) return null;
+  // Nothing for sale: said plainly, with the way points do come.
+  if (!shop.open || !shop.mine) {
+    return (
+      <article className="gm-panel gm-tool" aria-labelledby={`${groupId}-title`}>
+        <div className="gm-tool__head">
+          <h2 id={`${groupId}-title`} className="gm-h">
+            {t.shopNoneTitle}
+          </h2>
+          <p className="gm-small">{t.shopNone(player.daily_topup.display)}</p>
+        </div>
+      </article>
+    );
+  }
 
   const { mine } = shop;
   const ceiling = Math.min(shop.monthly_cap_cents, mine.limit_cents ?? shop.monthly_cap_cents);
@@ -112,35 +126,37 @@ export function ShopCard({ onOpenSafer }: { onOpenSafer: () => void }) {
   }
 
   return (
-    <article className="card p-5" id="points">
-      <h2 className="text-lg font-bold">{t.shopTitle}</h2>
-      <p className="mt-1 text-sm text-muted">
-        {t.shopFreeFirst(player.daily_topup.display)}
-      </p>
-      <p className="mt-2 text-sm text-muted">{t.shopWhy}</p>
+    <article className="gm-panel gm-tool" id="points" aria-labelledby={`${groupId}-title`}>
+      <div className="gm-tool__head">
+        <h2 id={`${groupId}-title`} className="gm-h">
+          {t.shopTitle}
+        </h2>
+        <p className="gm-small">{t.shopFreeFirst(player.daily_topup.display)}</p>
+        <p className="gm-small">{t.shopWhy}</p>
+      </div>
 
       {mine.blocked ? (
-        <p className="notice mt-4">
+        <p className="gm-note gm-note--line">
           {blockedText(shop, mine.blocked, mine.blocked_until)}{" "}
           {mine.blocked === "account_required" ? (
-            <Link href="/signup" className="font-semibold text-accent underline underline-offset-2">
+            <Link href="/signup" prefetch={false} className="gm-link">
               {t.guestBannerAction}
             </Link>
           ) : null}
         </p>
       ) : (
         <>
-          <fieldset className="mt-4">
-            <legend className="text-sm font-semibold">{t.shopChoose}</legend>
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <fieldset>
+            <legend className="label">{t.shopChoose}</legend>
+            <div className="grid gap-2 sm:grid-cols-3">
               {shop.packs.map((pack) => {
                 const whole = pack.points.minor / 100;
                 const affordable = pack.price_cents <= mine.remaining_cents;
                 return (
                   <label
                     key={whole}
-                    className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${
-                      choice === whole ? "border-accent bg-sunken" : "border-line"
+                    className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${
+                      choice === whole ? "border-ink bg-sunken" : "border-line"
                     } ${affordable ? "" : "cursor-not-allowed opacity-50"}`}
                   >
                     <input
@@ -151,21 +167,21 @@ export function ShopCard({ onOpenSafer }: { onOpenSafer: () => void }) {
                       onChange={() => setChoice(whole)}
                     />
                     <span>
-                      <span className="block font-semibold tabular-nums">
-                        {t.shopPackPoints(pack.points.display)}
+                      <span className="block font-medium">
+                        <Figure text={t.shopPackPoints(pack.points.display)} />
                       </span>
-                      <span className="block tabular-nums text-muted">
-                        {price(pack.price_cents, shop.currency)}
+                      <span className="block text-muted">
+                        <Figure text={price(pack.price_cents, shop.currency)} />
                       </span>
                     </span>
                   </label>
                 );
               })}
             </div>
-            <p className="mt-2 text-xs text-muted">{t.shopSameRate}</p>
+            <p className="gm-small mt-2">{t.shopSameRate}</p>
           </fieldset>
 
-          <label htmlFor={adultId} className="mt-4 flex items-start gap-2 text-sm">
+          <label htmlFor={adultId} className="flex items-start gap-2 text-sm">
             <input
               id={adultId}
               type="checkbox"
@@ -178,40 +194,38 @@ export function ShopCard({ onOpenSafer }: { onOpenSafer: () => void }) {
 
           <button
             type="button"
-            className="btn btn-primary mt-4"
+            className="btn btn--secondary justify-self-start"
             disabled={busy || choice === null || !adult}
             onClick={() => void buy()}
           >
             {busy ? t.shopGoing : t.shopBuy}
           </button>
-          <p className="mt-2 text-xs text-muted">{t.shopStripeNote}</p>
+          <p className="gm-small">{t.shopStripeNote}</p>
         </>
       )}
 
       {error ? (
-        <p role="alert" className="notice notice-error mt-3">
+        <p role="alert" className="gm-note gm-error">
           {error}
         </p>
       ) : null}
 
-      <p className="mt-4 text-sm text-muted tabular-nums">
-        {t.shopSpentMonth(
-          price(mine.spent_month_cents, shop.currency),
-          price(ceiling, shop.currency),
-        )}{" "}
-        <button
-          type="button"
-          className="font-semibold text-accent underline underline-offset-2"
-          onClick={onOpenSafer}
-        >
+      <p className="gm-small">
+        <Figure
+          text={t.shopSpentMonth(
+            price(mine.spent_month_cents, shop.currency),
+            price(ceiling, shop.currency),
+          )}
+        />{" "}
+        <button type="button" className="gm-link" onClick={onOpenSafer}>
           {t.shopSetLimit}
         </button>
       </p>
 
       {mine.purchases.length > 0 ? (
-        <div className="mt-5">
-          <h3 className="text-sm font-semibold">{t.shopHistory}</h3>
-          <ul className="mt-2 divide-y divide-line text-sm tabular-nums">
+        <div>
+          <h3 className="gm-h gm-h--sm">{t.shopHistory}</h3>
+          <ul className="mt-2 divide-y divide-line text-sm">
             {mine.purchases.map((purchase) => (
               <li key={purchase.id} className="flex flex-wrap justify-between gap-x-4 py-2">
                 <span>
@@ -227,9 +241,9 @@ export function ShopCard({ onOpenSafer }: { onOpenSafer: () => void }) {
         </div>
       ) : null}
 
-      <p className="mt-4 text-xs text-muted">
+      <p className="gm-small">
         {t.shopNoValue}{" "}
-        <Link href="/support#terms" className="underline underline-offset-2">
+        <Link href="/support#terms" prefetch={false} className="gm-link">
           {t.shopTermsLink}
         </Link>
       </p>
@@ -285,43 +299,51 @@ export function SpendLimitCard() {
         ok: false,
         text:
           result.code === "limit_locked" && result.until
-            ? t.limitLockedUntil(dateTime(result.until))
+            ? t.limitLockedUntil(dateTimeUtc(result.until))
             : errorMessage(result.code),
       });
     }
   }
 
   return (
-    <article className="card p-5">
-      <h2 className="text-lg font-bold">{t.spendTitle}</h2>
-      <p className="mt-1 text-sm text-muted">{t.spendIntro(cap)}</p>
+    <article className="gm-panel gm-tool" aria-labelledby={`${fieldId}-title`}>
+      <div className="gm-tool__head">
+        <h2 id={`${fieldId}-title`} className="gm-h">
+          {t.spendTitle}
+        </h2>
+        <p className="gm-small">{t.spendIntro(cap)}</p>
+      </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+      <dl className="gm-stats">
         <div>
-          <dt className="text-xs text-muted">{t.spendThisMonth}</dt>
-          <dd className="text-xl font-bold tabular-nums">
-            {price(mine.spent_month_cents, shop.currency)}
+          <dt>{t.spendThisMonth}</dt>
+          <dd>
+            <Figure text={price(mine.spent_month_cents, shop.currency)} />
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-muted">{t.spendAllTime}</dt>
-          <dd className="text-xl font-bold tabular-nums">
-            {price(mine.spent_all_cents, shop.currency)}
+          <dt>{t.spendAllTime}</dt>
+          <dd>
+            <Figure text={price(mine.spent_all_cents, shop.currency)} />
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-muted">{t.spendYourLimit}</dt>
-          <dd className="text-xl font-bold tabular-nums">
-            {mine.limit_cents === null
-              ? t.spendNoLimit(cap)
-              : mine.limit_cents === 0
-                ? t.spendClosed
-                : price(mine.limit_cents, shop.currency)}
+          <dt>{t.spendYourLimit}</dt>
+          <dd>
+            <Figure
+              text={
+                mine.limit_cents === null
+                  ? t.spendNoLimit(cap)
+                  : mine.limit_cents === 0
+                    ? t.spendClosed
+                    : price(mine.limit_cents, shop.currency)
+              }
+            />
           </dd>
         </div>
       </dl>
 
-      <div className="mt-4 flex flex-wrap items-end gap-3">
+      <div className="flex flex-wrap items-end gap-3">
         <div>
           <label htmlFor={fieldId} className="label">
             {t.spendChange}
@@ -343,7 +365,7 @@ export function SpendLimitCard() {
         </div>
         <button
           type="button"
-          className="btn btn-secondary"
+          className="btn btn--secondary"
           disabled={busy || draft === ""}
           onClick={() => void save()}
         >
@@ -351,18 +373,15 @@ export function SpendLimitCard() {
         </button>
       </div>
 
-      <p className="hint mt-3">
-        {mine.limit_loosen_at ? t.limitLockedUntil(dateTime(mine.limit_loosen_at)) : t.spendRule}
-      </p>
-
       {message ? (
-        <p
-          role={message.ok ? "status" : "alert"}
-          className={`notice mt-3 ${message.ok ? "notice-ok" : "notice-error"}`}
-        >
+        <p role={message.ok ? "status" : "alert"} className={message.ok ? "gm-note" : "gm-note gm-error"}>
           {message.text}
         </p>
       ) : null}
+
+      <p className="gm-tool__rule">
+        {mine.limit_loosen_at ? t.limitLockedUntil(dateTimeUtc(mine.limit_loosen_at)) : t.spendRule}
+      </p>
     </article>
   );
 }

@@ -6,7 +6,7 @@ import { MoveScale, MoveTrack } from "@/components/viz";
 import { FETCHING, FETCHING_SLOWLY, landing } from "@/lib/content";
 import { categoryLabel } from "@/lib/copy";
 import type { Move } from "@/lib/types";
-import { closesOn, fromToArrow, groupByEvent } from "@/lib/viz";
+import { closesOn, fromToArrow, GAME_BAND, groupByEvent, type PriceBand } from "@/lib/viz";
 
 const same = (one: string, other: string) => one.trim().toLowerCase() === other.trim().toLowerCase();
 
@@ -19,9 +19,12 @@ const same = (one: string, other: string) => one.trim().toLowerCase() === other.
 export function Moved({
   moved,
   asOf,
+  band = GAME_BAND,
 }: {
   moved: { window: "day" | "week"; items: Move[] } | null;
   asOf: string | null;
+  /** The game's band: a move's "now" is the game's price, held on it. */
+  band?: PriceBand;
 }) {
   const window = moved?.window ?? "day";
   const groups = moved ? groupByEvent(moved.items) : [];
@@ -70,9 +73,9 @@ export function Moved({
                           {move.question}
                           <LinkPending label={FETCHING} slowLabel={FETCHING_SLOWLY} ownLine />
                         </Link>
-                        <MoveTrack was={move.was} now={move.now} />
+                        <MoveTrack was={move.was} now={move.now} held={band} />
                         <p className="lp-move__meta">
-                          {fromToArrow(move.was, move.now)} · {closesOn(move.closes_at, asOf ?? undefined)}
+                          {fromToArrow(move.was, move.now, band)} · {closesOn(move.closes_at, asOf ?? undefined)}
                         </p>
                       </li>
                     ))}

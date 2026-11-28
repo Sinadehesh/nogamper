@@ -11,8 +11,10 @@ import { PRICE_SOURCE, questionPage } from "@/lib/content";
 import { categoryLabel, t } from "@/lib/copy";
 import { breadcrumbLd, pageMetadata } from "@/lib/seo";
 import { getQuestion } from "@/lib/server/questions";
+import { getRules } from "@/lib/server/rules";
 import { GAME_OPEN } from "@/lib/site";
 import type { PublicQuestion } from "@/lib/types";
+import { bandPercent, onEdge, pct, priceBand, priceToShow } from "@/lib/viz";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -82,7 +84,10 @@ const sameText = (one: string, other: string) =>
  */
 export default async function QuestionPage({ params }: Props) {
   const { slug } = await params;
-  const answer = await getQuestion(slug);
+  // The rules give the game's band, where the API holds a live price: read
+  // together, and never waited on (a failure is null, and the band then
+  // comes from the copy of /v1/rules in lib/viz.ts).
+  const [answer, gameRules] = await Promise.all([getQuestion(slug), getRules()]);
   if (answer.status === "missing") notFound();
   if (answer.status === "unavailable") {
     // Thrown rather than shown as "not found": the question exists. A page
@@ -99,6 +104,13 @@ export default async function QuestionPage({ params }: Props) {
   // closes, the number on the page is the last one from before it did.
   const open = question.state === "open";
   const readAt = priceReadAt(question);
+  const band = priceBand(gameRules);
+  // The figure the page leads with, and when it was read: the market's own
+  // latest reading where the API holds the live price on the game's band.
+  const shown = priceToShow(question, band);
+  // Where the game's price for a pick sits on the band's edge it differs from
+  // the market's figure above, and the play panel says so, with the figures.
+  const gameEdge = open ? onEdge(question.probability.yes, band) : null;
   const rules = (question.description ?? "")
     .split(/\n+/)
     .map((paragraph) => paragraph.trim())
@@ -136,14 +148,16 @@ export default async function QuestionPage({ params }: Props) {
             <StateLine question={question} readAt={readAt} />
           </header>
 
-          <QuestionFigures question={question} />
+          <QuestionFigures question={question} band={band} />
           {/* For an open question the line dates its price, which is the
               figure the page is about and can be older than the answer it
               came in: a server just woken has the prices it went to sleep
-              with. A page that can still change is watched for a newer copy;
-              one that is finished is not. */}
+              with. Where the live price is held on the game's band, that
+              figure is the market's own reading, dated by its own time. A
+              page that can still change is watched for a newer copy; one
+              that is finished is not. */}
           <AsOf
-            at={open ? readAt : question.as_of}
+            at={open ? shown.at : question.as_of}
             changing={open || question.state === "closed"}
             className="qp-asof"
           />
@@ -159,7 +173,7 @@ export default async function QuestionPage({ params }: Props) {
                 </p>
               ) : null}
             </div>
-            <LineChart question={question} labelledBy="chart" />
+            <LineChart question={question} labelledBy="chart" band={band} />
           </section>
 
           <div className="qp-pair">
@@ -167,7 +181,7 @@ export default async function QuestionPage({ params }: Props) {
               <h2 id="meaning" className="dp-h2">
                 {questionPage.meaningTitle}
               </h2>
-              {meaningOf(question).map((paragraph) => (
+              {meaningOf(question, band).map((paragraph) => (
                 <p key={paragraph.slice(0, 32)}>{paragraph}</p>
               ))}
               <p>
@@ -181,6 +195,16 @@ export default async function QuestionPage({ params }: Props) {
               <section className="qp-play dp-panel" aria-labelledby="play">
                 <h2 id="play">{questionPage.playTitle}</h2>
                 <p>{questionPage.playBody}</p>
+                {gameEdge ? (
+                  <p className="qp-play__band">
+                    {questionPage.playBand(
+                      bandPercent(band.min),
+                      bandPercent(band.max),
+                      pct(question.probability.yes),
+                      pct(question.probability.no),
+                    )}
+                  </p>
+                ) : null}
                 <Link href="/play" className="btn btn--secondary">
                   {questionPage.playCta}
                 </Link>

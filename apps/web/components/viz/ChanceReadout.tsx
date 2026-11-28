@@ -1,7 +1,7 @@
 import "./viz.css";
 
 import { viz } from "@/lib/copy";
-import { pctPair } from "@/lib/viz";
+import { type PriceBand, pctPair } from "@/lib/viz";
 
 import { Figure } from "./Figure";
 import { cx } from "./style";
@@ -18,6 +18,11 @@ type ChanceReadoutProps = {
    * figure is its last price (take it from `priceToShow`, never `probability`).
    */
   kind?: "live" | "last";
+  /**
+   * The game's band, when `yes` is a price held on it (`priceToShow` says
+   * `held`): on its edge both figures print as bounds, "≤1%" and "≥99%".
+   */
+  held?: PriceBand;
   className?: string;
 };
 
@@ -33,9 +38,10 @@ export function ChanceReadout({
   size = "card",
   showNo = false,
   kind = "live",
+  held,
   className,
 }: ChanceReadoutProps) {
-  const pair = pctPair(yes);
+  const pair = pctPair(yes, held);
   const value = Number(yes);
   const keyed = size !== "inline";
 

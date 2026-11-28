@@ -20,8 +20,10 @@ export default async function WritePage() {
   return (
     <>
       <SiteHeader />
-      <main id="main" className="container-page flex-1 py-10 sm:py-14">
-        <Writer displayName={viewer.display_name} />
+      <main id="main" className="flex-1">
+        <div className="wrap dp rd">
+          <Writer displayName={viewer.display_name} />
+        </div>
       </main>
       <SiteFooter />
     </>

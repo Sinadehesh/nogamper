@@ -8,7 +8,7 @@ import { Figure } from "@/components/viz/Figure";
 import { FETCHING, FETCHING_SLOWLY, movesPage } from "@/lib/content";
 import { categoryLabel } from "@/lib/copy";
 import type { Move, Moves } from "@/lib/types";
-import { closesOn, fromToArrow, groupByEvent, shortDateTimeUtc } from "@/lib/viz";
+import { closesOn, fromToArrow, GAME_BAND, groupByEvent, type PriceBand, shortDateTimeUtc } from "@/lib/viz";
 
 const sameText = (one: string, other: string) =>
   one.trim().toLowerCase() === other.trim().toLowerCase();
@@ -77,11 +77,13 @@ function MoveRow({
   window,
   reference,
   measuredAt,
+  band,
 }: {
   move: Move;
   window: "day" | "week";
   reference: string;
   measuredAt: string | null;
+  band: PriceBand;
 }) {
   const own = Date.parse(move.measured_at);
   const list = measuredAt ? Date.parse(measuredAt) : Number.NaN;
@@ -102,11 +104,13 @@ function MoveRow({
           {apart ? ` · ${movesPage.readAt(shortDateTimeUtc(move.measured_at))}` : null}
         </p>
       </div>
-      <MoveTrack was={move.was} now={move.now} />
+      {/* A move's "now" is the game's price, which the API holds on the
+          game's band: on its edge it prints as the bound it is ("≤1%"). */}
+      <MoveTrack was={move.was} now={move.now} held={band} />
       <p className="mv-row__fig">
         {/* The track says the same to a screen reader, in words. */}
         <span aria-hidden="true">
-          <Figure text={fromToArrow(move.was, move.now)} />
+          <Figure text={fromToArrow(move.was, move.now, band)} />
         </span>
         <span className="mv-row__when">{movesPage.windowWords[window]}</span>
       </p>
@@ -129,6 +133,7 @@ export function MovesSection({
   empty,
   reference,
   measuredAt,
+  band = GAME_BAND,
 }: {
   id: string;
   title: string;
@@ -137,6 +142,8 @@ export function MovesSection({
   empty: string;
   reference: string;
   measuredAt: string | null;
+  /** The game's band, from the rules where the page has them. */
+  band?: PriceBand;
 }) {
   const groups = groupByEvent(moves);
   return (
@@ -174,6 +181,7 @@ export function MovesSection({
                         window={window}
                         reference={reference}
                         measuredAt={measuredAt}
+                        band={band}
                       />
                     ))}
                   </ol>

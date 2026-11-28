@@ -14,6 +14,8 @@ type ScrubberProps = {
   values: number[];
   /** What the table calls a reading, if anything: "7-day high", "Now". */
   notes: (string | null)[];
+  /** A reading's figure where it is not `pct(value)`: a held price's bound, "≤1%". */
+  figures?: (string | null)[];
   start: number;
   end: number;
   /** The id of the sentence that says how to use the keys. */
@@ -31,7 +33,7 @@ type ScrubberProps = {
  * chart. It renders nothing visible until it is used, so the page looks the
  * same before and after it starts.
  */
-export function LineChartScrubber({ times, values, notes, start, end, hintId }: ScrubberProps) {
+export function LineChartScrubber({ times, values, notes, figures, start, end, hintId }: ScrubberProps) {
   const [index, setIndex] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   // Focus that a pointer press brings must not jump the reading to the end,
@@ -65,12 +67,14 @@ export function LineChartScrubber({ times, values, notes, start, end, hintId }: 
     setIndex(nearest(start + fraction * span));
   };
 
+  const figureAt = (i: number, v: number) => figures?.[i] ?? pct(v);
+
   const describe = (i: number) => {
     const t = times[i];
     const v = values[i];
     if (t === undefined || v === undefined) return "";
     const note = notes[i];
-    const text = viz.chartPoint(shortDateTimeUtc(t), pct(v));
+    const text = viz.chartPoint(shortDateTimeUtc(t), figureAt(i, v));
     return note ? `${text}. ${note}` : text;
   };
 
@@ -168,7 +172,7 @@ export function LineChartScrubber({ times, values, notes, start, end, hintId }: 
             style={vars({ "--viz-fx": fx.toFixed(4) })}
           >
             <span>
-              <Figure className="viz-lc__tip-value" text={pct(shown.v)} />{" "}
+              <Figure className="viz-lc__tip-value" text={figureAt(index ?? lastIndex, shown.v)} />{" "}
               <span className="viz-lc__tip-words">{viz.chanceOfYes}</span>
             </span>
             <span>{shortDateTimeUtc(shown.t)}</span>

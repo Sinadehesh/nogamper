@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { Prose } from "@/components/Prose";
+import "@/components/reading/reading.css";
 import {
   createArticle,
   deleteArticle,
@@ -38,20 +39,13 @@ const EDITABLE = new Set(["DRAFT", "REJECTED", "REMOVED"]);
 const sameDraft = (a: ArticleDraft, b: ArticleDraft) =>
   a.title === b.title && a.summary === b.summary && a.body === b.body;
 
-const STATUS_TONE: Record<MyArticle["status"], string> = {
-  DRAFT: "",
-  SUBMITTED: "text-warn",
-  PUBLISHED: "text-yes",
-  REJECTED: "text-no",
-  REMOVED: "text-no",
-};
-
 export function Writer({ displayName }: { displayName: string }) {
   const [desk, setDesk] = useState<MyArticles | null>(null);
   const [open, setOpen] = useState<Open | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<MyArticle | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
 
   const load = useCallback(async () => {
     const result = await getMyArticles();
@@ -73,6 +67,15 @@ export function Writer({ displayName }: { displayName: string }) {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
+
+  // The confirmation is the browser's own modal: it holds the focus, the
+  // page behind it cannot be reached, and Escape keeps the article.
+  useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    if (pendingDelete && !node.open) node.showModal();
+    if (!pendingDelete && node.open) node.close();
+  }, [pendingDelete]);
 
   async function act(action: () => Promise<ApiResult<unknown>>, done?: string): Promise<boolean> {
     setBusy(true);
@@ -122,22 +125,29 @@ export function Writer({ displayName }: { displayName: string }) {
     if (sent) setOpen(null);
   }
 
-  if (desk === null) {
-    return flash ? (
-      <p role="alert" className="notice notice-error">
-        {flash.text}
-      </p>
-    ) : (
-      <p className="text-muted">{t.loading}</p>
-    );
-  }
-
   const heading = (
-    <header className="max-w-2xl">
-      <h1 className="text-4xl font-black tracking-tight">{t.writeTitle}</h1>
-      <p className="mt-3 text-lg text-muted">{t.writeIntro}</p>
+    <header className="dp-head">
+      <h1>{t.writeTitle}</h1>
+      <p className="dp-lede">{t.writeIntro}</p>
     </header>
   );
+
+  if (desk === null) {
+    return (
+      <>
+        {heading}
+        {flash ? (
+          <p role="alert" className="notice notice-error mt-8 max-w-2xl">
+            {flash.text}
+          </p>
+        ) : (
+          <p role="status" className="dp-empty mt-8 max-w-2xl">
+            {t.loading}
+          </p>
+        )}
+      </>
+    );
+  }
 
   if (!desk.can_write) {
     // Either a guest, who needs an account, or an account that has been
@@ -146,11 +156,13 @@ export function Writer({ displayName }: { displayName: string }) {
     return (
       <>
         {heading}
-        <div className="notice mt-8 max-w-2xl">
+        <div className="rd-state mt-8">
           <p>{t.writeNeedsAccount}</p>
-          <Link href="/signup?next=/write" className="btn btn-primary btn-sm mt-3">
-            {t.writeNeedsAccountCta}
-          </Link>
+          <p>
+            <Link href="/signup?next=/write" className="btn btn--primary" prefetch={false}>
+              {t.writeNeedsAccountCta}
+            </Link>
+          </p>
         </div>
       </>
     );
@@ -169,167 +181,163 @@ export function Writer({ displayName }: { displayName: string }) {
         </p>
       ) : null}
 
-      {open ? (
-        <Editor
-          open={open}
-          limits={desk.limits}
-          article={desk.articles.find((entry) => entry.id === open.id) ?? null}
-          publishesDirectly={desk.publishes_directly}
-          busy={busy}
-          dirty={dirty}
-          onChange={(draft) => setOpen({ ...open, draft })}
-          onSave={() => void save()}
-          onSubmit={() => void saveAndSubmit()}
-          onClose={() => {
-            if (dirty && !window.confirm(t.writeDiscard)) return;
-            setOpen(null);
-            setFlash(null);
-          }}
-        />
-      ) : (
-        <>
-          <section className="mt-8 max-w-2xl" aria-labelledby="rules">
-            <h2 id="rules" className="text-base font-bold">
-              {t.writeRulesTitle}
-            </h2>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
-              {t.writeRules(displayName).map((rule) => (
-                <li key={rule}>{rule}</li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              className="btn btn-primary mt-5"
-              onClick={() => {
+      <div className={open ? "rd-desk rd-desk--editing" : "rd-desk"}>
+        <div className="min-w-0">
+          {open ? (
+            <Editor
+              open={open}
+              limits={desk.limits}
+              article={desk.articles.find((entry) => entry.id === open.id) ?? null}
+              publishesDirectly={desk.publishes_directly}
+              busy={busy}
+              dirty={dirty}
+              onChange={(draft) => setOpen({ ...open, draft })}
+              onSave={() => void save()}
+              onSubmit={() => void saveAndSubmit()}
+              onClose={() => {
+                if (dirty && !window.confirm(t.writeDiscard)) return;
+                setOpen(null);
                 setFlash(null);
-                setOpen({ id: null, draft: EMPTY, saved: EMPTY });
               }}
-            >
-              {t.writeNew}
-            </button>
-          </section>
-
-          <section className="mt-10" aria-labelledby="mine">
-            <h2 id="mine" className="text-xl font-bold tracking-tight">
-              {t.writeMine}
-            </h2>
-            {desk.articles.length === 0 ? (
-              <p className="mt-3 text-muted">{t.writeNone}</p>
-            ) : (
-              <ul className="mt-4 space-y-3">
-                {desk.articles.map((article) => (
-                  <li key={article.id} className="card max-w-3xl p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <h3 className="text-base font-bold leading-snug">{article.title}</h3>
-                      <span className={`chip ${STATUS_TONE[article.status]}`}>
-                        {t.articleStatus[article.status]}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">
-                      {t.writeEdited(timeAgo(article.edited_at))} ·{" "}
-                      {t.articleReading(article.reading_minutes)}
-                    </p>
-                    <p className="mt-2 text-sm text-muted">
-                      {t.articleStatusNote[article.status]}
-                    </p>
-                    {article.review_note ? (
-                      <p className="mt-3 border-s-2 border-accent ps-3 text-sm">
-                        <span className="block text-xs font-semibold text-accent">
-                          {t.writeReviewNote}
+            />
+          ) : (
+            <section aria-labelledby="mine">
+              <h2 id="mine" className="dp-h2">
+                {t.writeMine}
+              </h2>
+              {desk.articles.length === 0 ? (
+                <p className="dp-empty">{t.writeNone}</p>
+              ) : (
+                <ul className="rd-entries" role="list">
+                  {desk.articles.map((article) => (
+                    <li key={article.id} className="rd-entry">
+                      <div className="rd-entry__top">
+                        <h3 className="rd-entry__title">{article.title}</h3>
+                        <span className="rd-status" data-status={article.status}>
+                          {t.articleStatus[article.status]}
                         </span>
-                        {article.review_note}
+                      </div>
+                      <p className="rd-entry__meta">
+                        {t.writeEdited(timeAgo(article.edited_at))} ·{" "}
+                        {t.articleReading(article.reading_minutes)}
                       </p>
-                    ) : null}
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {EDITABLE.has(article.status) ? (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          disabled={busy}
-                          onClick={() => {
-                            const draft = {
-                              title: article.title,
-                              summary: article.summary,
-                              body: article.body,
-                            };
-                            setFlash(null);
-                            setOpen({ id: article.id, draft, saved: draft });
-                          }}
-                        >
-                          {t.writeOpen}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          disabled={busy}
-                          onClick={() => void act(() => withdrawArticle(article.id))}
-                        >
-                          {t.writeWithdraw}
-                        </button>
-                      )}
-                      {article.status === "PUBLISHED" ? (
-                        <Link href={`/articles/${article.slug}`} className="btn btn-quiet btn-sm">
-                          {t.writeView}
-                        </Link>
+                      <p className="rd-entry__note">{t.articleStatusNote[article.status]}</p>
+                      {article.review_note ? (
+                        <p className="rd-review">
+                          <span className="rd-review__who">{t.writeReviewNote}</span>
+                          {article.review_note}
+                        </p>
                       ) : null}
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm ms-auto"
-                        disabled={busy}
-                        onClick={() => setPendingDelete(article)}
-                      >
-                        {t.writeDelete}
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </>
-      )}
 
-      {pendingDelete ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="delete-title"
-            aria-describedby="delete-body"
-            className="card w-full max-w-sm p-5"
-          >
-            <p id="delete-title" className="font-bold">
-              {t.writeDeleteTitle}
-            </p>
-            <p id="delete-body" className="mt-1 text-sm text-muted">
-              {t.writeDeleteBody}
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
+                      <div className="rd-entry__actions">
+                        {EDITABLE.has(article.status) ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={busy}
+                            onClick={() => {
+                              const draft = {
+                                title: article.title,
+                                summary: article.summary,
+                                body: article.body,
+                              };
+                              setFlash(null);
+                              setOpen({ id: article.id, draft, saved: draft });
+                            }}
+                          >
+                            {t.writeOpen}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={busy}
+                            onClick={() => void act(() => withdrawArticle(article.id))}
+                          >
+                            {t.writeWithdraw}
+                          </button>
+                        )}
+                        {article.status === "PUBLISHED" ? (
+                          <Link
+                            href={`/articles/${article.slug}`}
+                            className="btn btn-quiet btn-sm"
+                            prefetch={false}
+                          >
+                            {t.writeView}
+                          </Link>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={busy}
+                          onClick={() => setPendingDelete(article)}
+                        >
+                          {t.writeDelete}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+        </div>
+
+        <aside className="rd-desk__side" aria-labelledby="rules">
+          <h2 id="rules" className="rd-small-h">
+            {t.writeRulesTitle}
+          </h2>
+          <ul className="rd-desk__rules" role="list">
+            {t.writeRules(displayName).map((rule) => (
+              <li key={rule}>{rule}</li>
+            ))}
+          </ul>
+          {open ? null : (
+            <p>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setPendingDelete(null)}
-              >
-                {t.writeDeleteKeep}
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                disabled={busy}
+                className="btn btn--primary"
                 onClick={() => {
-                  const target = pendingDelete;
-                  setPendingDelete(null);
-                  void act(() => deleteArticle(target.id));
+                  setFlash(null);
+                  setOpen({ id: null, draft: EMPTY, saved: EMPTY });
                 }}
               >
-                {t.writeDeleteConfirm}
+                {t.writeNew}
               </button>
-            </div>
-          </div>
+            </p>
+          )}
+        </aside>
+      </div>
+
+      <dialog
+        ref={dialog}
+        className="rd-dialog"
+        role="alertdialog"
+        aria-labelledby="delete-title"
+        aria-describedby="delete-body"
+        onClose={() => setPendingDelete(null)}
+      >
+        <h2 id="delete-title">{t.writeDeleteTitle}</h2>
+        {pendingDelete ? <p className="text-ink">{pendingDelete.title}</p> : null}
+        <p id="delete-body">{t.writeDeleteBody}</p>
+        <div className="rd-dialog__actions">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPendingDelete(null)}>
+            {t.writeDeleteKeep}
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            disabled={busy}
+            onClick={() => {
+              const target = pendingDelete;
+              setPendingDelete(null);
+              if (target) void act(() => deleteArticle(target.id));
+            }}
+          >
+            {t.writeDeleteConfirm}
+          </button>
         </div>
-      ) : null}
+      </dialog>
     </>
   );
 }
@@ -372,120 +380,110 @@ function Editor({
   const complete = titleOk && summaryOk && bodyOk;
 
   return (
-    <section className="mt-8 max-w-3xl">
-      <button type="button" className="btn btn-quiet btn-sm -ms-3" onClick={onClose}>
+    <section className="rd-editor">
+      <button type="button" className="btn btn-quiet btn-sm rd-editor__back" onClick={onClose}>
         ← {t.writeMine}
       </button>
 
       {article?.review_note ? (
-        <p className="notice notice-warn mt-4">
-          <span className="block text-xs font-semibold">{t.writeReviewNote}</span>
+        <p className="rd-review">
+          <span className="rd-review__who">{t.writeReviewNote}</span>
           {article.review_note}
         </p>
       ) : null}
 
-      <div className="mt-5 space-y-5">
-        <div>
-          <label htmlFor={ids.title} className="label">
-            {t.fieldArticleTitle}
-          </label>
-          <input
-            id={ids.title}
-            className="field text-lg font-bold"
-            value={draft.title}
-            maxLength={limits.title_max + 40}
-            onChange={(event) => onChange({ ...draft, title: event.target.value })}
-          />
-          <p className={`hint ${draft.title && !titleOk ? "text-danger" : ""}`}>
-            {t.lengthRange(draft.title.trim().length, limits.title_min, limits.title_max)}
-          </p>
-        </div>
+      <div className="rd-field">
+        <label htmlFor={ids.title} className="label">
+          {t.fieldArticleTitle}
+        </label>
+        <input
+          id={ids.title}
+          className="field rd-title-input"
+          value={draft.title}
+          maxLength={limits.title_max + 40}
+          onChange={(event) => onChange({ ...draft, title: event.target.value })}
+        />
+        <p className={`hint rd-count ${draft.title && !titleOk ? "is-off" : ""}`}>
+          {t.lengthRange(draft.title.trim().length, limits.title_min, limits.title_max)}
+        </p>
+      </div>
 
-        <div>
-          <label htmlFor={ids.summary} className="label">
-            {t.fieldArticleSummary}
-          </label>
-          <textarea
-            id={ids.summary}
-            className="field"
-            rows={2}
-            value={draft.summary}
-            onChange={(event) => onChange({ ...draft, summary: event.target.value })}
-          />
-          <p className={`hint ${draft.summary && !summaryOk ? "text-danger" : ""}`}>
-            {t.fieldArticleSummaryHint}{" "}
-            {t.lengthRange(draft.summary.trim().length, limits.summary_min, limits.summary_max)}
-          </p>
-        </div>
+      <div className="rd-field">
+        <label htmlFor={ids.summary} className="label">
+          {t.fieldArticleSummary}
+        </label>
+        <textarea
+          id={ids.summary}
+          className="field"
+          rows={3}
+          value={draft.summary}
+          onChange={(event) => onChange({ ...draft, summary: event.target.value })}
+        />
+        <p className={`hint rd-count ${draft.summary && !summaryOk ? "is-off" : ""}`}>
+          {t.fieldArticleSummaryHint}{" "}
+          {t.lengthRange(draft.summary.trim().length, limits.summary_min, limits.summary_max)}
+        </p>
+      </div>
 
-        <div>
-          <div className="flex items-end justify-between gap-3">
-            <label htmlFor={ids.body} className="label">
-              {t.fieldArticleBody}
-            </label>
-            <div className="mb-1 flex gap-1" role="group">
-              <button
-                type="button"
-                aria-pressed={!previewing}
-                className={`btn btn-sm ${previewing ? "btn-secondary" : "btn-primary"}`}
-                onClick={() => setPreviewing(false)}
-              >
-                {t.writeTabEdit}
-              </button>
-              <button
-                type="button"
-                aria-pressed={previewing}
-                className={`btn btn-sm ${previewing ? "btn-primary" : "btn-secondary"}`}
-                onClick={() => setPreviewing(true)}
-              >
-                {t.writeTabPreview}
-              </button>
-            </div>
+      <div className="rd-field">
+        <div className="rd-field__top">
+          <label htmlFor={ids.body} className="label">
+            {t.fieldArticleBody}
+          </label>
+          <div className="rd-seg" role="group" aria-label={t.writeTabs}>
+            <button type="button" aria-pressed={!previewing} onClick={() => setPreviewing(false)}>
+              {t.writeTabEdit}
+            </button>
+            <button type="button" aria-pressed={previewing} onClick={() => setPreviewing(true)}>
+              {t.writeTabPreview}
+            </button>
           </div>
-
-          {previewing ? (
-            <div className="card min-h-64 p-5">
-              {draft.body.trim() ? (
-                <Prose markdown={draft.body} fromReader />
-              ) : (
-                <p className="text-muted">{t.writePreviewEmpty}</p>
-              )}
-            </div>
-          ) : (
-            <textarea
-              id={ids.body}
-              className="field min-h-96 font-mono text-sm leading-relaxed"
-              rows={20}
-              value={draft.body}
-              onChange={(event) => onChange({ ...draft, body: event.target.value })}
-            />
-          )}
-          <p className={`hint ${draft.body && !bodyOk ? "text-danger" : ""}`}>
-            {t.fieldArticleBodyHint}{" "}
-            {t.lengthRange(draft.body.trim().length, limits.body_min, limits.body_max)}
-          </p>
         </div>
+
+        {previewing ? (
+          <div className="rd-preview">
+            {draft.body.trim() ? (
+              <Prose markdown={draft.body} fromReader />
+            ) : (
+              <p className="text-muted">{t.writePreviewEmpty}</p>
+            )}
+          </div>
+        ) : (
+          <textarea
+            id={ids.body}
+            className="field rd-body-input"
+            rows={20}
+            value={draft.body}
+            onChange={(event) => onChange({ ...draft, body: event.target.value })}
+          />
+        )}
+        <p className={`hint rd-count ${draft.body && !bodyOk ? "is-off" : ""}`}>
+          {t.fieldArticleBodyHint}{" "}
+          {t.lengthRange(draft.body.trim().length, limits.body_min, limits.body_max)}
+        </p>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="btn btn-secondary"
-          disabled={busy || !complete || !dirty}
-          onClick={onSave}
-        >
-          {busy ? t.saving : t.writeSave}
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={busy || !complete}
-          onClick={onSubmit}
-        >
-          {publishesDirectly ? t.writePublish : t.writeSubmit}
-        </button>
+      <div className="rd-editor__bar">
+        <div className="rd-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={busy || !complete || !dirty}
+            onClick={onSave}
+          >
+            {busy ? t.saving : t.writeSave}
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={busy || !complete}
+            onClick={onSubmit}
+          >
+            {publishesDirectly ? t.writePublish : t.writeSubmit}
+          </button>
+        </div>
+        <p className="hint">{publishesDirectly ? t.writePublishNote : t.writeSubmitNote}</p>
       </div>
-      <p className="hint">{publishesDirectly ? t.writePublishNote : t.writeSubmitNote}</p>
     </section>
   );
 }

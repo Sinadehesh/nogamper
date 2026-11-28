@@ -3,7 +3,7 @@ import "./viz.css";
 import type { ReactNode } from "react";
 
 import { viz } from "@/lib/copy";
-import { figureWidth, layoutTrackLabels, monoWidth, pct } from "@/lib/viz";
+import { figureWidth, layoutTrackLabels, monoWidth, type PriceBand, pct, pctHeld } from "@/lib/viz";
 
 import { Figure } from "./Figure";
 import { at, cx, vars } from "./style";
@@ -17,6 +17,11 @@ type RangeBarProps = {
   /** "live" says "Now"; "last" says "Last price". `weekRange()` gives all four. */
   kind?: "live" | "last";
   size?: "row" | "large";
+  /**
+   * The game's band, when the range holds a held price (`weekRange()` says
+   * `held`): a figure on its edge prints as its bound, "≤1%" or "≥99%".
+   */
+  held?: PriceBand;
   className?: string;
 };
 
@@ -29,12 +34,13 @@ const FIGURE_PX = 20;
  * marked on it: a question that swung from 20% to 98% and one that sat at
  * 61% all week look as different as they are.
  */
-export function RangeBar({ low, high, now, kind = "live", size = "row", className }: RangeBarProps) {
+export function RangeBar({ low, high, now, kind = "live", size = "row", held, className }: RangeBarProps) {
   const lo = Math.min(1, Math.max(0, Number(low)));
   const hi = Math.max(lo, Math.min(1, Math.max(0, Number(high))));
   const current = Math.min(hi, Math.max(lo, Number(now)));
   const nowWord = kind === "last" ? viz.rangeLast : viz.rangeNow;
-  const sentence = viz.rangeSentence(pct(lo), pct(hi), nowWord, pct(current));
+  const figure = (value: number) => (held ? pctHeld(value, held) : pct(value));
+  const sentence = viz.rangeSentence(figure(lo), figure(hi), nowWord, figure(current));
   const position = vars({ "--viz-low": at(lo), "--viz-high": at(hi), "--viz-now": at(current) });
 
   const rail = (children?: ReactNode) => (
@@ -61,10 +67,10 @@ export function RangeBar({ low, high, now, kind = "live", size = "row", classNam
         {rail(
           <>
             <span className="viz-range__end viz-range__end--low">
-              <span className="viz-range__fig">{pct(lo)}</span>
+              <span className="viz-range__fig">{figure(lo)}</span>
             </span>
             <span className="viz-range__end viz-range__end--high">
-              <span className="viz-range__fig">{pct(hi)}</span>
+              <span className="viz-range__fig">{figure(hi)}</span>
             </span>
           </>,
         )}
@@ -73,14 +79,14 @@ export function RangeBar({ low, high, now, kind = "live", size = "row", classNam
   }
 
   const labels = [
-    { key: "low", x: lo, word: viz.low, figure: pct(lo) },
-    { key: "high", x: hi, word: viz.high, figure: pct(hi) },
+    { key: "low", x: lo, word: viz.low, figure: figure(lo) },
+    { key: "high", x: hi, word: viz.high, figure: figure(hi) },
   ].map((label) => ({
     ...label,
     r: 6,
     width: Math.ceil(Math.max(monoWidth(label.word, WORD_PX), figureWidth(label.figure, FIGURE_PX))) + 4,
   }));
-  const nowText = `${nowWord} ${pct(current)}`;
+  const nowText = `${nowWord} ${figure(current)}`;
   const nowWidth = Math.ceil(monoWidth(nowText, WORD_PX)) + 8;
   const layout = layoutTrackLabels(labels.map(({ x, width, r }) => ({ x, width, r })));
   // The line under the track names the price now; it may need room too.

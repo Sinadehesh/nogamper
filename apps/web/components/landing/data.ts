@@ -4,7 +4,7 @@ import { getRules } from "@/lib/server/rules";
 import { getMoves, getQuestion } from "@/lib/server/questions";
 import { publicApiAnswer } from "@/lib/server/public";
 import type { GameRules, Move, Moves, PublicQuestion, QuestionIndex } from "@/lib/types";
-import { groupByEvent, parseHistory } from "@/lib/viz";
+import { groupByEvent, type PriceBand, parseHistory, priceBand } from "@/lib/viz";
 
 /**
  * What the front page is drawn from: the rules, the moves, and one open
@@ -24,6 +24,8 @@ export type FrontData = {
   others: Move[];
   /** The moves the "What moved" section lists, largest first, and which window they are from. */
   moved: { window: "day" | "week"; items: Move[] } | null;
+  /** The game's band, from the rules (or lib/viz.ts's copy of them). */
+  band: PriceBand;
   complete: boolean;
 };
 
@@ -39,9 +41,21 @@ const bySize = (moves: Move[]) => [...moves].sort((a, b) => size(b) - size(a));
 const FULL_SPAN_MS = 72 * 60 * 60 * 1000;
 const FULL_POINTS = 24;
 
-/** Open, with a line to draw: a question the hero can show whole. */
-function showable(question: PublicQuestion): boolean {
-  return question.state === "open" && parseHistory(question.history).length >= 2;
+/**
+ * Open, with a line to draw, and priced by the game where the market prices
+ * it: a question the hero can show whole. The hero puts the market's chance
+ * beside the game's two picks and the slip one makes, and those must be one
+ * figure. A live price on the edge of the game's band is held there (a
+ * market at 0.4% is dealt at 1%), so such a question is never the hero's.
+ */
+function showable(question: PublicQuestion, band: PriceBand): boolean {
+  const yes = Number(question.probability.yes);
+  return (
+    question.state === "open" &&
+    parseHistory(question.history).length >= 2 &&
+    yes > band.min &&
+    yes < band.max
+  );
 }
 
 /**
@@ -57,11 +71,11 @@ function full(question: PublicQuestion): boolean {
 }
 
 /** The first of the questions tried with a full history, else the first that can be shown at all. */
-async function firstShowable(slugs: string[]): Promise<PublicQuestion | null> {
+async function firstShowable(slugs: string[], band: PriceBand): Promise<PublicQuestion | null> {
   let fallback: PublicQuestion | null = null;
   for (const slug of slugs.slice(0, HERO_TRIES)) {
     const answer = await getQuestion(slug);
-    if (answer.status !== "ok" || !showable(answer.data)) continue;
+    if (answer.status !== "ok" || !showable(answer.data, band)) continue;
     if (full(answer.data)) return answer.data;
     fallback ??= answer.data;
   }
@@ -125,12 +139,16 @@ function movedList(moves: Moves): FrontData["moved"] {
 
 export async function frontData(): Promise<FrontData> {
   const [rules, moves] = await Promise.all([getRules(), getMoves()]);
+  const band = priceBand(rules);
 
   let hero: PublicQuestion | null = null;
   if (moves) {
-    hero = await firstShowable(unique([...bySize(moves.day), ...bySize(moves.week)]).map((move) => move.slug));
+    hero = await firstShowable(
+      unique([...bySize(moves.day), ...bySize(moves.week)]).map((move) => move.slug),
+      band,
+    );
   }
-  if (!hero) hero = await firstShowable(await anyOpenSlugs());
+  if (!hero) hero = await firstShowable(await anyOpenSlugs(), band);
 
   const { step, others } = moves ? stepQuestions(moves, hero?.slug ?? null) : { step: null, others: [] };
   const moved = moves ? movedList(moves) : null;
@@ -142,6 +160,7 @@ export async function frontData(): Promise<FrontData> {
     step,
     others,
     moved,
+    band,
     complete: Boolean(moves && hero),
   };
 }

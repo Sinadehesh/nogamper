@@ -5,7 +5,7 @@ import { ChanceReadout, LineChart, SplitBar } from "@/components/viz";
 import { landing } from "@/lib/content";
 import { categoryLabel, t } from "@/lib/copy";
 import type { GameRules, PublicQuestion } from "@/lib/types";
-import { closesOn, priceToShow } from "@/lib/viz";
+import { closesOn, priceBand, priceToShow } from "@/lib/viz";
 
 import { payoutFor, sides, stakeShown } from "./figures";
 import { PickPair } from "./PickPair";
@@ -55,7 +55,10 @@ function HeroPicture({ rules, hero }: { rules: GameRules | null; hero: PublicQue
     );
   }
 
-  const price = priceToShow(hero);
+  // Its live price sits inside the game's band (data.ts, `showable`), so the
+  // chance, the bar, the picks and the slip below are all one figure.
+  const band = priceBand(rules);
+  const price = priceToShow(hero, band);
   const choices = sides(price.value, rules);
   const [yes, no] = choices;
   const payout = yes?.pays ? payoutFor(price.value, rules) : null;
@@ -91,7 +94,7 @@ function HeroPicture({ rules, hero }: { rules: GameRules | null; hero: PublicQue
               <ChanceReadout yes={price.value} size="header" className="lp-win__readout" />
               <SplitBar yes={price.value} size="md" labels={false} className="lp-win__split" />
               <PickPair choices={choices} chosen="YES" className="lp-win__picks" />
-              <LineChart question={hero} summary={false} figures={false} className="lp-win__chart" />
+              <LineChart question={hero} summary={false} figures={false} band={band} className="lp-win__chart" />
             </div>
           </div>
         </div>

@@ -10,6 +10,8 @@ import { dateTimeUtc } from "@/lib/format";
 import { breadcrumbLd, listLd, pageMetadata } from "@/lib/seo";
 import { keepEarlierCopy } from "@/lib/server/public";
 import { getMoves } from "@/lib/server/questions";
+import { getRules } from "@/lib/server/rules";
+import { priceBand } from "@/lib/viz";
 
 // Kept for five minutes, then built again behind the next visitor.
 export const revalidate = 300;
@@ -32,7 +34,10 @@ export const metadata = pageMetadata({
  * direction and the two figures say which way it went.
  */
 export default async function MovesPage() {
-  const moves = await getMoves();
+  // The rules give the game's band, which a move's "now" is held on: read
+  // together, never waited on (null falls back to lib/viz.ts's copy).
+  const [moves, rules] = await Promise.all([getMoves(), getRules()]);
+  const band = priceBand(rules);
   // Could not be read, or the figures are out of date (a server just woken
   // has yesterday's until it has read the market again, and says so rather
   // than send them). On the running site either leaves the page as it was
@@ -90,6 +95,7 @@ export default async function MovesPage() {
                 empty={movesPage.emptyDay(asPercentagePoints(moves.day_threshold))}
                 reference={moves.as_of}
                 measuredAt={measuredAt}
+                band={band}
               />
               <MovesSection
                 id="week"
@@ -99,6 +105,7 @@ export default async function MovesPage() {
                 empty={movesPage.emptyWeek(asPercentagePoints(moves.week_threshold))}
                 reference={moves.as_of}
                 measuredAt={measuredAt}
+                band={band}
               />
             </>
           )}

@@ -1,7 +1,7 @@
 import "./viz.css";
 
 import { viz } from "@/lib/copy";
-import { changeSentence, figureWidth, layoutTrackLabels, monoWidth, printedChange } from "@/lib/viz";
+import { changeSentence, figureWidth, layoutTrackLabels, monoWidth, type PriceBand, printedChange } from "@/lib/viz";
 
 import { Figure } from "./Figure";
 import { at, cx, vars } from "./style";
@@ -16,6 +16,11 @@ type MoveTrackProps = {
   /** On "large", the words over each figure: `viz.dayAgo`, `viz.now`. */
   wasWord?: string;
   nowWord?: string;
+  /**
+   * The game's band, when `now` may be a price held on it (a move's `now` is
+   * the game's price): on its edge it prints as its bound, "≤1%" or "≥99%".
+   */
+  held?: PriceBand;
   className?: string;
 };
 
@@ -33,10 +38,10 @@ const ROW_PX = 42;
  * One colour whichever way it went. The direction is the arrowhead, and the
  * two figures at the ends say it in numbers.
  */
-export function MoveTrack({ was, now, size = "row", wasWord, nowWord, className }: MoveTrackProps) {
+export function MoveTrack({ was, now, size = "row", wasWord, nowWord, held, className }: MoveTrackProps) {
   const from = Math.min(1, Math.max(0, Number(was)));
   const to = Math.min(1, Math.max(0, Number(now)));
-  const change = printedChange(from, to);
+  const change = printedChange(from, to, held);
   const flat = change.direction === "flat";
   const large = size === "large";
 
@@ -67,7 +72,7 @@ export function MoveTrack({ was, now, size = "row", wasWord, nowWord, className 
   if (!large) {
     return (
       <span className={cx("viz-mt", "viz-mt--row", className)} data-dir={change.direction} style={position}>
-        <span className="viz-sr">{changeSentence(from, to)}</span>
+        <span className="viz-sr">{changeSentence(from, to, held)}</span>
         <span className="viz-mt__rail" aria-hidden="true">
           {markers}
           {flat ? null : (
@@ -110,7 +115,7 @@ export function MoveTrack({ was, now, size = "row", wasWord, nowWord, className 
         paddingTop: `${rows * ROW_PX + 4}px`,
       }}
     >
-      <span className="viz-sr">{changeSentence(from, to)}</span>
+      <span className="viz-sr">{changeSentence(from, to, held)}</span>
       <span className="viz-mt__rail" aria-hidden="true">
         {markers}
         {labels.map((label, index) => {

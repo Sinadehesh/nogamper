@@ -22,9 +22,13 @@ const SORTS: { id: MarketSort; label: string }[] = [
 
 export function MarketFeed({
   onRules,
+  onMarkets,
 }: {
   /** Hands the feed's rules up, so the slip prices against the same ones. */
   onRules: (rules: MarketRules) => void;
+  /** Hands each page of questions up, so the slip and the forecasts can show
+      a pick's chance without asking the server again. */
+  onMarkets?: (markets: MarketSummary[]) => void;
 }) {
   const { onBreak, limitReached, refresh } = usePlayer();
 
@@ -36,6 +40,9 @@ export function MarketFeed({
   const [sort, setSort] = useState<MarketSort>("tossup");
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // When the list on screen was read, by this browser's clock: what a card
+  // measures "closes soon" and "this year" from.
+  const [readAt, setReadAt] = useState(0);
 
   // How many the reader has paged in. A background refresh reloads that many,
   // so prices update under them without the list snapping back to one page.
@@ -64,9 +71,11 @@ export function MarketFeed({
       setCategories(listed);
       setRules(pageRules);
       onRules(pageRules);
+      onMarkets?.(page);
+      setReadAt(Date.now());
       setError(null);
     },
-    [category, sort, onRules, refresh],
+    [category, sort, onRules, onMarkets, refresh],
   );
 
   useEffect(() => {
@@ -100,6 +109,7 @@ export function MarketFeed({
       setError(errorMessage(result.code));
       return;
     }
+    onMarkets?.(result.data.markets);
     setMarkets((current) => {
       // The price-ordered views page by offset, and a price that moved between
       // two requests can put one question on both pages. Drop the repeat.
@@ -112,33 +122,29 @@ export function MarketFeed({
       return merged;
     });
     setCursor(result.data.next_cursor);
-  }, [cursor, category, sort]);
+  }, [cursor, category, sort, onMarkets]);
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t.tabMarkets}>
+    <section className="gm-feed" aria-labelledby="gm-view-title">
+      <div className="gm-toolbar">
+        <div className="gm-chips" role="group" aria-label={t.categoryGroup}>
           {[null, ...categories].map((entry) => (
             <button
               key={entry ?? "all"}
               type="button"
+              className="gm-chip"
               onClick={() => setCategory(entry)}
               aria-pressed={category === entry}
-              className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${
-                category === entry
-                  ? "border-accent bg-accent text-on-accent"
-                  : "border-line bg-surface text-muted hover:text-ink"
-              }`}
             >
               {entry === null ? t.categoryAll : categoryLabel(entry)}
             </button>
           ))}
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-muted">
+        <label className="gm-sort">
           <span>{t.sortLabel}</span>
           <select
-            className="field !min-h-9 !w-auto !py-1 text-sm"
+            className="field"
             value={sort}
             onChange={(event) => setSort(event.target.value as MarketSort)}
           >
@@ -154,14 +160,14 @@ export function MarketFeed({
       {/* Said here, before a pick is made, rather than as a refusal after the
           stake has been typed. A break outranks a limit: it lasts longer. */}
       {onBreak ? (
-        <p className="notice notice-warn">{t.onBreakNoPicks}</p>
+        <p className="gm-note gm-note--line">{t.onBreakNoPicks}</p>
       ) : limitReached ? (
-        <p className="notice notice-warn">{t.limitReachedNoPicks}</p>
+        <p className="gm-note gm-note--line">{t.limitReachedNoPicks}</p>
       ) : null}
 
       {error ? (
-        <p role="alert" className="notice notice-error flex items-center justify-between gap-3">
-          <span>{error}</span>
+        <div role="alert" className="gm-note flex flex-wrap items-center justify-between gap-3">
+          <span className="gm-error">{error}</span>
           <button
             type="button"
             className="btn btn-secondary btn-sm"
@@ -169,32 +175,37 @@ export function MarketFeed({
           >
             {t.retry}
           </button>
-        </p>
+        </div>
       ) : null}
 
       {markets === null || rules === null ? (
         error ? null : (
-          <p className="py-10 text-center text-muted">{t.marketsLoading}</p>
+          <p className="gm-loading" role="status">
+            {t.marketsLoading}
+          </p>
         )
       ) : markets.length === 0 ? (
-        <p className="py-10 text-center text-muted">
-          {category ? t.marketsEmpty : t.marketsEmptyAll}
-        </p>
+        <p className="gm-empty">{category ? t.marketsEmpty : t.marketsEmptyAll}</p>
       ) : (
         <>
-          <ul className="grid gap-3 md:grid-cols-2">
+          <ul className="gm-cards">
             {markets.map((market) => (
               <li key={market.id}>
-                <MarketCard market={market} rules={rules} paused={onBreak || limitReached} />
+                <MarketCard
+                  market={market}
+                  rules={rules}
+                  paused={onBreak || limitReached}
+                  readAt={readAt}
+                />
               </li>
             ))}
           </ul>
 
           {cursor ? (
-            <div className="flex justify-center pt-2">
+            <div className="gm-more">
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn btn--secondary"
                 onClick={() => void loadMore()}
                 disabled={loadingMore}
               >

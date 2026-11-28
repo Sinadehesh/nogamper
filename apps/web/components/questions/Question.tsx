@@ -6,7 +6,21 @@ import { questionPage } from "@/lib/content";
 import { t, viz } from "@/lib/copy";
 import { dateTimeUtc, dateUtc } from "@/lib/format";
 import type { PublicQuestion } from "@/lib/types";
-import { chanceBand, changeWindows, fromToArrow, inHundred, pct, priceToShow, weekRange } from "@/lib/viz";
+import {
+  bandPercent,
+  chanceBand,
+  changeWindows,
+  fromToArrow,
+  GAME_BAND,
+  inHundred,
+  onEdge,
+  type PriceBand,
+  type PriceReading,
+  pct,
+  pctHeld,
+  priceToShow,
+  weekRange,
+} from "@/lib/viz";
 
 /** Yes or No, for a question resolved one way or the other; null otherwise. */
 export function outcomeOf(question: PublicQuestion): "yes" | "no" | null {
@@ -67,15 +81,20 @@ export function StateLine({ question, readAt }: { question: PublicQuestion; read
  * is what the site stored when it stopped reading and can contradict the
  * chart (map 4.1). Changes are for open questions only: a finished one's
  * were read before it closed, so "a day ago" would no longer be true.
+ *
+ * Every figure is built on `priceToShow`, so where the API holds the live
+ * price on the game's band (`band`, from the rules) they all show the
+ * market's own reading together, or, with none, the held price as a bound.
  */
-export function QuestionFigures({ question }: { question: PublicQuestion }) {
+export function QuestionFigures({ question, band = GAME_BAND }: { question: PublicQuestion; band?: PriceBand }) {
   const open = question.state === "open";
   const outcome = outcomeOf(question);
-  const shown = priceToShow(question);
+  const shown = priceToShow(question, band);
+  const held = shown.held ? band : undefined;
   const windows = open ? changeWindows(question) : null;
   const day = windows?.day ? { was: windows.day.was, now: shown.value } : null;
   const week = windows?.week ? { was: windows.week.was, now: shown.value } : null;
-  const range = weekRange(question);
+  const range = weekRange(question, band);
   const cells = 1 + (day || week ? 1 : 0) + (range ? 1 : 0);
 
   return (
@@ -90,12 +109,12 @@ export function QuestionFigures({ question }: { question: PublicQuestion }) {
               <span className="qp-outcome__word">{outcomeWord(outcome)}</span>
               <span className="qp-outcome__words">{questionPage.answerWord}</span>
             </p>
-            <ChanceReadout yes={shown.value} size="card" kind="last" />
+            <ChanceReadout yes={shown.value} size="card" kind="last" held={held} />
           </>
         ) : (
           <>
-            <ChanceReadout yes={shown.value} size="header" showNo kind={shown.kind} />
-            <SplitBar yes={shown.value} size="lg" labels={false} />
+            <ChanceReadout yes={shown.value} size="header" showNo kind={shown.kind} held={held} />
+            <SplitBar yes={shown.value} size="lg" labels={false} held={held} />
           </>
         )}
       </div>
@@ -105,14 +124,21 @@ export function QuestionFigures({ question }: { question: PublicQuestion }) {
           <h3 id="changes" className="dp-label">
             {questionPage.changesTitle}
           </h3>
-          <ChangeLanes day={day} week={week} />
+          <ChangeLanes day={day} week={week} held={held} />
         </div>
       ) : null}
 
       {range ? (
         <div className="qp-cell dp-panel">
           <h3 className="dp-label">{questionPage.rangeTitle[range.kind]}</h3>
-          <RangeBar low={range.low} high={range.high} now={range.now} kind={range.kind} size="large" />
+          <RangeBar
+            low={range.low}
+            high={range.high}
+            now={range.now}
+            kind={range.kind}
+            size="large"
+            held={range.held ? band : undefined}
+          />
         </div>
       ) : null}
     </section>
@@ -127,7 +153,7 @@ type Window = { was: number; now: number } | null;
  * figures are said once, in the line; the track shows size and direction and
  * tells a screen reader the change in words.
  */
-function ChangeLanes({ day, week }: { day: Window; week: Window }) {
+function ChangeLanes({ day, week, held }: { day: Window; week: Window; held?: PriceBand }) {
   const lanes = [
     { key: "day", word: questionPage.windows.day, window: day, none: viz.noDay },
     { key: "week", word: questionPage.windows.week, window: week, none: viz.noWeek },
@@ -140,13 +166,13 @@ function ChangeLanes({ day, week }: { day: Window; week: Window }) {
             <span className="qp-lane__word">{lane.word}</span>
             {lane.window ? (
               <span className="qp-lane__fig" aria-hidden="true">
-                <Figure text={fromToArrow(lane.window.was, lane.window.now)} />
+                <Figure text={fromToArrow(lane.window.was, lane.window.now, held)} />
               </span>
             ) : (
               <span className="qp-lane__none">{lane.none}</span>
             )}
           </p>
-          {lane.window ? <MoveTrack was={lane.window.was} now={lane.window.now} /> : null}
+          {lane.window ? <MoveTrack was={lane.window.was} now={lane.window.now} held={held} /> : null}
         </div>
       ))}
       <MoveScale />
@@ -154,48 +180,66 @@ function ChangeLanes({ day, week }: { day: Window; week: Window }) {
   );
 }
 
-/** "22 in 100", "fewer than 1 in 100": the chance as a count, from the figure as printed. */
-function countOf(probability: number): string {
-  const shown = inHundred(probability);
-  if (shown === "under1") return questionPage.meaning.fewerThanOne;
-  if (shown === "over99") return questionPage.meaning.moreThan99;
-  return String(shown);
+/** A held price's bound as a count, and its side: "1" at the floor, "99" at the ceiling. */
+function heldCount(shown: PriceReading, band: PriceBand): { edge: "min" | "max"; count: string } | null {
+  const edge = shown.held ? onEdge(shown.value, band) : null;
+  if (!edge) return null;
+  return { edge, count: bandPercent(edge === "min" ? band.min : band.max).replace("%", "") };
 }
 
-/** The price on the market as a number, for "trades at about 22". */
-function priceOf(probability: number): string {
-  const shown = inHundred(probability);
-  if (shown === "under1") return questionPage.meaning.lessThan("1");
-  if (shown === "over99") return questionPage.meaning.moreThan("99");
-  return questionPage.meaning.about(String(shown));
+/**
+ * "22 in 100", "fewer than 1 in 100": the chance as a count, from the figure
+ * as printed. A held price says "at most 1 in 100", which is all it knows.
+ */
+function countOf(shown: PriceReading, band: PriceBand): string {
+  const held = heldCount(shown, band);
+  if (held) return held.edge === "min" ? questionPage.meaning.atMost(held.count) : questionPage.meaning.atLeast(held.count);
+  const count = inHundred(shown.value);
+  if (count === "under1") return questionPage.meaning.fewerThanOne;
+  if (count === "over99") return questionPage.meaning.moreThan99;
+  return String(count);
+}
+
+/** The price on the market as a number, for "trades at about 22", or "1 or less" for a held one. */
+function priceOf(shown: PriceReading, band: PriceBand): string {
+  const held = heldCount(shown, band);
+  if (held) return held.edge === "min" ? questionPage.meaning.orLess(held.count) : questionPage.meaning.orMore(held.count);
+  const count = inHundred(shown.value);
+  if (count === "under1") return questionPage.meaning.lessThan("1");
+  if (count === "over99") return questionPage.meaning.moreThan("99");
+  return questionPage.meaning.about(String(count));
 }
 
 /**
  * What the number means, for this question: its chance said as a count and
  * in words, then what kind of number it is. Never advice: the words describe
- * where the market stands, not what anyone should do about it.
+ * where the market stands, not what anyone should do about it. Said of the
+ * figure the page leads with (`priceToShow`), so the words and the readout
+ * above them always describe the same number.
  */
-export function meaningOf(question: PublicQuestion): string[] {
-  const shown = priceToShow(question);
+export function meaningOf(question: PublicQuestion, priceBand: PriceBand = GAME_BAND): string[] {
+  const shown = priceToShow(question, priceBand);
   const words = questionPage.meaning;
   const band = words.bands[chanceBand(shown.value)];
   const outcome = outcomeOf(question);
+  const count = countOf(shown, priceBand);
   switch (question.state) {
     case "open":
-      return [words.live(countOf(shown.value), band), `${words.contract(priceOf(shown.value))} ${words.estimate}`];
+      return [words.live(count, band), `${words.contract(priceOf(shown, priceBand))} ${words.estimate}`];
     case "closed":
-      return [words.last(countOf(shown.value), band), words.closed];
+      return [words.last(count, band), words.closed];
     case "resolved": {
-      const range = weekRange(question);
-      if (!outcome) return [words.last(countOf(shown.value), band)];
+      const range = weekRange(question, priceBand);
+      const figure = (value: number) => (range?.held ? pctHeld(value, priceBand) : pct(value));
+      if (!outcome) return [words.last(count, band)];
       return [
         words.resolved(outcomeWord(outcome)),
-        ...(range ? [words.resolvedRange(pct(range.low), pct(range.high))] : []),
+        ...(range ? [words.resolvedRange(figure(range.low), figure(range.high))] : []),
       ];
     }
     case "void":
       return [words.void];
     case "unfollowed":
-      return [words.last(countOf(shown.value), band), words.unfollowed];
+      return [words.last(count, band), words.unfollowed];
   }
 }

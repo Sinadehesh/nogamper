@@ -334,6 +334,8 @@ export type Resource = {
   region: string;
   name: string;
   contact?: string;
+  /** The number as a phone dials it, for the tel: link: "+448088020133". */
+  tel?: string;
   body: string;
   href: string;
   linkLabel: string;
@@ -372,6 +374,7 @@ export const help = {
       region: "United Kingdom",
       name: "GamCare — National Gambling Helpline",
       contact: "0808 8020 133",
+      tel: "+448088020133",
       body: "Free to call, 24 hours a day, every day of the year. Also by live chat and WhatsApp.",
       href: "https://www.gamcare.org.uk/get-support/talk-to-us-now/",
       linkLabel: "gamcare.org.uk",
@@ -380,6 +383,7 @@ export const help = {
       region: "United States",
       name: "National Problem Gambling Helpline",
       contact: "1-800-MY-RESET (1-800-697-3738)",
+      tel: "+18006973738",
       body:
         "Call or text, or chat online. Free and confidential, run by the National Council on " +
         "Problem Gambling, and it connects you with help in your state.",
@@ -396,6 +400,7 @@ export const help = {
       linkLabel: "gamblersanonymous.org",
     },
   ] satisfies Resource[],
+  call: (name: string, number: string) => `Call ${name} on ${number}`,
   resourcesNote:
     "Phone numbers change. Each link goes to the service's own page, which is always the " +
     "authority. Details here were last checked in November 2026.",
@@ -464,6 +469,75 @@ export const about = {
     "terms page, because the whole point is that there is no catch.",
 
   rulesTitle: "The rules",
+  rulesIntro: "The figures the game runs on, read from its live settings.",
+  rulesUnavailable:
+    "The live rules could not be read just now. They are the same for everyone, and this " +
+    "table shows them again as soon as they can be read.",
+  // The rules at a glance: one row each, the figure in the middle.
+  ruleRows: (rules: GameRules) => [
+    {
+      label: "Starting balance",
+      value: `${rules.signup_bonus.display} points`,
+      note: "The same for everyone, free.",
+    },
+    {
+      label: "Daily top-up",
+      value: `${rules.daily_topup.display} points`,
+      note: "Claimed once a day.",
+    },
+    {
+      label: "Stake on a slip",
+      value: `${rules.min_stake.display} to ${rules.max_stake.display} points`,
+      note: "Your choice, within the range.",
+    },
+    {
+      label: "Picks on a slip",
+      value: `Up to ${rules.max_legs}`,
+      note: "Every pick must be right for the slip to pay.",
+    },
+    {
+      label: "Longest odds",
+      value: `${oddsCeiling(rules)} to 1`,
+      note: "The most a slip can multiply its stake by.",
+    },
+    {
+      label: "Payout cap",
+      value: `${rules.payout_cap.display} points`,
+      note: "The most one slip can return.",
+    },
+    {
+      label: "Margin",
+      value: "None",
+      note: "Odds are 1 ÷ the chance of the pick.",
+    },
+    {
+      label: "Open to forecasts",
+      value: `${percent(rules.min_prob)} to ${percent(rules.max_prob)}`,
+      note: "Questions priced outside this are closed to forecasts.",
+    },
+    {
+      label: "Daily limit",
+      value: "Yours to set",
+      note: `Lower it at once; raising it takes ${duration(rules.limit_loosen_delay_hours)}.`,
+    },
+    {
+      label: "Breaks",
+      value: list(rules.break_options_hours.map(duration)),
+      note: "A break cannot be cut short.",
+    },
+    ...(selling(rules)
+      ? [
+          {
+            label: "Extra points",
+            value: `${price(rules.shop.price_per_thousand_cents, rules.shop.currency)} per 1,000`,
+            note:
+              "Optional. At most " +
+              `${price(rules.shop.monthly_cap_cents, rules.shop.currency)} a month per account.`,
+          },
+        ]
+      : []),
+  ],
+  reasonsTitle: "Why they are set this way",
   rules: (rules: Rules) => [
     {
       title: "Points have no value",
@@ -534,6 +608,25 @@ export const about = {
   ],
 
   sourceTitle: "Where the questions come from",
+  sourceFacts: [
+    {
+      key: "Where",
+      value: "Polymarket",
+      body: "Its public market data: the questions, and the crowd's price for each.",
+    },
+    {
+      key: "How often",
+      value: "About once a minute",
+      body:
+        `${APP_NAME}'s server reads the prices while it is running. Your browser never ` +
+        "contacts Polymarket.",
+    },
+    {
+      key: "When",
+      value: "Dated",
+      body: "The pages of questions and moves say when their prices were read, in UTC.",
+    },
+  ],
   source:
     "Questions and live prices are read from Polymarket's public market data. " +
     `${APP_NAME} is not affiliated with Polymarket, takes no part in its markets and places ` +
@@ -555,6 +648,7 @@ export const about = {
     "Rewards for recruiting friends",
   ],
 
+  buildEyebrow: "For developers",
   buildTitle: "How it is built",
   buildIntro:
     "A small system with the parts a larger one has, each doing one job. The source is open.",
@@ -647,12 +741,44 @@ export const mission = {
   ],
 
   scaleTitle: "Why it matters",
+  // The page's strongest numbers, set as figures. Each keeps the word that
+  // qualifies it in the sources ("about", "around") and names its source;
+  // `source` is the place of that source in `scaleSources`.
+  scaleFigures: [
+    {
+      qualifier: "About",
+      figure: "1.2%",
+      unit: "",
+      what: "of the world's adults have a gambling disorder.",
+      source: 0,
+    },
+    {
+      qualifier: "Around",
+      figure: "80",
+      unit: "million",
+      what: "adults live with gambling disorder or problematic gambling.",
+      source: 1,
+    },
+    {
+      qualifier: "Close to",
+      figure: "450",
+      unit: "million",
+      what: "adults are at some risk of harm.",
+      source: 1,
+    },
+    {
+      qualifier: "Approaching",
+      figure: "$700",
+      unit: "billion",
+      what: "a year lost to gambling by 2028, in US dollars, as the commission expects.",
+      source: 1,
+    },
+  ],
+  scaleBy: [
+    "The World Health Organization's estimate",
+    "A commission in The Lancet Public Health, 2024",
+  ],
   scale: [
-    "The World Health Organization estimates that about 1.2% of the world's adults have a " +
-    "gambling disorder. A commission published in The Lancet Public Health in 2024 put the " +
-    "number living with gambling disorder or problematic gambling at around 80 million " +
-    "adults, with close to 450 million at some risk of harm, and expects what people lose " +
-    "to gambling each year to approach 700 billion US dollars by 2028.",
     "Those are large numbers and they are hard to feel. Each one is a person, and usually a " +
     "household around them. Most never ask for help. Many started with something that " +
     "looked like a bit of fun on a phone.",
@@ -776,6 +902,25 @@ export const mission = {
     "them. Later studies found that it does not take money to work — only people who are " +
     "trying to be right. That is the idea this site is built on.",
   ],
+  // The report's three figures, drawn as a small display beside the story.
+  // Nothing else about the guesses is known to this page, so nothing else
+  // is drawn: no spread, no shape, only how many there were and where the
+  // middle one fell against the ox.
+  nameNumbers: { guesses: 787, middle: 1207, ox: 1198 },
+  nameFigure: {
+    label: "The 1907 competition, from the report's own figures",
+    guessesWord: "guesses",
+    dots:
+      "One dot for each guess, from the lowest to the highest. The ringed one is the middle " +
+      "guess: as many guesses above it as below.",
+    lower: "Lower guesses",
+    higher: "Higher guesses",
+    middle: "The middle guess",
+    ox: "The ox",
+    pounds: (weight: string) => `${weight} lb`,
+    apart: (gap: string) => `${gap} lb apart.`,
+    fromZero: "Both bars start at 0 lb.",
+  },
   nameSources: [
     {
       label: "“Vox Populi”, Nature, 7 March 1907",
@@ -834,9 +979,13 @@ export const privacy = {
     "As little as it can. This page says exactly what is stored, why, and how to remove it. " +
     "It is a plain description of how the site works rather than a legal document.",
   updatedLabel: "Last updated",
+  updated: (when: string) => `Last updated ${when}`,
+  indexLabel: "On this page",
+  indexCount: (count: number) => `${count} sections`,
 
   sections: [
     {
+      id: "guest",
       title: "If you play as a guest",
       body: [
         "A guest account is a random identifier kept in a cookie in your browser, with your " +
@@ -845,6 +994,7 @@ export const privacy = {
       ],
     },
     {
+      id: "account",
       title: "If you create an account",
       body: [
         "Your email address, used only to sign in. Nothing on this site sends email, so the " +
@@ -855,6 +1005,7 @@ export const privacy = {
       ],
     },
     {
+      id: "visible",
       title: "What other people can see",
       body: [
         "The leaderboard shows the first letter of your display name and nothing else. If " +
@@ -863,6 +1014,7 @@ export const privacy = {
       ],
     },
     {
+      id: "cookies",
       title: "Cookies and your browser",
       body: [
         "Two cookies, both set when you start playing: one that holds your session and " +
@@ -873,6 +1025,7 @@ export const privacy = {
       ],
     },
     {
+      id: "visits",
       title: "Counting visits",
       body: [
         "Page views are counted in aggregate, without cookies, using the privacy-friendly " +
@@ -884,6 +1037,7 @@ export const privacy = {
       ],
     },
     {
+      id: "others",
       title: "Who else is involved",
       body: [
         "The companies that host the site, its database and its application process data on " +
@@ -894,6 +1048,7 @@ export const privacy = {
       ],
     },
     {
+      id: "payments",
       title: "If you pay for anything",
       body: [
         "Payments are taken by Stripe, on Stripe's own page. Your card details go to Stripe " +
@@ -909,6 +1064,7 @@ export const privacy = {
       ],
     },
     {
+      id: "deleting",
       title: "Changing or deleting it",
       body: [
         "You can change your display name, withdraw or delete anything you have written, and " +
@@ -919,6 +1075,7 @@ export const privacy = {
       ],
     },
     {
+      id: "questions",
       title: "Questions",
       body: [
         "Use “Write to us” on the account page. Replies appear there too.",
@@ -1118,6 +1275,11 @@ export const questionPage = {
       `At its last price, the market gave yes ${inHundred} in 100: ${band}.`,
     fewerThanOne: "fewer than 1",
     moreThan99: "more than 99",
+    // For a price held on the game's band, which says only "1% or less".
+    atMost: (count: string) => `at most ${count}`,
+    atLeast: (count: string) => `at least ${count}`,
+    orLess: (price: string) => `${price} or less`,
+    orMore: (price: string) => `${price} or more`,
     bands: {
       noAlmost: "close to ruled out",
       noVery: "very unlikely",
@@ -1155,6 +1317,10 @@ export const questionPage = {
     "Say what you think with points instead of money. The points are free, and there is " +
     "nothing else to win or lose.",
   playCta: "Make a forecast",
+  // Shown in that panel when the game's price for this question sits on the
+  // edge of its band, so differs from the market's figure above.
+  playBand: (low: string, high: string, yes: string, no: string) =>
+    `The game prices every pick between ${low} and ${high}: here, yes at ${yes} and no at ${no}.`,
   movesLink: "See what else moved",
 };
 
@@ -1168,6 +1334,27 @@ export const articlesPage = {
   lede:
     "How odds and prediction markets really work, and how to step back from gambling when " +
     "it stops being fun. Written carefully, with the sources listed.",
+
+  // The way in for somebody new: the first guide shown large, the next two
+  // beside it. A slug that is not a guide is skipped.
+  startTitle: "Start here",
+  startIntro:
+    "New to this? Read these three in order: what a prediction market is, what its prices " +
+    "mean, and where a bookmaker's fee hides.",
+  startPath: [
+    "what-is-a-prediction-market",
+    "how-to-read-prediction-market-odds",
+    "bookmaker-margin-explained",
+  ],
+  groupsTitle: "Every guide, by topic",
+  guideCount: (count: number) => (count === 1 ? "1 guide" : `${count} guides`),
+
+  // Inside a guide.
+  tocLabel: "On this page",
+  tocCount: (count: number) => (count === 1 ? "1 section" : `${count} sections`),
+  tableLabel: (n: number) => `Table ${n}`,
+  anchorLabel: (heading: string) => `Link to the section “${heading}”`,
+  tryOther: "Read our mission",
 
   // In the order they appear on the page.
   topics: {

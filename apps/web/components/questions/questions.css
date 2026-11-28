@@ -850,6 +850,14 @@
     margin-top: var(--s-2);
   }
 
+  /* The one line that gives the game's own price for a pick when it sits on
+     the edge of the game's band, below the market's figure on the page. */
+  .qp-play .qp-play__band {
+    max-width: 46ch;
+    font-size: var(--t-small);
+    line-height: 1.5;
+  }
+
   .qp-rules {
     max-width: 68ch;
     margin-top: var(--s-8);

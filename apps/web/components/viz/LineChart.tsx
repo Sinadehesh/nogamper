@@ -8,6 +8,7 @@ import {
   LINE_CHART,
   type LineChartModel,
   lineChartModel,
+  type PriceBand,
   pct,
   timeUtc,
   utcDay,
@@ -28,6 +29,12 @@ type LineChartProps = {
   figures?: boolean;
   /** The id of the heading that names the chart, if the page has one. */
   labelledBy?: string;
+  /**
+   * The game's band, from the rules where the page has them: where the API
+   * holds the live price on it, the line ends on the market's own reading
+   * (`priceToShow`), and a held price prints as its bound.
+   */
+  band?: PriceBand;
   className?: string;
 };
 
@@ -86,9 +93,12 @@ export function LineChart({
   summary = true,
   figures = true,
   labelledBy,
+  band,
   className,
 }: LineChartProps) {
-  const model = lineChartModel(question, { references });
+  const model = lineChartModel(question, { references, band });
+  // Sent to the browser only when some reading is a held price.
+  const figureTexts = model.rows.some((row) => row.text) ? model.rows.map((row) => row.text ?? null) : undefined;
   const washId = `viz-wash-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const hintId = `${washId}-hint`;
 
@@ -186,6 +196,7 @@ export function LineChart({
                 times={model.points.map((point) => point.t)}
                 values={model.points.map((point) => point.v)}
                 notes={model.rows.map((row) => row.note)}
+                figures={figureTexts}
                 start={model.start}
                 end={model.end}
                 hintId={hintId}
@@ -280,7 +291,7 @@ function Figures({ model }: { model: LineChartModel }) {
               {group.rows.map((row) => (
                 <tr key={row.t}>
                   <th scope="row">{timeUtc(row.t)}</th>
-                  <td className="viz-num">{pct(row.v)}</td>
+                  <td className="viz-num">{row.text ?? pct(row.v)}</td>
                   <td>{row.note ?? ""}</td>
                 </tr>
               ))}
